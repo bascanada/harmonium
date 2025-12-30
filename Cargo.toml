@@ -3,8 +3,32 @@ name = "harmonium"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
-cpal = "0.17.0"
+cpal = { version = "0.15", features = ["wasm-bindgen"] }
 fundsp = "0.20.0"
-rand = "0.9.2"
+rand = "0.8.5"
 rust-music-theory = "0.3.0"
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+web-sys = { version = "0.3", features = [
+    "console",
+    "Window",
+    "Document",
+    "Navigator",
+    "AudioContext",
+    "AudioContextOptions",
+    "AudioDestinationNode",
+    "AudioNode",
+    "AudioParam",
+    "GainNode",
+    "HtmlMediaElement",
+    "AudioBuffer",
+    "AudioBufferSourceNode",
+    "Event",
+] }

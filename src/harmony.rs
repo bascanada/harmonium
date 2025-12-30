@@ -20,8 +20,8 @@ impl HarmonyNavigator {
     }
 
     pub fn next_note(&mut self) -> f32 {
-        let mut rng = rand::rng();
-        let step: i32 = rng.random_range(-1..=1);
+        let mut rng = rand::thread_rng();
+        let step: i32 = rng.gen_range(-1..=1);
         
         self.current_index += step;
 

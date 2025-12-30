@@ -1,0 +1,3 @@
+# Harmonium: a library for procedural music generation
+
+...
