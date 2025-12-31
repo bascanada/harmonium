@@ -16,6 +16,37 @@
     // BPM calculé (lecture seule)
     $: bpm = 70 + (arousal * 110);
 
+    // État harmonique (progression)
+    let currentChord = "I";
+    let currentMeasure = 1;
+    let currentCycle = 1;
+    let currentStep = 0;
+    let isMinorChord = false;
+
+    // Polling pour mettre à jour l'état harmonique (30 FPS)
+    let harmonyInterval: number | null = null;
+
+    function startHarmonyPolling() {
+        if (harmonyInterval) return;
+        
+        harmonyInterval = window.setInterval(() => {
+            if (handle && isPlaying) {
+                currentChord = handle.get_current_chord_name();
+                currentMeasure = handle.get_current_measure();
+                currentCycle = handle.get_current_cycle();
+                currentStep = handle.get_current_step();
+                isMinorChord = handle.is_current_chord_minor();
+            }
+        }, 33); // ~30 FPS
+    }
+
+    function stopHarmonyPolling() {
+        if (harmonyInterval) {
+            clearInterval(harmonyInterval);
+            harmonyInterval = null;
+        }
+    }
+
     // Mise à jour en temps réel lors du drag du slider
     function updateParams() {
         if (handle && isPlaying) {
@@ -25,6 +56,7 @@
 
     async function togglePlay() {
         if (isPlaying) {
+            stopHarmonyPolling();
             if (handle) {
                 handle.free();
                 handle = null;
@@ -57,6 +89,9 @@
             isPlaying = true;
             status = "Playing - Tweak the sliders!";
             error = "";
+            
+            // Démarrer le polling de l'état harmonique
+            startHarmonyPolling();
         } catch (e) {
             console.error(e);
             error = String(e);
@@ -83,8 +118,13 @@
     </div>
     
     {#if sessionInfo}
-        <div class="mt-2 text-purple-300 text-xl font-mono">
-            {sessionInfo}
+        <div class="mt-2 flex flex-col items-center gap-2">
+            <div class="text-purple-300 text-xl font-mono">
+                🎹 Global Key: {sessionInfo}
+            </div>
+            <div class="text-xs text-neutral-500">
+                (The "home" tonality - stays constant during session)
+            </div>
         </div>
     {/if}
     
@@ -95,6 +135,79 @@
     {/if}
 
     {#if isPlaying}
+        <!-- Affichage de la progression harmonique -->
+        <div class="mt-8 w-full max-w-2xl bg-gradient-to-br from-purple-900 to-indigo-900 rounded-xl p-6 shadow-2xl border-2 border-purple-500">
+            <h2 class="text-2xl font-bold mb-2 text-center">🎼 Harmonic Progression</h2>
+            <p class="text-xs text-neutral-400 text-center mb-4">
+                Local chord changes within the global key
+            </p>
+            
+            <div class="grid grid-cols-2 gap-4 mb-6">
+                <!-- Accord courant -->
+                <div class="bg-neutral-900 rounded-lg p-4 text-center">
+                    <div class="text-sm text-neutral-400 mb-1">Current Chord</div>
+                    <div class="text-5xl font-bold {isMinorChord ? 'text-blue-400' : 'text-yellow-400'}">
+                        {currentChord}
+                    </div>
+                    <div class="text-xs text-neutral-500 mt-2">
+                        {isMinorChord ? 'Minor' : 'Major'}
+                    </div>
+                </div>
+
+                <!-- Mesure et Cycle -->
+                <div class="bg-neutral-900 rounded-lg p-4">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-sm text-neutral-400">Measure</span>
+                        <span class="text-2xl font-mono text-green-400">{currentMeasure}</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-neutral-400">Cycle</span>
+                        <span class="text-2xl font-mono text-purple-400">{currentCycle}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Progression visuelle I-vi-IV-V -->
+            <div class="bg-neutral-900 rounded-lg p-4">
+                <div class="text-sm text-neutral-400 mb-3 text-center">
+                    Progression: I → vi → IV → V
+                    <span class="text-xs block mt-1 text-neutral-600">
+                        (Roman numerals = scale degrees within global key)
+                    </span>
+                </div>
+                <div class="flex justify-between items-center">
+                    {#each ['I', 'vi', 'IV', 'V'] as chord, index}
+                        <div class="flex flex-col items-center">
+                            <div class="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold transition-all duration-300
+                                {currentChord === chord 
+                                    ? 'bg-purple-600 text-white scale-110 shadow-lg shadow-purple-500/50' 
+                                    : 'bg-neutral-700 text-neutral-400'}"
+                            >
+                                {chord}
+                            </div>
+                            <div class="text-xs text-neutral-500 mt-2">
+                                {index === 0 ? 'Tonic' : index === 1 ? 'Relative' : index === 2 ? 'Subdominant' : 'Dominant'}
+                            </div>
+                        </div>
+                        {#if index < 3}
+                            <div class="text-neutral-600 text-2xl">→</div>
+                        {/if}
+                    {/each}
+                </div>
+            </div>
+
+            <!-- Barre de progression de la mesure -->
+            <div class="mt-4 bg-neutral-900 rounded-lg p-4">
+                <div class="text-sm text-neutral-400 mb-2">Step: {currentStep}/16</div>
+                <div class="w-full bg-neutral-700 rounded-full h-2 overflow-hidden">
+                    <div 
+                        class="bg-gradient-to-r from-purple-600 to-pink-600 h-full transition-all duration-100"
+                        style="width: {(currentStep / 16) * 100}%"
+                    ></div>
+                </div>
+            </div>
+        </div>
+
         <!-- Panneau de contrôle en temps réel -->
         <div class="mt-12 w-full max-w-2xl bg-neutral-800 rounded-xl p-8 shadow-2xl">
             <h2 class="text-2xl font-bold mb-2 text-center">Emotional Controls</h2>

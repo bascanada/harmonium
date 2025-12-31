@@ -7,6 +7,43 @@ use rust_music_theory::scale::ScaleType;
 use rand::Rng;
 use std::sync::{Arc, Mutex};
 
+// === PROGRESSION HARMONIQUE: Le "4 Chords Song" (I - vi - IV - V) ===
+// Utilisé dans des milliers de chansons pop (cf. Axis of Awesome)
+// Structure: (root_offset en demi-tons, is_minor)
+const CHORD_PROGRESSION: [(i32, bool); 4] = [
+    (0, false),  // I   - Tonique majeure (Do Maj)
+    (9, true),   // vi  - Relative mineure (La Min)
+    (5, false),  // IV  - Sous-dominante (Fa Maj)
+    (7, false),  // V   - Dominante (Sol Maj)
+];
+
+/// État harmonique en lecture seule pour l'UI
+/// Permet d'afficher l'accord courant, la mesure, le cycle, etc.
+#[derive(Clone, Debug)]
+pub struct HarmonyState {
+    pub current_chord_index: usize,  // Position dans CHORD_PROGRESSION (0-3)
+    pub chord_root_offset: i32,      // Décalage en demi-tons (0=I, 5=IV, 7=V, 9=vi)
+    pub chord_is_minor: bool,        // true si accord mineur
+    pub chord_name: String,          // "I", "vi", "IV", "V"
+    pub measure_number: usize,       // Numéro de mesure (1, 2, 3...)
+    pub cycle_number: usize,         // Numéro de cycle complet (1, 2, 3...)
+    pub current_step: usize,         // Step dans la mesure (0-15)
+}
+
+impl Default for HarmonyState {
+    fn default() -> Self {
+        HarmonyState {
+            current_chord_index: 0,
+            chord_root_offset: 0,
+            chord_is_minor: false,
+            chord_name: "I".to_string(),
+            measure_number: 1,
+            cycle_number: 1,
+            current_step: 0,
+        }
+    }
+}
+
 /// État cible (Target) - Ce que l'IA demande
 /// Basé sur le modèle dimensionnel des émotions (Russell's Circumplex Model)
 #[derive(Clone, Debug)]
@@ -92,6 +129,7 @@ impl BlockRateAdapter {
 pub struct HarmoniumEngine {
     pub config: SessionConfig,
     pub target_state: Arc<Mutex<EngineParams>>,
+    pub harmony_state: Arc<Mutex<HarmonyState>>,  // État harmonique pour l'UI
     current_state: CurrentState,
     // === POLYRYTHMIE: Plusieurs séquenceurs avec cycles différents ===
     sequencer_primary: Sequencer,    // Cycle principal (16 steps)
@@ -110,6 +148,9 @@ pub struct HarmoniumEngine {
     samples_per_step: usize,
     last_pulse_count: usize,
     last_rotation: usize,  // Pour détecter les changements de rotation
+    // === PROGRESSION HARMONIQUE: Conscience temporelle ===
+    measure_counter: usize,      // Compte les mesures (16 steps = 1 mesure en 4/4)
+    current_chord_index: usize,  // Index dans CHORD_PROGRESSION
 }
 
 impl HarmoniumEngine {
@@ -133,6 +174,9 @@ impl HarmoniumEngine {
         };
 
         log::info(&format!("Session: {} {} | BPM: {:.1} | Pulses: {}/{}", config.key, config.scale, bpm, initial_pulses, steps));
+
+        // État harmonique partagé pour l'UI
+        let harmony_state = Arc::new(Mutex::new(HarmonyState::default()));
 
         // 1. Setup Audio Graph avec paramètres DYNAMIQUES
         let frequency = shared(440.0);
@@ -186,6 +230,7 @@ impl HarmoniumEngine {
         Self {
             config,
             target_state,
+            harmony_state,
             current_state: CurrentState::default(),
             sequencer_primary,
             sequencer_secondary,
@@ -203,6 +248,8 @@ impl HarmoniumEngine {
             samples_per_step,
             last_pulse_count: initial_pulses,
             last_rotation: 0,
+            measure_counter: 0,
+            current_chord_index: 0,
         }
     }
 
@@ -300,7 +347,7 @@ impl HarmoniumEngine {
             self.samples_per_step = new_samples_per_step;
         }
 
-        // === ÉTAPE E: Logique de Tick des Séquenceurs (Polyrythmie) ===
+        // === ÉTAPE E: Logique de Tick des Séquenceurs (Polyrythmie + Progression Harmonique) ===
         if self.sample_counter >= self.samples_per_step {
             self.sample_counter = 0;
             
@@ -308,9 +355,57 @@ impl HarmoniumEngine {
             let trigger_primary = self.sequencer_primary.tick();
             let trigger_secondary = self.sequencer_secondary.tick();
             
+            // === PROGRESSION HARMONIQUE: Détection de nouvelle mesure ===
+            // Quand le séquenceur primaire revient au step 0, on débute une nouvelle mesure
+            if self.sequencer_primary.current_step == 0 {
+                self.measure_counter += 1;
+                
+                // Changer d'accord toutes les 2 mesures (8 bars = 1 cycle complet de progression)
+                // Valence contrôle la vitesse de changement harmonique:
+                // Valence haute (positif) = changements plus fréquents (dynamique)
+                // Valence basse (négatif) = changements plus lents (statique)
+                let measures_per_chord = if self.current_state.valence > 0.5 { 2 } else { 4 };
+                
+                if self.measure_counter % measures_per_chord == 0 {
+                    // Avancer dans la progression
+                    self.current_chord_index = (self.current_chord_index + 1) % CHORD_PROGRESSION.len();
+                    let (root_offset, is_minor) = CHORD_PROGRESSION[self.current_chord_index];
+                    
+                    // Informer le navigateur harmonique du changement d'accord
+                    self.harmony.set_chord_context(root_offset, is_minor);
+                    
+                    let chord_name = match (root_offset, is_minor) {
+                        (0, false) => "I",
+                        (9, true) => "vi",
+                        (5, false) => "IV",
+                        (7, false) => "V",
+                        _ => "?",
+                    };
+                    
+                    // Mettre à jour l'état harmonique pour l'UI
+                    if let Ok(mut state) = self.harmony_state.lock() {
+                        state.current_chord_index = self.current_chord_index;
+                        state.chord_root_offset = root_offset;
+                        state.chord_is_minor = is_minor;
+                        state.chord_name = chord_name.to_string();
+                        state.measure_number = self.measure_counter;
+                        state.cycle_number = (self.measure_counter / (measures_per_chord * 4)) + 1;
+                        state.current_step = self.sequencer_primary.current_step;
+                    }
+                    
+                    log::info(&format!("🎵 Chord Change: {} | Measure: {} | Valence: {:.2}", 
+                                      chord_name, self.measure_counter, self.current_state.valence));
+                }
+            }
+            
             // Déterminer si on est sur un temps fort
             // Temps forts: début de mesure, beats 1 et 3 en 4/4
             let is_strong_beat = self.sequencer_primary.current_step % 4 == 0;
+            
+            // Mettre à jour le step courant dans harmony_state (pour l'UI)
+            if let Ok(mut state) = self.harmony_state.lock() {
+                state.current_step = self.sequencer_primary.current_step;
+            }
             
             // Logique de déclenchement: OR logique (un des deux suffit)
             // Alternative possible: AND (les deux doivent se synchroniser - plus rare, plus percussif)

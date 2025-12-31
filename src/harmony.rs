@@ -8,6 +8,9 @@ pub struct HarmonyNavigator {
     pub octave: i32,
     scale_len: usize,
     last_step: i32,  // Mémoire mélodique pour "Gap Fill" (Temperley)
+    // === PROGRESSION HARMONIQUE: Contexte d'accord local ===
+    pub current_chord_notes: Vec<u8>, // Pitch classes de l'accord actuel (ex: [0,4,7] pour Do Maj)
+    pub global_key_root: u8,          // Tonique globale du morceau (0=C, 1=C#, etc.)
 }
 
 impl HarmonyNavigator {
@@ -16,13 +19,55 @@ impl HarmonyNavigator {
         let scale = Scale::new(scale_type, pitch, octave as u8, None, Direction::Ascending).unwrap();
         let scale_len = scale.notes().len();
         
+        // Départ: accord I majeur (tonique, tierce majeure, quinte, septième majeure)
+        let global_key_root = pitch.into_u8();
+        let current_chord_notes = vec![0, 4, 7, 11]; // I Maj7
+        
         HarmonyNavigator {
             current_scale: scale,
             current_index: 0,
             octave,
             scale_len,
             last_step: 0,
+            current_chord_notes,
+            global_key_root,
         }
+    }
+
+    /// Change le contexte harmonique (accord courant)
+    /// Root offset: décalage en demi-tons par rapport à la tonique globale
+    /// Ex: root_offset=0 (I), root_offset=5 (IV), root_offset=7 (V), root_offset=9 (vi)
+    /// 
+    /// Basé sur la théorie des progressions fonctionnelles (Tonique-Sous-Dominante-Dominante)
+    pub fn set_chord_context(&mut self, root_offset: i32, is_minor: bool) {
+        // Construction de l'accord: Fondamentale + Tierce + Quinte + Septième
+        let third = if is_minor { 3 } else { 4 };   // Tierce mineure (3) ou majeure (4)
+        let seventh = if is_minor { 10 } else { 11 }; // Septième mineure (10) ou majeure (11)
+        
+        // Notes de l'accord en pitch classes (modulo 12)
+        self.current_chord_notes = vec![
+            (root_offset % 12) as u8,           // Fondamentale
+            ((root_offset + third) % 12) as u8, // Tierce
+            ((root_offset + 7) % 12) as u8,     // Quinte juste
+            ((root_offset + seventh) % 12) as u8, // Septième
+        ];
+    }
+    
+    /// Vérifie si une note de la gamme fait partie de l'accord courant
+    /// Ceci permet de distinguer notes d'accord (stables) vs notes de passage (transitoires)
+    fn is_in_current_chord(&self, scale_degree: i32) -> bool {
+        let notes = self.current_scale.notes();
+        let len = notes.len() as i32;
+        
+        // Obtenir la note de la gamme à cette position
+        let index = scale_degree.rem_euclid(len);
+        let note = &notes[index as usize];
+        
+        // Convertir en pitch class (modulo 12)
+        let pitch_class = note.pitch.into_u8();
+        
+        // Vérifier si cette pitch class est dans l'accord courant
+        self.current_chord_notes.contains(&pitch_class)
     }
 
     /// Génère la prochaine note en utilisant des probabilités conditionnelles (Chaînes de Markov)
@@ -64,13 +109,11 @@ impl HarmonyNavigator {
     /// Calcule les probabilités de mouvement selon la théorie musicale
     /// CORRECTION: Notes stables = bonnes destinations, PAS immobilité!
     /// On favorise le MOUVEMENT (arpèges, sauts d'octave) plutôt que la répétition
+    /// + PROGRESSION HARMONIQUE: les notes stables changent selon l'accord courant!
     fn get_weighted_steps(&self, normalized_index: i32, is_strong_beat: bool) -> (Vec<i32>, Vec<u32>) {
-        // Identifier les degrés de l'accord (1, 3, 5)
-        let is_chord_tone = match self.scale_len {
-            5 => true, // Pentatonique: toutes notes stables
-            7 => normalized_index == 0 || normalized_index == 2 || normalized_index == 4,
-            _ => normalized_index == 0,
-        };
+        // === CONTEXTE HARMONIQUE: Identifier les degrés selon l'ACCORD ACTUEL ===
+        // Plus sophistiqué que "1, 3, 5 statiques" - maintenant dynamique!
+        let is_chord_tone = self.is_in_current_chord(normalized_index);
         
         let is_tonic = normalized_index == 0;
         let is_leading_tone = self.scale_len == 7 && normalized_index == 6;
@@ -224,5 +267,51 @@ mod tests {
         let disjunct = movements.iter().filter(|&&m| m.abs() > 1).count();
         
         assert!(conjunct > disjunct); // Mouvements conjoints dominants
+    }
+
+    #[test]
+    fn test_chord_context_changes_stability() {
+        let mut navigator = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, 4);
+        
+        // Test 1: Sur accord I (C Maj: C, E, G, B), la note C (degré 0) est stable
+        navigator.set_chord_context(0, false); // I Maj
+        assert!(navigator.is_in_current_chord(0), "C devrait être dans l'accord I");
+        
+        // Test 2: Sur accord vi (A Min: A, C, E, G), la note C (degré 0) est TOUJOURS stable
+        // Parce que C fait partie de l'accord de La mineur
+        navigator.set_chord_context(9, true); // vi Min (A = +9 demi-tons depuis C)
+        // Note: En pentatonique C majeur, les degrés sont C, D, E, G, A
+        // L'accord de A mineur contient A, C, E, G
+        // Donc le degré 0 (C) devrait toujours être dedans
+        assert!(navigator.is_in_current_chord(0), "C devrait être dans l'accord vi (A mineur contient C)");
+        
+        // Test 3: Vérifier que les pitch classes sont correctement calculées
+        navigator.set_chord_context(5, false); // IV (F Maj: F, A, C, E)
+        let chord_notes = &navigator.current_chord_notes;
+        assert_eq!(chord_notes.len(), 4, "L'accord devrait avoir 4 notes");
+        assert!(chord_notes.contains(&5), "F (pitch class 5) devrait être dans F Maj");
+        assert!(chord_notes.contains(&9), "A (pitch class 9) devrait être dans F Maj");
+        assert!(chord_notes.contains(&0), "C (pitch class 0) devrait être dans F Maj");
+    }
+
+    #[test]
+    fn test_chord_progression_cycle() {
+        let mut navigator = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, 4);
+        
+        // Simuler la progression I-vi-IV-V
+        let progression = [(0, false), (9, true), (5, false), (7, false)];
+        
+        for (root_offset, is_minor) in progression.iter() {
+            navigator.set_chord_context(*root_offset, *is_minor);
+            
+            // Vérifier que les notes de l'accord sont bien définies
+            assert_eq!(navigator.current_chord_notes.len(), 4, 
+                      "Chaque accord devrait avoir 4 notes (1, 3, 5, 7)");
+            
+            // Vérifier que les pitch classes sont dans la plage [0, 11]
+            for &pc in navigator.current_chord_notes.iter() {
+                assert!(pc < 12, "Pitch class {} devrait être < 12", pc);
+            }
+        }
     }
 }
