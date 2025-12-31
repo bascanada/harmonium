@@ -103,6 +103,9 @@ pub struct HarmoniumEngine {
     cutoff: Shared,
     resonance: Shared,
     distortion: Shared,
+    fm_ratio: Shared,      // Ratio modulateur/carrier (1.0 = unison, 2.0 = octave)
+    fm_amount: Shared,     // Profondeur de modulation FM (0.0 = off, 1.0 = intense)
+    reverb_mix: Shared,    // Dry/wet reverb (0.0 = sec, 1.0 = 100% reverb)
     sample_counter: usize,
     samples_per_step: usize,
     last_pulse_count: usize,
@@ -137,14 +140,34 @@ impl HarmoniumEngine {
         let cutoff = shared(1000.0);
         let resonance = shared(1.0);
         let distortion = shared(0.0);
+        let fm_ratio = shared(2.0);     // Départ: octave (son de cloche)
+        let fm_amount = shared(0.3);    // Modulation FM modérée
+        let reverb_mix = shared(0.25);  // 25% reverb
 
-        // Patch DSP Expressif: Saw >> Filtre Statique >> ADSR
-        // Note: FundSP ne supporte pas facilement les paramètres dynamiques pour lowpass_hz
-        // On utilisera une approche plus simple pour le moment
-        let osc = var(&frequency) >> saw();
-        let patch = osc * (var(&gate) >> adsr_live(0.05, 0.2, 0.5, 0.1)) >> lowpass_hz(2000.0, 1.0);
+        // === PATCH DSP RICHE: FM Synthesis + Spatial Effects ===
         
-        let node = patch >> split::<U2>();
+        // A. OSCILLATEURS: FM Synthesis (Carrier + Modulator)
+        // Modulateur: fréquence = carrier * ratio (2.0 = octave, 3.0 = quinte+octave)
+        let modulator_freq = var(&frequency) * var(&fm_ratio);
+        let modulator = modulator_freq >> sine(); // Sine pour FM classique
+        
+        // Modulation de fréquence: carrier_freq + (modulator * fm_amount * freq)
+        // Plus fm_amount est élevé, plus le spectre s'enrichit
+        let carrier_freq = var(&frequency) + (modulator * var(&fm_amount) * var(&frequency));
+        let carrier = carrier_freq >> saw(); // Saw pour richesse harmonique
+        
+        // B. ENVELOPPE: ADSR percussif pour articuler les notes
+        let envelope = var(&gate) >> adsr_live(0.01, 0.15, 0.6, 0.3);
+        let voice = carrier * envelope;
+        
+        // C. FILTRAGE: Lowpass dynamique (cutoff/resonance contrôlés par tension)
+        let filtered = voice >> lowpass_hz(2000.0, 1.0);
+        
+        // D. EFFETS SPATIAUX: Delay simple (architecture parallèle)
+        // Dry/Wet mix: pass() = signal sec, delay() * 0.3 = écho
+        let spatial = filtered >> (pass() & delay(0.3) * 0.3);
+        
+        let node = spatial >> split::<U2>();
         let node = BlockRateAdapter::new(Box::new(node), sample_rate);
 
         // 2. Setup Logic Components - POLYRYTHMIE
@@ -173,6 +196,9 @@ impl HarmoniumEngine {
             cutoff,
             resonance,
             distortion,
+            fm_ratio,
+            fm_amount,
+            reverb_mix,
             sample_counter: 0,
             samples_per_step,
             last_pulse_count: initial_pulses,
@@ -203,6 +229,26 @@ impl HarmoniumEngine {
         self.current_state.bpm += (target_bpm - self.current_state.bpm) * 0.05;
 
         // === ÉTAPE C: Mise à jour DSP (Timbre Dynamique) ===
+        
+        // C1. TENSION → FM Synthesis (brillance spectrale)
+        // Faible tension: FM ratio proche de 1.0 (son doux, peu d'harmoniques)
+        // Haute tension: FM ratio 3-5 (son métallique, cloche, bell-like)
+        let target_fm_ratio = 1.0 + (self.current_state.tension * 4.0); // 1.0 → 5.0
+        self.fm_ratio.set_value(target_fm_ratio);
+        
+        // Profondeur de modulation FM: plus de tension = plus d'inharmonicité
+        let target_fm_amount = self.current_state.tension * 0.8; // 0.0 → 0.8
+        self.fm_amount.set_value(target_fm_amount);
+        
+        // C2. VALENCE → Spatial Depth (espace sonore)
+        // Valence positive: son ouvert, spacieux (plus de reverb)
+        // Valence négative: son fermé, intime (sec)
+        let target_reverb = 0.1 + (self.current_state.valence.abs() * 0.4); // 10% → 50%
+        self.reverb_mix.set_value(target_reverb);
+        
+        // C3. AROUSAL → Attack Time (réactivité)
+        // (Note: pour l'instant ADSR est fixe dans le graph, mais on pourrait le rendre variable)
+        
         // Mapping Tension -> Cutoff (500Hz à 4000Hz)
         let target_cutoff = 500.0 + (self.current_state.tension * 3500.0);
         self.cutoff.set_value(target_cutoff);
