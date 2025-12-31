@@ -1,8 +1,9 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use crate::engine::{HarmoniumEngine, SessionConfig};
+use crate::engine::{HarmoniumEngine, SessionConfig, EngineParams};
 use crate::log;
+use std::sync::{Arc, Mutex};
 
-pub fn create_stream() -> Result<(cpal::Stream, SessionConfig), String> {
+pub fn create_stream(target_state: Arc<Mutex<EngineParams>>) -> Result<(cpal::Stream, SessionConfig), String> {
     // 1. Setup CPAL
     let host = cpal::default_host();
 
@@ -30,7 +31,7 @@ pub fn create_stream() -> Result<(cpal::Stream, SessionConfig), String> {
 
     log::info(&format!("Sample rate: {}, Channels: {}", sample_rate, channels));
 
-    let mut engine = HarmoniumEngine::new(sample_rate);
+    let mut engine = HarmoniumEngine::new(sample_rate, target_state);
     let session_config = engine.config.clone();
 
     let err_fn = |err| log::error(&format!("an error occurred on stream: {}", err));
