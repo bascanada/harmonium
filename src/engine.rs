@@ -1,33 +1,26 @@
 use fundsp::hacker32::*;
 use crate::sequencer::Sequencer;
 use crate::harmony::HarmonyNavigator;
+use crate::progression::{Progression, ChordStep, ChordQuality};
 use crate::log;
 use rust_music_theory::note::PitchSymbol;
 use rust_music_theory::scale::ScaleType;
 use rand::Rng;
 use std::sync::{Arc, Mutex};
 
-// === PROGRESSION HARMONIQUE: Le "4 Chords Song" (I - vi - IV - V) ===
-// Utilisé dans des milliers de chansons pop (cf. Axis of Awesome)
-// Structure: (root_offset en demi-tons, is_minor)
-const CHORD_PROGRESSION: [(i32, bool); 4] = [
-    (0, false),  // I   - Tonique majeure (Do Maj)
-    (9, true),   // vi  - Relative mineure (La Min)
-    (5, false),  // IV  - Sous-dominante (Fa Maj)
-    (7, false),  // V   - Dominante (Sol Maj)
-];
-
 /// État harmonique en lecture seule pour l'UI
 /// Permet d'afficher l'accord courant, la mesure, le cycle, etc.
 #[derive(Clone, Debug)]
 pub struct HarmonyState {
-    pub current_chord_index: usize,  // Position dans CHORD_PROGRESSION (0-3)
+    pub current_chord_index: usize,  // Position dans progression actuelle
     pub chord_root_offset: i32,      // Décalage en demi-tons (0=I, 5=IV, 7=V, 9=vi)
     pub chord_is_minor: bool,        // true si accord mineur
     pub chord_name: String,          // "I", "vi", "IV", "V"
     pub measure_number: usize,       // Numéro de mesure (1, 2, 3...)
     pub cycle_number: usize,         // Numéro de cycle complet (1, 2, 3...)
     pub current_step: usize,         // Step dans la mesure (0-15)
+    pub progression_name: String,    // Nom de la progression active ("Pop Energetic", etc.)
+    pub progression_length: usize,   // Longueur de la progression (2-4 accords)
 }
 
 impl Default for HarmonyState {
@@ -40,6 +33,8 @@ impl Default for HarmonyState {
             measure_number: 1,
             cycle_number: 1,
             current_step: 0,
+            progression_name: "Folk Peaceful (I-IV-I-V)".to_string(),
+            progression_length: 4,
         }
     }
 }
@@ -148,9 +143,12 @@ pub struct HarmoniumEngine {
     samples_per_step: usize,
     last_pulse_count: usize,
     last_rotation: usize,  // Pour détecter les changements de rotation
-    // === PROGRESSION HARMONIQUE: Conscience temporelle ===
-    measure_counter: usize,      // Compte les mesures (16 steps = 1 mesure en 4/4)
-    current_chord_index: usize,  // Index dans CHORD_PROGRESSION
+    // === PROGRESSION HARMONIQUE ADAPTATIVE ===
+    measure_counter: usize,               // Compte les mesures (16 steps = 1 mesure)
+    current_progression: Vec<ChordStep>,  // Progression chargée (dépend de valence/tension)
+    progression_index: usize,             // Position dans la progression actuelle
+    last_valence_choice: f32,             // Hystérésis: valence qui a déclenché le dernier choix
+    last_tension_choice: f32,             // Hystérésis: tension qui a déclenché le dernier choix
 }
 
 impl HarmoniumEngine {
@@ -227,6 +225,18 @@ impl HarmoniumEngine {
 
         let samples_per_step = (sample_rate * 60.0 / (bpm as f64) / 4.0) as usize;
 
+        // === PROGRESSION HARMONIQUE INITIALE ===
+        // Commencer avec une progression basée sur l'état émotionnel initial
+        let current_progression = Progression::get_palette(initial_params.valence, initial_params.tension);
+        let progression_name = Progression::get_progression_name(initial_params.valence, initial_params.tension);
+        
+        // Initialiser harmony_state avec la progression initiale
+        {
+            let mut state = harmony_state.lock().unwrap();
+            state.progression_name = progression_name.to_string();
+            state.progression_length = current_progression.len();
+        }
+
         Self {
             config,
             target_state,
@@ -249,7 +259,10 @@ impl HarmoniumEngine {
             last_pulse_count: initial_pulses,
             last_rotation: 0,
             measure_counter: 0,
-            current_chord_index: 0,
+            current_progression,
+            progression_index: 0,
+            last_valence_choice: initial_params.valence,
+            last_tension_choice: initial_params.tension,
         }
     }
 
@@ -355,46 +368,80 @@ impl HarmoniumEngine {
             let trigger_primary = self.sequencer_primary.tick();
             let trigger_secondary = self.sequencer_secondary.tick();
             
-            // === PROGRESSION HARMONIQUE: Détection de nouvelle mesure ===
+            // === PROGRESSION HARMONIQUE ADAPTATIVE ===
             // Quand le séquenceur primaire revient au step 0, on débute une nouvelle mesure
             if self.sequencer_primary.current_step == 0 {
                 self.measure_counter += 1;
                 
-                // Changer d'accord toutes les 2 mesures (8 bars = 1 cycle complet de progression)
-                // Valence contrôle la vitesse de changement harmonique:
-                // Valence haute (positif) = changements plus fréquents (dynamique)
-                // Valence basse (négatif) = changements plus lents (statique)
-                let measures_per_chord = if self.current_state.valence > 0.5 { 2 } else { 4 };
+                // === 1. SÉLECTION DE PALETTE (Macro-structure) ===
+                // Toutes les 4 mesures, vérifier si l'état émotionnel a suffisamment changé
+                // pour justifier un changement de progression harmonique (hystérésis)
+                if self.measure_counter % 4 == 0 {
+                    let valence_delta = (self.current_state.valence - self.last_valence_choice).abs();
+                    let tension_delta = (self.current_state.tension - self.last_tension_choice).abs();
+                    
+                    // Seuil d'hystérésis: changer uniquement si déplacement significatif (> 0.4)
+                    // Évite les oscillations chaotiques entre progressions
+                    if valence_delta > 0.4 || tension_delta > 0.4 {
+                        // Charger nouvelle palette basée sur l'état émotionnel actuel
+                        self.current_progression = Progression::get_palette(
+                            self.current_state.valence, 
+                            self.current_state.tension
+                        );
+                        self.progression_index = 0; // Reset au début de la nouvelle progression
+                        
+                        // Mémoriser le choix pour hystérésis
+                        self.last_valence_choice = self.current_state.valence;
+                        self.last_tension_choice = self.current_state.tension;
+                        
+                        let prog_name = Progression::get_progression_name(
+                            self.current_state.valence, 
+                            self.current_state.tension
+                        );
+                        
+                        // Mettre à jour l'UI avec le nouveau contexte harmonique
+                        if let Ok(mut state) = self.harmony_state.lock() {
+                            state.progression_name = prog_name.to_string();
+                            state.progression_length = self.current_progression.len();
+                        }
+                        
+                        log::info(&format!("🎼 New Harmonic Context: {} | Valence: {:.2}, Tension: {:.2}", 
+                                          prog_name, self.current_state.valence, self.current_state.tension));
+                    }
+                }
+                
+                // === 2. AVANCEMENT DANS LA PROGRESSION (Micro-structure) ===
+                // Vitesse de changement d'accord contrôlée par tension:
+                // Haute tension (> 0.6): changements fréquents (chaque mesure)
+                // Basse tension: changements lents (toutes les 4 mesures)
+                let measures_per_chord = if self.current_state.tension > 0.6 { 1 } else { 2 };
                 
                 if self.measure_counter % measures_per_chord == 0 {
-                    // Avancer dans la progression
-                    self.current_chord_index = (self.current_chord_index + 1) % CHORD_PROGRESSION.len();
-                    let (root_offset, is_minor) = CHORD_PROGRESSION[self.current_chord_index];
+                    // Avancer dans la progression actuelle (cyclique)
+                    self.progression_index = (self.progression_index + 1) % self.current_progression.len();
                     
-                    // Informer le navigateur harmonique du changement d'accord
-                    self.harmony.set_chord_context(root_offset, is_minor);
+                    let current_chord = &self.current_progression[self.progression_index];
                     
-                    let chord_name = match (root_offset, is_minor) {
-                        (0, false) => "I",
-                        (9, true) => "vi",
-                        (5, false) => "IV",
-                        (7, false) => "V",
-                        _ => "?",
-                    };
+                    // === 3. APPLICATION DE L'ACCORD AU NAVIGATEUR HARMONIQUE ===
+                    self.harmony.set_chord_context(current_chord.root_offset, current_chord.quality);
+                    
+                    // Nommage des accords pour l'UI
+                    let chord_name = self.format_chord_name(current_chord.root_offset, current_chord.quality);
                     
                     // Mettre à jour l'état harmonique pour l'UI
                     if let Ok(mut state) = self.harmony_state.lock() {
-                        state.current_chord_index = self.current_chord_index;
-                        state.chord_root_offset = root_offset;
-                        state.chord_is_minor = is_minor;
-                        state.chord_name = chord_name.to_string();
+                        state.current_chord_index = self.progression_index;
+                        state.chord_root_offset = current_chord.root_offset;
+                        state.chord_is_minor = matches!(current_chord.quality, ChordQuality::Minor);
+                        state.chord_name = chord_name.clone();
                         state.measure_number = self.measure_counter;
-                        state.cycle_number = (self.measure_counter / (measures_per_chord * 4)) + 1;
+                        state.cycle_number = (self.measure_counter / (measures_per_chord * self.current_progression.len())) + 1;
                         state.current_step = self.sequencer_primary.current_step;
                     }
                     
-                    log::info(&format!("🎵 Chord Change: {} | Measure: {} | Valence: {:.2}", 
-                                      chord_name, self.measure_counter, self.current_state.valence));
+                    log::info(&format!("🎵 Chord: {} | Measure: {} | Progression: {}/{}", 
+                                      chord_name, self.measure_counter, 
+                                      self.progression_index + 1, self.current_progression.len()));
                 }
             }
             
@@ -423,5 +470,32 @@ impl HarmoniumEngine {
         self.sample_counter += 1;
 
         self.node.get_stereo()
+    }
+    
+    /// Formatte un nom d'accord pour l'UI (numération romaine)
+    fn format_chord_name(&self, root_offset: i32, quality: ChordQuality) -> String {
+        // Conversion offset → degré de la gamme (simplifié pour pentatonique)
+        let roman = match root_offset {
+            0 => "I",
+            2 => "II",
+            3 => "III",
+            5 => "IV",
+            7 => "V",
+            8 => "VI",
+            9 => "vi",
+            10 => "VII",
+            11 => "vii",
+            _ => "?",
+        };
+        
+        let quality_symbol = match quality {
+            ChordQuality::Major => "",
+            ChordQuality::Minor => "m",
+            ChordQuality::Dominant7 => "7",
+            ChordQuality::Diminished => "°",
+            ChordQuality::Sus2 => "sus2",
+        };
+        
+        format!("{}{}", roman, quality_symbol)
     }
 }

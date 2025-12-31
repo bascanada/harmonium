@@ -6,6 +6,7 @@ pub mod harmony;
 pub mod log;
 pub mod engine;
 pub mod audio;
+pub mod progression;
 
 #[wasm_bindgen]
 pub struct Handle {
@@ -143,6 +144,16 @@ impl Handle {
     /// Obtenir le step courant dans la mesure (0-15)
     pub fn get_current_step(&self) -> usize {
         self.harmony_state.lock().map(|s| s.current_step).unwrap_or(0)
+    }
+
+    /// Obtenir le nom de la progression harmonique active
+    pub fn get_progression_name(&self) -> String {
+        self.harmony_state.lock().map(|s| s.progression_name.clone()).unwrap_or("?".to_string())
+    }
+
+    /// Obtenir la longueur de la progression active (nombre d'accords)
+    pub fn get_progression_length(&self) -> usize {
+        self.harmony_state.lock().map(|s| s.progression_length).unwrap_or(4)
     }
 }
 

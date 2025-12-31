@@ -1,6 +1,7 @@
 use rust_music_theory::scale::{Scale, ScaleType, Direction};
 use rust_music_theory::note::{PitchSymbol, Pitch, Notes};
 use rand::distributions::{Distribution, WeightedIndex};
+use crate::progression::ChordQuality;
 
 pub struct HarmonyNavigator {
     pub current_scale: Scale,
@@ -39,18 +40,32 @@ impl HarmonyNavigator {
     /// Ex: root_offset=0 (I), root_offset=5 (IV), root_offset=7 (V), root_offset=9 (vi)
     /// 
     /// Basé sur la théorie des progressions fonctionnelles (Tonique-Sous-Dominante-Dominante)
-    pub fn set_chord_context(&mut self, root_offset: i32, is_minor: bool) {
-        // Construction de l'accord: Fondamentale + Tierce + Quinte + Septième
-        let third = if is_minor { 3 } else { 4 };   // Tierce mineure (3) ou majeure (4)
-        let seventh = if is_minor { 10 } else { 11 }; // Septième mineure (10) ou majeure (11)
+    pub fn set_chord_context(&mut self, root_offset: i32, quality: ChordQuality) {
+        // Construction de l'accord selon sa qualité
+        let (third, fifth, seventh) = match quality {
+            ChordQuality::Major => (4, 7, 11),     // Maj7: 1-3-5-7
+            ChordQuality::Minor => (3, 7, 10),     // m7: 1-♭3-5-♭7
+            ChordQuality::Dominant7 => (4, 7, 10), // 7: 1-3-5-♭7 (tension)
+            ChordQuality::Diminished => (3, 6, 9), // dim7: 1-♭3-♭5-♭♭7
+            ChordQuality::Sus2 => (2, 7, 0),       // sus2: 1-2-5 (pas de tierce)
+        };
         
         // Notes de l'accord en pitch classes (modulo 12)
-        self.current_chord_notes = vec![
-            (root_offset % 12) as u8,           // Fondamentale
-            ((root_offset + third) % 12) as u8, // Tierce
-            ((root_offset + 7) % 12) as u8,     // Quinte juste
-            ((root_offset + seventh) % 12) as u8, // Septième
-        ];
+        self.current_chord_notes = if quality == ChordQuality::Sus2 {
+            // Sus2 n'a que 3 notes (pas de 7ème)
+            vec![
+                (root_offset % 12) as u8,
+                ((root_offset + third) % 12) as u8,
+                ((root_offset + fifth) % 12) as u8,
+            ]
+        } else {
+            vec![
+                (root_offset % 12) as u8,             // Fondamentale
+                ((root_offset + third) % 12) as u8,   // Tierce (ou 2nde pour sus2)
+                ((root_offset + fifth) % 12) as u8,   // Quinte (juste ou diminuée)
+                ((root_offset + seventh) % 12) as u8, // Septième
+            ]
+        };
     }
     
     /// Vérifie si une note de la gamme fait partie de l'accord courant
@@ -274,19 +289,19 @@ mod tests {
         let mut navigator = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, 4);
         
         // Test 1: Sur accord I (C Maj: C, E, G, B), la note C (degré 0) est stable
-        navigator.set_chord_context(0, false); // I Maj
+        navigator.set_chord_context(0, ChordQuality::Major); // I Maj
         assert!(navigator.is_in_current_chord(0), "C devrait être dans l'accord I");
         
         // Test 2: Sur accord vi (A Min: A, C, E, G), la note C (degré 0) est TOUJOURS stable
         // Parce que C fait partie de l'accord de La mineur
-        navigator.set_chord_context(9, true); // vi Min (A = +9 demi-tons depuis C)
+        navigator.set_chord_context(9, ChordQuality::Minor); // vi Min (A = +9 demi-tons depuis C)
         // Note: En pentatonique C majeur, les degrés sont C, D, E, G, A
         // L'accord de A mineur contient A, C, E, G
         // Donc le degré 0 (C) devrait toujours être dedans
         assert!(navigator.is_in_current_chord(0), "C devrait être dans l'accord vi (A mineur contient C)");
         
         // Test 3: Vérifier que les pitch classes sont correctement calculées
-        navigator.set_chord_context(5, false); // IV (F Maj: F, A, C, E)
+        navigator.set_chord_context(5, ChordQuality::Major); // IV (F Maj: F, A, C, E)
         let chord_notes = &navigator.current_chord_notes;
         assert_eq!(chord_notes.len(), 4, "L'accord devrait avoir 4 notes");
         assert!(chord_notes.contains(&5), "F (pitch class 5) devrait être dans F Maj");
@@ -299,10 +314,16 @@ mod tests {
         let mut navigator = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, 4);
         
         // Simuler la progression I-vi-IV-V
-        let progression = [(0, false), (9, true), (5, false), (7, false)];
+        use crate::progression::ChordQuality;
+        let progression = [
+            (0, ChordQuality::Major),  // I
+            (9, ChordQuality::Minor),  // vi
+            (5, ChordQuality::Major),  // IV
+            (7, ChordQuality::Major),  // V
+        ];
         
-        for (root_offset, is_minor) in progression.iter() {
-            navigator.set_chord_context(*root_offset, *is_minor);
+        for (root_offset, quality) in progression.iter() {
+            navigator.set_chord_context(*root_offset, *quality);
             
             // Vérifier que les notes de l'accord sont bien définies
             assert_eq!(navigator.current_chord_notes.len(), 4, 

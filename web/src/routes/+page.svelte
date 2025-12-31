@@ -22,6 +22,9 @@
     let currentCycle = 1;
     let currentStep = 0;
     let isMinorChord = false;
+    let progressionName = "Folk Peaceful (I-IV-I-V)";
+    let progressionLength = 4;
+    let progressionChords: string[] = []; // Dynamiquement construit
 
     // Polling pour mettre à jour l'état harmonique (30 FPS)
     let harmonyInterval: number | null = null;
@@ -36,6 +39,21 @@
                 currentCycle = handle.get_current_cycle();
                 currentStep = handle.get_current_step();
                 isMinorChord = handle.is_current_chord_minor();
+                progressionName = handle.get_progression_name();
+                const newLength = handle.get_progression_length();
+                
+                // Reconstruire le tableau si la longueur change
+                if (newLength !== progressionLength) {
+                    progressionLength = newLength;
+                    progressionChords = Array(progressionLength).fill("?");
+                }
+                
+                // Mettre à jour l'accord à sa position
+                const chordIndex = handle.get_current_chord_index();
+                if (chordIndex < progressionChords.length) {
+                    progressionChords[chordIndex] = currentChord;
+                    progressionChords = [...progressionChords]; // Trigger reactivity
+                }
             }
         }, 33); // ~30 FPS
     }
@@ -135,11 +153,14 @@
     {/if}
 
     {#if isPlaying}
-        <!-- Affichage de la progression harmonique -->
+        <!-- Affichage de la progression harmonique DYNAMIQUE -->
         <div class="mt-8 w-full max-w-2xl bg-gradient-to-br from-purple-900 to-indigo-900 rounded-xl p-6 shadow-2xl border-2 border-purple-500">
             <h2 class="text-2xl font-bold mb-2 text-center">🎼 Harmonic Progression</h2>
-            <p class="text-xs text-neutral-400 text-center mb-4">
-                Local chord changes within the global key
+            <p class="text-xs text-neutral-400 text-center mb-1">
+                {progressionName}
+            </p>
+            <p class="text-xs text-neutral-500 text-center mb-4">
+                (Adapts to Valence & Tension in real-time)
             </p>
             
             <div class="grid grid-cols-2 gap-4 mb-6">
@@ -167,31 +188,33 @@
                 </div>
             </div>
 
-            <!-- Progression visuelle I-vi-IV-V -->
+            <!-- Progression visuelle DYNAMIQUE -->
             <div class="bg-neutral-900 rounded-lg p-4">
                 <div class="text-sm text-neutral-400 mb-3 text-center">
-                    Progression: I → vi → IV → V
+                    Active Progression ({progressionLength} chords)
                     <span class="text-xs block mt-1 text-neutral-600">
-                        (Roman numerals = scale degrees within global key)
+                        (Changes based on emotional state)
                     </span>
                 </div>
-                <div class="flex justify-between items-center">
-                    {#each ['I', 'vi', 'IV', 'V'] as chord, index}
-                        <div class="flex flex-col items-center">
-                            <div class="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold transition-all duration-300
-                                {currentChord === chord 
-                                    ? 'bg-purple-600 text-white scale-110 shadow-lg shadow-purple-500/50' 
-                                    : 'bg-neutral-700 text-neutral-400'}"
-                            >
-                                {chord}
+                <div class="flex justify-center items-center gap-3 flex-wrap">
+                    {#each progressionChords as chord, index}
+                        <div class="flex items-center">
+                            <div class="flex flex-col items-center">
+                                <div class="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold transition-all duration-300
+                                    {currentChord === chord 
+                                        ? 'bg-purple-600 text-white scale-110 shadow-lg shadow-purple-500/50' 
+                                        : 'bg-neutral-700 text-neutral-400'}"
+                                >
+                                    {chord || '?'}
+                                </div>
+                                <div class="text-xs text-neutral-500 mt-1">
+                                    {index + 1}
+                                </div>
                             </div>
-                            <div class="text-xs text-neutral-500 mt-2">
-                                {index === 0 ? 'Tonic' : index === 1 ? 'Relative' : index === 2 ? 'Subdominant' : 'Dominant'}
-                            </div>
+                            {#if index < progressionChords.length - 1}
+                                <div class="text-neutral-600 text-xl mx-1">→</div>
+                            {/if}
                         </div>
-                        {#if index < 3}
-                            <div class="text-neutral-600 text-2xl">→</div>
-                        {/if}
                     {/each}
                 </div>
             </div>

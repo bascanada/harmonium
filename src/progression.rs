@@ -1,0 +1,134 @@
+/// Module de gestion des progressions harmoniques adaptatives
+/// Mapping émotionnel (Russell's Circumplex) → Palettes harmoniques
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ChordQuality {
+    Major,
+    Minor,
+    Diminished,
+    Dominant7,
+    Sus2,  // Pour neutralité/ambiance
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ChordStep {
+    pub root_offset: i32,    // Décalage en demi-tons depuis tonique (0=I, 7=V, etc.)
+    pub quality: ChordQuality,
+}
+
+pub struct Progression {
+    pub steps: Vec<ChordStep>,
+    pub name: &'static str,
+}
+
+impl Progression {
+    /// Sélectionne la palette harmonique selon l'état émotionnel
+    /// Basé sur Russell's Circumplex Model (Valence × Arousal)
+    pub fn get_palette(valence: f32, tension: f32) -> Vec<ChordStep> {
+        // === QUADRANT 1: HEUREUX & ÉNERGIQUE (Valence > 0, Tension > 0.5) ===
+        if valence > 0.3 && tension > 0.6 {
+            // Progression pop énergique: I - V - vi - IV
+            // (Journey, U2, Red Hot Chili Peppers)
+            vec![
+                ChordStep { root_offset: 0, quality: ChordQuality::Major },      // I
+                ChordStep { root_offset: 7, quality: ChordQuality::Dominant7 },  // V7 (tension)
+                ChordStep { root_offset: 9, quality: ChordQuality::Minor },      // vi (contraste)
+                ChordStep { root_offset: 5, quality: ChordQuality::Major },      // IV
+            ]
+        }
+        // === QUADRANT 2: HEUREUX & CALME (Valence > 0, Tension < 0.5) ===
+        else if valence > 0.3 {
+            // Progression paisible: I - IV - I - V
+            // (Folk, ballades apaisantes)
+            vec![
+                ChordStep { root_offset: 0, quality: ChordQuality::Major },  // I (repos)
+                ChordStep { root_offset: 5, quality: ChordQuality::Major },  // IV (préparation douce)
+                ChordStep { root_offset: 0, quality: ChordQuality::Major },  // I (retour)
+                ChordStep { root_offset: 7, quality: ChordQuality::Major },  // V (résolution douce)
+            ]
+        }
+        // === QUADRANT 3: TRISTE & TENDU (Valence < 0, Tension > 0.6) ===
+        else if valence < -0.3 && tension > 0.6 {
+            // Progression dramatique: i - V7 - VI - vii°
+            // (Film noir, suspense, tragédie)
+            vec![
+                ChordStep { root_offset: 0, quality: ChordQuality::Minor },      // i (sombre)
+                ChordStep { root_offset: 7, quality: ChordQuality::Dominant7 },  // V7 (tension forte)
+                ChordStep { root_offset: 8, quality: ChordQuality::Major },      // VI (échappatoire)
+                ChordStep { root_offset: 11, quality: ChordQuality::Diminished }, // vii° (instabilité)
+            ]
+        }
+        // === QUADRANT 4: TRISTE & CALME (Valence < 0, Tension < 0.5) ===
+        else if valence < -0.3 {
+            // Progression mélancolique: i - III - VII - i
+            // (Post-rock, ambient mélancolique)
+            vec![
+                ChordStep { root_offset: 0, quality: ChordQuality::Minor },  // i (mélancolie)
+                ChordStep { root_offset: 3, quality: ChordQuality::Major },  // III (lumière douce)
+                ChordStep { root_offset: 10, quality: ChordQuality::Major }, // VII (sous-tonique)
+                ChordStep { root_offset: 0, quality: ChordQuality::Minor },  // i (retour)
+            ]
+        }
+        // === CENTRE: NEUTRE/AMBIENT (Valence ≈ 0) ===
+        else if tension > 0.6 {
+            // Progression modale tendue: i - iv - i - v
+            // (Musique modale, Dorien, ambiguïté harmonique)
+            vec![
+                ChordStep { root_offset: 0, quality: ChordQuality::Minor },  // i
+                ChordStep { root_offset: 5, quality: ChordQuality::Minor },  // iv (sous-dominante mineure)
+                ChordStep { root_offset: 0, quality: ChordQuality::Sus2 },   // I sus2 (ambiguïté)
+                ChordStep { root_offset: 7, quality: ChordQuality::Minor },  // v (dominante mineure)
+            ]
+        } else {
+            // Progression drone/ambient: i - iv (minimaliste)
+            // (Brian Eno, ambient minimale)
+            vec![
+                ChordStep { root_offset: 0, quality: ChordQuality::Minor },  // i (statique)
+                ChordStep { root_offset: 5, quality: ChordQuality::Minor },  // iv (mouvement minimal)
+            ]
+        }
+    }
+
+    /// Retourne le nom de la progression basé sur le contexte émotionnel
+    pub fn get_progression_name(valence: f32, tension: f32) -> &'static str {
+        if valence > 0.3 && tension > 0.6 {
+            "Pop Energetic (I-V-vi-IV)"
+        } else if valence > 0.3 {
+            "Folk Peaceful (I-IV-I-V)"
+        } else if valence < -0.3 && tension > 0.6 {
+            "Dramatic Minor (i-V7-VI-vii°)"
+        } else if valence < -0.3 {
+            "Melancholic (i-III-VII-i)"
+        } else if tension > 0.6 {
+            "Modal Tense (i-iv-Isus2-v)"
+        } else {
+            "Ambient Drone (i-iv)"
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_happy_energetic_quadrant() {
+        let palette = Progression::get_palette(0.7, 0.8);
+        assert_eq!(palette.len(), 4);
+        assert_eq!(palette[0].quality, ChordQuality::Major);
+        assert_eq!(palette[1].quality, ChordQuality::Dominant7);
+    }
+
+    #[test]
+    fn test_sad_calm_quadrant() {
+        let palette = Progression::get_palette(-0.6, 0.3);
+        assert_eq!(palette.len(), 4);
+        assert_eq!(palette[0].quality, ChordQuality::Minor);
+    }
+
+    #[test]
+    fn test_neutral_ambient() {
+        let palette = Progression::get_palette(0.0, 0.2);
+        assert_eq!(palette.len(), 2); // Drone minimal
+    }
+}
