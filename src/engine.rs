@@ -93,17 +93,20 @@ pub struct HarmoniumEngine {
     pub config: SessionConfig,
     pub target_state: Arc<Mutex<EngineParams>>,
     current_state: CurrentState,
-    sequencer: Sequencer,
+    // === POLYRYTHMIE: Plusieurs séquenceurs avec cycles différents ===
+    sequencer_primary: Sequencer,    // Cycle principal (16 steps)
+    sequencer_secondary: Sequencer,  // Cycle secondaire (12 steps) - déphasage de Steve Reich
     harmony: HarmonyNavigator,
     node: BlockRateAdapter,
     frequency: Shared,
     gate: Shared,
-    cutoff: Shared,      // Contrôle dynamique du filtre
-    resonance: Shared,   // Contrôle dynamique de la résonance
-    distortion: Shared,  // Contrôle dynamique de la distortion
+    cutoff: Shared,
+    resonance: Shared,
+    distortion: Shared,
     sample_counter: usize,
     samples_per_step: usize,
     last_pulse_count: usize,
+    last_rotation: usize,  // Pour détecter les changements de rotation
 }
 
 impl HarmoniumEngine {
@@ -144,8 +147,15 @@ impl HarmoniumEngine {
         let node = patch >> split::<U2>();
         let node = BlockRateAdapter::new(Box::new(node), sample_rate);
 
-        // 2. Setup Logic Components
-        let sequencer = Sequencer::new(steps, initial_pulses, bpm);
+        // 2. Setup Logic Components - POLYRYTHMIE
+        // Séquenceur principal: 16 steps (cycle standard)
+        let sequencer_primary = Sequencer::new(steps, initial_pulses, bpm);
+        
+        // Séquenceur secondaire: 12 steps (déphasage à la Steve Reich)
+        // Ratio 16:12 = 4:3 - crée un cycle complet tous les 48 steps
+        let secondary_pulses = std::cmp::min((initial_params.density * 8.0) as usize + 1, 12);
+        let sequencer_secondary = Sequencer::new_with_rotation(12, secondary_pulses, bpm, 0);
+        
         let harmony = HarmonyNavigator::new(random_key, random_scale, 4);
 
         let samples_per_step = (sample_rate * 60.0 / (bpm as f64) / 4.0) as usize;
@@ -154,7 +164,8 @@ impl HarmoniumEngine {
             config,
             target_state,
             current_state: CurrentState::default(),
-            sequencer,
+            sequencer_primary,
+            sequencer_secondary,
             harmony,
             node,
             frequency,
@@ -165,6 +176,7 @@ impl HarmoniumEngine {
             sample_counter: 0,
             samples_per_step,
             last_pulse_count: initial_pulses,
+            last_rotation: 0,
         }
     }
 
@@ -203,16 +215,37 @@ impl HarmoniumEngine {
         let target_distortion = self.current_state.arousal * 0.8;
         self.distortion.set_value(target_distortion);
 
-        // === ÉTAPE D: Mise à jour Séquenceur (Logique Rythmique) ===
-        // Convertir density (0.0-1.0) en nombre de pulses (1 à 12)
+        // === ÉTAPE D: Mise à jour Séquenceurs (Logique Rythmique + Polyrythmie) ===
+        
+        // D1. Density → Pulses (séquenceur principal 16 steps)
         let target_pulses = std::cmp::min((self.current_state.density * 11.0) as usize + 1, 16);
         
-        // *Astuce XronoMorph*: Ne régénérer le pattern que si le nombre entier change
+        // D2. Tension → Rotation (géométrie rythmique à la Toussaint)
+        // Plus de tension = plus de décalage rythmique (transformation Necklace → Bracelet)
+        let target_rotation = (self.current_state.tension * 8.0) as usize; // 0-8 steps de rotation
+        
+        // Régénérer pattern principal si pulses changent
         if target_pulses != self.last_pulse_count {
-            self.sequencer.pulses = target_pulses;
-            self.sequencer.pattern = crate::sequencer::generate_euclidean_pattern(self.sequencer.steps, target_pulses);
+            self.sequencer_primary.pulses = target_pulses;
+            self.sequencer_primary.regenerate_pattern();
             self.last_pulse_count = target_pulses;
             log::info(&format!("🔄 Morphing Rhythm -> Pulses: {} | BPM: {:.1}", target_pulses, self.current_state.bpm));
+        }
+        
+        // Appliquer rotation si tension change
+        if target_rotation != self.last_rotation {
+            self.sequencer_primary.set_rotation(target_rotation);
+            self.last_rotation = target_rotation;
+            log::info(&format!("🔀 Rotation shift: {} steps (Tension: {:.2})", target_rotation, self.current_state.tension));
+        }
+        
+        // D3. Mettre à jour le séquenceur secondaire (polyrythmie 12 steps)
+        let secondary_pulses = std::cmp::min((self.current_state.density * 8.0) as usize + 1, 12);
+        if secondary_pulses != self.sequencer_secondary.pulses {
+            self.sequencer_secondary.pulses = secondary_pulses;
+            // Rotation inversée pour créer un déphasage intéressant
+            self.sequencer_secondary.set_rotation(8 - target_rotation);
+            self.sequencer_secondary.regenerate_pattern();
         }
 
         // Mise à jour du timing (samples_per_step basé sur le BPM actuel)
@@ -221,10 +254,18 @@ impl HarmoniumEngine {
             self.samples_per_step = new_samples_per_step;
         }
 
-        // === ÉTAPE E: Logique de Tick du Séquenceur ===
+        // === ÉTAPE E: Logique de Tick des Séquenceurs (Polyrythmie) ===
         if self.sample_counter >= self.samples_per_step {
             self.sample_counter = 0;
-            let trigger = self.sequencer.tick();
+            
+            // Tick des deux séquenceurs
+            let trigger_primary = self.sequencer_primary.tick();
+            let trigger_secondary = self.sequencer_secondary.tick();
+            
+            // Logique de déclenchement: OR logique (un des deux suffit)
+            // Alternative possible: AND (les deux doivent se synchroniser - plus rare, plus percussif)
+            let trigger = trigger_primary || trigger_secondary;
+            
             if trigger {
                 let freq = self.harmony.next_note();
                 self.frequency.set_value(freq);
