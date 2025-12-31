@@ -149,6 +149,9 @@ pub struct HarmoniumEngine {
     progression_index: usize,             // Position dans la progression actuelle
     last_valence_choice: f32,             // Hystérésis: valence qui a déclenché le dernier choix
     last_tension_choice: f32,             // Hystérésis: tension qui a déclenché le dernier choix
+    // === ARTICULATION DYNAMIQUE (Anti-Legato) ===
+    gate_timer: usize,                    // Compteur dégressif pour la durée de la note
+    current_gate_duration: usize,         // Durée cible de la note actuelle (en samples)
 }
 
 impl HarmoniumEngine {
@@ -199,7 +202,9 @@ impl HarmoniumEngine {
         let carrier = carrier_freq >> saw(); // Saw pour richesse harmonique
         
         // B. ENVELOPPE: ADSR percussif pour articuler les notes
-        let envelope = var(&gate) >> adsr_live(0.01, 0.15, 0.6, 0.3);
+        // Release réduit à 0.1 (100ms) pour que les silences soient vraiment silencieux
+        // Attack plus franche (0.005) pour une meilleure définition rythmique
+        let envelope = var(&gate) >> adsr_live(0.005, 0.15, 0.6, 0.1);
         let voice = carrier * envelope;
         
         // C. FILTRAGE: Lowpass dynamique (cutoff/resonance contrôlés par tension)
@@ -263,6 +268,8 @@ impl HarmoniumEngine {
             progression_index: 0,
             last_valence_choice: initial_params.valence,
             last_tension_choice: initial_params.tension,
+            gate_timer: 0,
+            current_gate_duration: 0,
         }
     }
 
@@ -271,6 +278,16 @@ impl HarmoniumEngine {
         let target = {
             self.target_state.lock().unwrap().clone()
         }; // Lock relâché immédiatement
+        
+        // === GESTION DE LA DURÉE DE NOTE (ARTICULATION) ===
+        // Si le timer arrive à 0, on coupe le son (Note Off)
+        // Cela crée l'espace de "respiration" entre les notes
+        if self.gate_timer > 0 {
+            self.gate_timer -= 1;
+            if self.gate_timer == 0 {
+                self.gate.set_value(0.0);
+            }
+        }
 
         // === ÉTAPE B: MORPHING - Interpolation linéaire (Lerp) ===
         // Facteurs de lissage (plus petit = plus fluide/lent)
@@ -364,6 +381,10 @@ impl HarmoniumEngine {
         if self.sample_counter >= self.samples_per_step {
             self.sample_counter = 0;
             
+            // On force le Gate à 0 au début du step pour garantir le "re-trigger"
+            // si la note précédente était très longue (Legato)
+            self.gate.set_value(0.0);
+            
             // Tick des deux séquenceurs
             let trigger_primary = self.sequencer_primary.tick();
             let trigger_secondary = self.sequencer_secondary.tick();
@@ -454,18 +475,54 @@ impl HarmoniumEngine {
                 state.current_step = self.sequencer_primary.current_step;
             }
             
-            // Logique de déclenchement: OR logique (un des deux suffit)
-            // Alternative possible: AND (les deux doivent se synchroniser - plus rare, plus percussif)
+            // === DÉCLENCHEMENT PUR (Sans aléatoire destructeur) ===
+            // On respecte scrupuleusement le rythme euclidien généré
+            // L'espace vient de la DENSITÉ (pulses), pas d'une suppression aléatoire
             let trigger = trigger_primary || trigger_secondary;
             
             if trigger {
-                // Génération mélodique probabiliste avec contexte rythmique
+                // 1. Génération mélodique probabiliste avec contexte rythmique
                 let freq = self.harmony.next_note(is_strong_beat);
                 self.frequency.set_value(freq);
+                
+                // === C'est ici que le Style émerge de la Géométrie ===
+                
+                // Formule d'Articulation :
+                // Tension basse (0.0) → Legato fluide (90% du temps)
+                // Tension haute (1.0) → Staccato agressif (15% du temps)
+                let articulation_base = 0.90 - (self.current_state.tension * 0.75);
+                
+                // Humanisation légère sur le TEMPS (pas sur l'existence de la note)
+                // Micro-variations de timing (±5%) pour éviter l'effet quantifié
+                let mut rng = rand::thread_rng();
+                let micro_timing = rng.gen_range(0.95..1.05);
+                
+                // Calcul de la durée en samples
+                let mut duration = (self.samples_per_step as f32 * articulation_base * micro_timing) as usize;
+                
+                // Contraintes physiques
+                // 1. Minimum vital (10ms @ 44.1kHz) pour entendre l'attaque
+                if duration < 500 { duration = 500; }
+                
+                // 2. Maximum vital : on laisse TOUJOURS un petit espace à la fin (au moins 10%)
+                // pour que l'enveloppe puisse redescendre avant la prochaine note.
+                // C'est ça qui crée la définition rythmique.
+                let max_duration = (self.samples_per_step as f32 * 0.90) as usize;
+                if duration > max_duration { duration = max_duration; }
+                
+                self.current_gate_duration = duration;
+                
+                // 3. DÉCLENCHEMENT DE LA NOTE
+                self.gate_timer = self.current_gate_duration;
                 self.gate.set_value(1.0);
-            } else {
-                self.gate.set_value(0.0);
+                
+                // 4. ACCENTUATION DES TEMPS FORTS (pour future implémentation velocity)
+                // Temps forts: vélocité 1.0, temps faibles: 0.7
+                // let velocity = if is_strong_beat { 1.0 } else { 0.7 };
+                // self.velocity_gain.set_value(velocity); // À implémenter dans le graph DSP
             }
+            // Note: On ne met PLUS self.gate.set_value(0.0) dans le else
+            // Le gate_timer s'occupe maintenant de fermer le gate au bon moment
         }
         self.sample_counter += 1;
 
