@@ -262,12 +262,17 @@ impl HarmoniumEngine {
             let trigger_primary = self.sequencer_primary.tick();
             let trigger_secondary = self.sequencer_secondary.tick();
             
+            // Déterminer si on est sur un temps fort
+            // Temps forts: début de mesure, beats 1 et 3 en 4/4
+            let is_strong_beat = self.sequencer_primary.current_step % 4 == 0;
+            
             // Logique de déclenchement: OR logique (un des deux suffit)
             // Alternative possible: AND (les deux doivent se synchroniser - plus rare, plus percussif)
             let trigger = trigger_primary || trigger_secondary;
             
             if trigger {
-                let freq = self.harmony.next_note();
+                // Génération mélodique probabiliste avec contexte rythmique
+                let freq = self.harmony.next_note(is_strong_beat);
                 self.frequency.set_value(freq);
                 self.gate.set_value(1.0);
             } else {
