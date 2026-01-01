@@ -40,7 +40,7 @@ fn main() {
     });
 
     // === 3. Création du Stream Audio avec l'état partagé ===
-    let (_stream, config, _harmony_state) = audio::create_stream(target_state)
+    let (_stream, config, _harmony_state, _event_queue) = audio::create_stream(target_state)
         .expect("Failed to create audio stream");
 
     log::info(&format!(

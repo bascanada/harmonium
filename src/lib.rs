@@ -16,6 +16,8 @@ pub struct Handle {
     target_state: Arc<Mutex<engine::EngineParams>>,
     /// État harmonique en lecture seule pour l'UI
     harmony_state: Arc<Mutex<engine::HarmonyState>>,
+    /// Queue d'événements pour l'UI
+    event_queue: Arc<Mutex<Vec<engine::VisualizationEvent>>>,
     bpm: f32,
     key: String,
     scale: String,
@@ -155,6 +157,39 @@ impl Handle {
     pub fn get_progression_length(&self) -> usize {
         self.harmony_state.lock().map(|s| s.progression_length).unwrap_or(4)
     }
+
+    // === Getters pour la Visualisation Rythmique ===
+
+    pub fn get_primary_pulses(&self) -> usize {
+        self.harmony_state.lock().map(|s| s.primary_pulses).unwrap_or(4)
+    }
+
+    pub fn get_secondary_pulses(&self) -> usize {
+        self.harmony_state.lock().map(|s| s.secondary_pulses).unwrap_or(3)
+    }
+
+    pub fn get_primary_rotation(&self) -> usize {
+        self.harmony_state.lock().map(|s| s.primary_rotation).unwrap_or(0)
+    }
+
+    pub fn get_secondary_rotation(&self) -> usize {
+        self.harmony_state.lock().map(|s| s.secondary_rotation).unwrap_or(0)
+    }
+
+    /// Récupérer les événements de visualisation (Note On)
+    /// Retourne un tableau plat [note, instr, step, dur, note, instr, step, dur, ...]
+    pub fn get_events(&self) -> Vec<u32> {
+        let mut result = Vec::new();
+        if let Ok(mut queue) = self.event_queue.lock() {
+            for event in queue.drain(..) {
+                result.push(event.note_midi as u32);
+                result.push(event.instrument as u32);
+                result.push(event.step as u32);
+                result.push(event.duration_samples as u32);
+            }
+        }
+        result
+    }
 }
 
 #[wasm_bindgen]
@@ -165,12 +200,13 @@ pub fn start() -> Result<Handle, JsValue> {
     let target_state = Arc::new(Mutex::new(engine::EngineParams::default()));
     let target_state_clone = target_state.clone();
     
-    let (stream, config, harmony_state) = audio::create_stream(target_state).map_err(|e| JsValue::from_str(&e))?;
+    let (stream, config, harmony_state, event_queue) = audio::create_stream(target_state).map_err(|e| JsValue::from_str(&e))?;
 
     Ok(Handle { 
         stream,
         target_state: target_state_clone,
         harmony_state,
+        event_queue,
         bpm: config.bpm,
         key: config.key,
         scale: config.scale,
