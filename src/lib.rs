@@ -7,6 +7,7 @@ pub mod log;
 pub mod engine;
 pub mod audio;
 pub mod progression;
+pub mod fractal;
 
 #[wasm_bindgen]
 pub struct Handle {

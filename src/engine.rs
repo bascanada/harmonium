@@ -64,6 +64,7 @@ pub struct EngineParams {
     pub valence: f32,   // -1.0 à 1.0 - Positif/Négatif → contrôle Harmonie (Majeur/Mineur)
     pub density: f32,   // 0.0 à 1.0 - Complexité rythmique
     pub tension: f32,   // 0.0 à 1.0 - Dissonance harmonique
+    pub smoothness: f32, // 0.0 à 1.0 - Lissage mélodique (Hurst)
 }
 
 impl Default for EngineParams {
@@ -73,6 +74,7 @@ impl Default for EngineParams {
             valence: 0.3,   // Légèrement positif
             density: 0.3,
             tension: 0.2,
+            smoothness: 0.7, // Mélodie assez lisse par défaut
         }
     }
 }
@@ -93,6 +95,7 @@ pub struct CurrentState {
     pub valence: f32,
     pub density: f32,
     pub tension: f32,
+    pub smoothness: f32,
     pub bpm: f32,  // Calculé à partir de arousal
 }
 
@@ -103,6 +106,7 @@ impl Default for CurrentState {
             valence: 0.3,
             density: 0.3,
             tension: 0.2,
+            smoothness: 0.7,
             bpm: 125.0,  // (0.5 * 110) + 70
         }
     }
@@ -363,11 +367,13 @@ impl HarmoniumEngine {
         const VALENCE_SMOOTHING: f32 = 0.04;  // Lent pour transitions harmoniques douces
         const DENSITY_SMOOTHING: f32 = 0.02;  // Plus lent pour éviter les changements brusques
         const TENSION_SMOOTHING: f32 = 0.08;  // Plus rapide pour la réactivité du timbre
+        const SMOOTHNESS_SMOOTHING: f32 = 0.05;
 
         self.current_state.arousal += (target.arousal - self.current_state.arousal) * AROUSAL_SMOOTHING;
         self.current_state.valence += (target.valence - self.current_state.valence) * VALENCE_SMOOTHING;
         self.current_state.density += (target.density - self.current_state.density) * DENSITY_SMOOTHING;
         self.current_state.tension += (target.tension - self.current_state.tension) * TENSION_SMOOTHING;
+        self.current_state.smoothness += (target.smoothness - self.current_state.smoothness) * SMOOTHNESS_SMOOTHING;
 
         // Calculer le BPM depuis l'arousal (activation émotionnelle)
         let target_bpm = target.compute_bpm();
@@ -536,7 +542,7 @@ impl HarmoniumEngine {
             
             // Déterminer si on est sur un temps fort
             // Temps forts: début de mesure, beats 1 et 3 en 4/4
-            let is_strong_beat = self.sequencer_primary.current_step % 4 == 0;
+            let _is_strong_beat = self.sequencer_primary.current_step % 4 == 0;
             
             // Mettre à jour le step courant dans harmony_state (pour l'UI)
             if let Ok(mut state) = self.harmony_state.lock() {
@@ -593,11 +599,16 @@ impl HarmoniumEngine {
             
             // --- INSTRUMENT 2: LEAD ---
             if play_lead {
+                // Mise à jour du facteur Hurst (lissage mélodique)
+                self.harmony.set_hurst_factor(self.current_state.smoothness);
+
                 // L'harmonie change intelligemment :
                 // Si c'est un coup de Basse (Primary), le Lead joue une note structurante (Tierce/Quinte)
                 // Si c'est un coup "Fantôme" (Secondary seul), le Lead peut oser une note de tension
                 // Note: is_strong_beat || play_bass signifie qu'on joue "safe" sur les temps forts ET sur les coups de basse
-                let lead_freq = self.harmony.next_note(is_strong_beat || play_bass);
+                
+                // Utilisation du générateur fractal pour une mélodie plus organique
+                let lead_freq = self.harmony.next_note_fractal();
                 self.frequency_lead.set_value(lead_freq);
                 
                 // Calculer MIDI approximatif pour l'affichage

@@ -2,6 +2,7 @@ use rust_music_theory::scale::{Scale, ScaleType, Direction};
 use rust_music_theory::note::{PitchSymbol, Pitch, Notes};
 use rand::distributions::{Distribution, WeightedIndex};
 use crate::progression::ChordQuality;
+use crate::fractal::PinkNoise;
 
 pub struct HarmonyNavigator {
     pub current_scale: Scale,
@@ -12,6 +13,9 @@ pub struct HarmonyNavigator {
     // === PROGRESSION HARMONIQUE: Contexte d'accord local ===
     pub current_chord_notes: Vec<u8>, // Pitch classes de l'accord actuel (ex: [0,4,7] pour Do Maj)
     pub global_key_root: u8,          // Tonique globale du morceau (0=C, 1=C#, etc.)
+    // === FRACTAL NOISE ===
+    pink_noise: PinkNoise,
+    hurst_factor: f32,
 }
 
 impl HarmonyNavigator {
@@ -32,6 +36,8 @@ impl HarmonyNavigator {
             last_step: 0,
             current_chord_notes,
             global_key_root,
+            pink_noise: PinkNoise::new(5), // 5 octaves de profondeur
+            hurst_factor: 0.7, // Valeur par défaut pour une mélodie "chantante"
         }
     }
 
@@ -118,6 +124,35 @@ impl HarmonyNavigator {
             self.scale_len as i32 * 2
         );
         
+        self.get_frequency()
+    }
+
+    /// Génère la prochaine note en utilisant du bruit fractal (1/f)
+    /// Cela crée des mélodies plus organiques et structurées que les chaînes de Markov
+    pub fn next_note_fractal(&mut self) -> f32 {
+        // 1. Obtenir une valeur "tendance" du bruit fractal
+        let fractal_drift = self.pink_noise.next(); 
+        
+        // 2. Mapper cette valeur à un index dans la gamme (autour d'un centre)
+        // Cela remplace la marche aléatoire pure par une évolution structurée
+        let center_index = 0; // Tonique centrale
+        let target_index = center_index + (fractal_drift * 10.0) as i32; // Amplitude de ±10 degrés
+        
+        // 3. Lisser le mouvement (simulation de l'Exposant de Hurst)
+        // Au lieu de sauter directement au target, on s'en rapproche
+        // Un facteur faible (0.1) = très lisse (Hurst élevé), facteur fort (1.0) = erratique
+        
+        let diff = target_index - self.current_index;
+        
+        // Utilisation de hurst_factor pour contrôler la taille maximale du saut
+        // Si hurst_factor est petit (ex: 0.1), on force des petits pas (mouvement conjoint)
+        // Si hurst_factor est grand (ex: 1.0), on autorise des sauts plus grands vers la cible
+        let max_step = (self.hurst_factor * 5.0).max(1.0) as i32;
+        let step = diff.clamp(-max_step, max_step);
+        
+        self.current_index += step;
+        
+        // ... contraintes de gamme et conversion en fréquence ...
         self.get_frequency()
     }
 
@@ -227,6 +262,10 @@ impl HarmonyNavigator {
         let freq = 440.0 * 2.0_f32.powf((midi_note as f32 - 69.0) / 12.0);
         
         freq
+    }
+    
+    pub fn set_hurst_factor(&mut self, factor: f32) {
+        self.hurst_factor = factor.clamp(0.0, 1.0);
     }
 }
 
