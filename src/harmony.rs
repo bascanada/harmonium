@@ -156,6 +156,80 @@ impl HarmonyNavigator {
         self.get_frequency()
     }
 
+    /// GÉNÉRATION HYBRIDE : Le Bruit Rose (GPS) guide les choix de Markov (Conducteur).
+    /// is_strong_beat : Permet de favoriser les notes de l'accord sur les temps forts
+    pub fn next_note_hybrid(&mut self, is_strong_beat: bool) -> f32 {
+        let mut rng = rand::thread_rng();
+
+        // 1. LE GPS (Bruit Fractal) : Quelle est la "tendance" globale ?
+        // On récupère la valeur cible idéale dictée par le 1/f
+        let fractal_drift = self.pink_noise.next(); 
+        let center_index = 0; // Tonique centrale
+        // Amplitude de ±12 degrés (environ 2 octaves) pour la cible
+        let target_index = center_index + (fractal_drift * 12.0) as i32; 
+
+        // 2. LE CONDUCTEUR (Markov) : Quels sont les mouvements musicaux valides ?
+        // On récupère les probabilités basées sur la théorie (tonique, sensible, etc.)
+        let normalized_index = self.current_index.rem_euclid(self.scale_len as i32);
+        let (steps, original_weights) = self.get_weighted_steps(normalized_index, is_strong_beat);
+        
+        // 3. LA FUSION : On biaise les poids vers la cible fractale
+        let mut final_weights = Vec::with_capacity(original_weights.len());
+        let current_dist = (target_index - self.current_index).abs();
+
+        // Facteur d'influence du fractal (lié au paramètre smoothness/Hurst)
+        // Hurst bas (0.1) = peu d'influence, on suit surtout Markov (local)
+        // Hurst haut (1.0) = forte influence, on court vers la cible (global)
+        let fractal_influence = 0.5 + (self.hurst_factor * 3.0); 
+
+        for (i, &step) in steps.iter().enumerate() {
+            let predicted_index = self.current_index + step;
+            let new_dist = (target_index - predicted_index).abs();
+            
+            let mut weight = original_weights[i] as f32;
+
+            // Si ce pas nous rapproche de la cible fractale, on booste son poids
+            if new_dist < current_dist {
+                weight *= fractal_influence;
+            } else {
+                // Si on s'éloigne, on réduit légèrement le poids (mais on ne l'interdit pas !)
+                weight *= 0.8;
+            }
+            
+            final_weights.push(weight);
+        }
+
+        // 4. SÉLECTION PONDÉRÉE
+        // On recrée une distribution avec les nouveaux poids
+        let dist = WeightedIndex::new(&final_weights).unwrap_or_else(|_| {
+            // Fallback de sécurité si tous les poids sont 0 (rare)
+            WeightedIndex::new(vec![1.0; final_weights.len()]).unwrap()
+        });
+        
+        let chosen_step = steps[dist.sample(&mut rng)];
+
+        // === Gap Fill (Temperley) ===
+        // Sécurité supplémentaire : si on vient de faire un grand saut, 
+        // on évite d'en refaire un dans la même direction
+        let final_step = if self.last_step.abs() > 2 && chosen_step.abs() > 2 && chosen_step.signum() == self.last_step.signum() {
+            // On force un petit mouvement ou un retour
+            if chosen_step > 0 { -1 } else { 1 }
+        } else {
+            chosen_step
+        };
+        
+        self.last_step = final_step;
+        self.current_index += final_step;
+        
+        // Contraintes physiques (Tessiture)
+        self.current_index = self.current_index.clamp(
+            -(self.scale_len as i32 * 2), 
+            self.scale_len as i32 * 2
+        );
+        
+        self.get_frequency()
+    }
+
     /// Calcule les probabilités de mouvement selon la théorie musicale
     /// CORRECTION: Notes stables = bonnes destinations, PAS immobilité!
     /// On favorise le MOUVEMENT (arpèges, sauts d'octave) plutôt que la répétition

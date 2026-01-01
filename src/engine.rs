@@ -607,8 +607,14 @@ impl HarmoniumEngine {
                 // Si c'est un coup "Fantôme" (Secondary seul), le Lead peut oser une note de tension
                 // Note: is_strong_beat || play_bass signifie qu'on joue "safe" sur les temps forts ET sur les coups de basse
                 
-                // Utilisation du générateur fractal pour une mélodie plus organique
-                let lead_freq = self.harmony.next_note_fractal();
+                // IMPORTANT : On calcule si on est sur un temps fort pour aider Markov
+                // Temps fort = début de mesure (0) ou temps 3 (si 16 steps/4 temps)
+                // Ou simplement aligné avec la basse
+                let is_strong_beat = play_bass || (self.sequencer_primary.current_step % 4 == 0);
+
+                // --- CHANGEMENT ICI : Appel de la méthode HYBRIDE ---
+                let lead_freq = self.harmony.next_note_hybrid(is_strong_beat);
+                
                 self.frequency_lead.set_value(lead_freq);
                 
                 // Calculer MIDI approximatif pour l'affichage

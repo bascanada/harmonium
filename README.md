@@ -16,54 +16,52 @@ Design to be used in applications, websites and games.
 Harmonium is based on multiple layers.
 
 1. The brain        Driver of the emotion (Russel)
-2. The squelton     Geometrics rythms (Eucledien)
-3. The body         Adaptive chords progression (Jean Guy)
-4. The voice        Probabilistic Melody (Markov)
+2. The skeleton     Geometric rhythms (Euclidean)
+3. The body         Adaptive chord progression (Jean Guy)
+4. The voice        Organic Melody (Fractal Noise)
 5. The lung         DSP
 
 ### Brain
 
-Every thing start with the state of the system (the emotion of the audience)
+Everything starts with the state of the system (the emotion of the audience)
 
-1. Arousal          Affect the speed and distrosion
+1. Arousal          Affect the speed and distortion
 2. Valence          Affect the chords and the spacing
-3. Tension          Affect the dissonance, the filtering and the geometry of rythms
+3. Tension          Affect the dissonance, the filtering and the geometry of rhythms
 4. Density          Affect the number of notes
 
-### Squelton
+### Skeleton
 
-    Algorithme de Bjorklund : Répartit les notes ("pulses") le plus équitablement possible dans la mesure ("steps"). C'est ce qui crée des rythmes "groovy" naturels (ex: 3 coups sur 8 = Tresillo).
+    Bjorklund Algorithm: Distributes notes ("pulses") as evenly as possible within the measure ("steps"). This creates natural "groovy" rhythms (e.g., 3 hits on 8 = Tresillo).
 
-    Polyrythmie (Steve Reich) : Deux séquenceurs tournent en parallèle. Le premier fait 16 pas, le second 12. Cela crée un déphasage qui évolue dans le temps.
+    Polyrhythm (Steve Reich): Two sequencers run in parallel. The first takes 16 steps, the second 12. This creates a phase shift that evolves over time.
 
-    Rotation (Necklace vs Bracelet) : La Tension change le point de départ du cercle rythmique. Une même distribution de notes sonne très différemment si on la décale (rotation).
+    Rotation (Necklace vs Bracelet): Tension changes the starting point of the rhythmic circle. The same distribution of notes sounds very different if shifted (rotation).
 
 ### The body
 
-    Palettes Émotionnelles : Le système sélectionne une suite d'accords (I-IV-V, i-vii°, etc.) selon le quadrant émotionnel (ex: "Triste & Tendu" vs "Heureux & Calme").
+    Emotional Palettes: The system selects a chord progression (I-IV-V, i-vii°, etc.) based on the emotional quadrant (e.g., "Sad & Tense" vs "Happy & Calm").
 
-    Inertie (Hystérésis) : Pour éviter que la musique ne change de "style" chaotiquement, le système attend un changement émotionnel significatif avant de changer de progression.
+    Inertia (Hysteresis): To prevent the music from changing "style" chaotically, the system waits for a significant emotional change before switching progressions.
 
-    Contexte Local : À chaque instant, le système sait quel est l'accord courant (ex: Do Majeur) et quelles sont ses notes constitutives (Do, Mi, Sol).
+    Local Context: At any moment, the system knows the current chord (e.g., C Major) and its constituent notes (C, E, G).
 
 ### The voice
 
-    Poids Décisionnels : Pour choisir la note suivante, le système regarde où il est (Temps fort ? Note tonique ?) et tire au sort parmi des mouvements probables.
+    Hybrid Generation (Biased Random Walk): Combines the long-term structure of Fractal Pink Noise (1/f) with the local harmonic rules of Markov Chains. The fractal noise acts as a "GPS" guiding the general direction, while Markov chains ensure each step makes musical sense.
 
-        Exemple : Sur un temps fort, il favorise les notes de l'accord (stabilité). Sur un temps faible, il autorise les notes de passage.
-
-    Gap Fill (Temperley) : Si la mélodie fait un grand saut vers le haut, le système force statistiquement la prochaine note à redescendre pour équilibrer la ligne mélodique.
+    Smoothness Control: The Hurst exponent allows adjusting the melody from erratic (low smoothness) to lyrical and conjunct (high smoothness).
 
 ### The lung
 
-Le son est sculpté en temps réel via fundsp :
+Sound is sculpted in real-time via fundsp:
 
-    Synthèse FM : Utilise un modulateur et une porteuse. Plus la Tension monte, plus le ratio FM augmente, créant des sons inharmoniques (type cloche/métallique).
+    FM Synthesis: Uses a modulator and a carrier. As Tension rises, the FM ratio increases, creating inharmonic sounds (bell/metallic type).
 
-    Articulation (Anti-Legato) : La durée des notes change dynamiquement.
+    Articulation (Anti-Legato): Note duration changes dynamically.
 
-        Basse tension = Notes longues et liées (Legato).
+        Low tension = Long and connected notes (Legato).
 
-        Haute tension = Notes courtes et percussives (Staccato).
+        High tension = Short and percussive notes (Staccato).
 
 ## Usefull sources
