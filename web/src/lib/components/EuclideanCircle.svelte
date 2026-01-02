@@ -6,8 +6,11 @@
   export let label = "";
   export let currentStep = 0;
   export let radius = 150;
+  // Pattern optionnel fourni par le moteur (prioritaire sur le calcul local)
+  export let externalPattern: boolean[] | null = null;
 
   // Fonction utilitaire pour générer le pattern de Bjorklund (Euclidien)
+  // Utilisé seulement si externalPattern n'est pas fourni
   function getPattern(steps: number, pulses: number): boolean[] {
     let pattern = new Array(steps).fill(false);
     if (steps === 0) return pattern;
@@ -22,8 +25,10 @@
     return pattern;
   }
 
-  $: pattern = getPattern(steps, pulses);
-  $: rotated = [...pattern.slice(steps - rotation), ...pattern.slice(0, steps - rotation)];
+  // Utiliser le pattern externe s'il est fourni, sinon calculer localement
+  $: pattern = externalPattern ?? getPattern(steps, pulses);
+  // Note: Le pattern externe est déjà rotaté par le moteur, pas besoin de re-rotater
+  $: rotated = externalPattern ? pattern : [...pattern.slice(steps - rotation), ...pattern.slice(0, steps - rotation)];
   
   $: points = Array.from({ length: steps }).map((_, i) => {
     const angle = (i * 2 * Math.PI) / steps - Math.PI / 2;

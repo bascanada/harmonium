@@ -279,4 +279,68 @@ mod tests {
         let pattern = generate_euclidean_pattern(8, 5);
         assert_eq!(pattern.iter().filter(|&&x| x).count(), 5);
     }
+
+    #[test]
+    fn test_balanced_48_low_tension() {
+        // Low tension (0.2) = only base polygon (Square or Hexagon)
+        let pattern = generate_balanced_pattern_48(48, 0.5, 0.2);
+        assert_eq!(pattern.len(), 48);
+
+        // Should have at least 4 pulses (base polygon)
+        let pulse_count = pattern.iter().filter(|&&x| x).count();
+        assert!(pulse_count >= 4, "Expected at least 4 pulses, got {}", pulse_count);
+    }
+
+    #[test]
+    fn test_balanced_48_high_tension() {
+        // High tension (0.8) = base polygon + triangle (polyrhythm 4:3)
+        let pattern = generate_balanced_pattern_48(48, 0.5, 0.8);
+        assert_eq!(pattern.len(), 48);
+
+        // Should have more pulses due to triangle overlay
+        let pulse_count = pattern.iter().filter(|&&x| x).count();
+        assert!(pulse_count >= 6, "Expected at least 6 pulses with polyrhythm, got {}", pulse_count);
+    }
+
+    #[test]
+    fn test_balanced_48_polyrythm_4_3() {
+        // Verify that Square (4 sides) and Triangle (3 sides) create proper 4:3 polyrhythm
+        // 48 / 4 = 12 steps apart (Square vertices)
+        // 48 / 3 = 16 steps apart (Triangle vertices)
+        // density < 0.3 gives us a Square (4 sides)
+        let pattern = generate_balanced_pattern_48(48, 0.2, 0.5);
+
+        // Step 0 should always be active (both polygons start there)
+        assert!(pattern[0], "Step 0 should be active (Square + Triangle origin)");
+
+        // Step 12 should be active (Square vertex: 48/4 = 12)
+        assert!(pattern[12], "Step 12 should be active (Square vertex)");
+
+        // Step 16 should be active (Triangle vertex with tension > 0.3: 48/3 = 16)
+        assert!(pattern[16], "Step 16 should be active (Triangle vertex)");
+
+        // Step 24 should be active (Square vertex)
+        assert!(pattern[24], "Step 24 should be active (Square vertex)");
+
+        // Step 32 should be active (Triangle vertex)
+        assert!(pattern[32], "Step 32 should be active (Triangle vertex)");
+
+        // Step 36 should be active (Square vertex)
+        assert!(pattern[36], "Step 36 should be active (Square vertex)");
+    }
+
+    #[test]
+    fn test_sequencer_mode_switch() {
+        // Test that mode switching works correctly
+        let mut seq = Sequencer::new_with_mode(16, 4, 120.0, RhythmMode::Euclidean);
+        assert_eq!(seq.mode, RhythmMode::Euclidean);
+        assert_eq!(seq.steps, 16);
+
+        // Switch to PerfectBalance and upgrade to 48 steps
+        seq.mode = RhythmMode::PerfectBalance;
+        seq.upgrade_to_48_steps();
+
+        assert_eq!(seq.steps, 48);
+        assert_eq!(seq.pattern.len(), 48);
+    }
 }

@@ -17,6 +17,9 @@
     let density = 0.5;  // Complexité rythmique
     let tension = 0.3;  // Dissonance harmonique
 
+    // Algorithme rythmique (0 = Euclidean 16 steps, 1 = PerfectBalance 48 steps)
+    let algorithm = 0;
+
     // BPM calculé (lecture seule)
     $: bpm = 70 + (arousal * 110);
 
@@ -35,10 +38,15 @@
     let progressionChords: string[] = []; // Dynamiquement construit
 
     // État Visualisation Rythmique
+    let primarySteps = 16;
     let primaryPulses = 4;
-    let secondaryPulses = 3;
     let primaryRotation = 0;
+    let primaryPattern: boolean[] = [];
+
+    let secondarySteps = 12;
+    let secondaryPulses = 3;
     let secondaryRotation = 0;
+    let secondaryPattern: boolean[] = [];
     
     // État Partition Live
     let notesData: { key: string, duration: string, type: 'bass' | 'lead', measure: number }[] = [];
@@ -65,9 +73,9 @@
         // Update continuous step counter
         if (rawStep !== lastEngineStep) {
             let delta = rawStep - lastEngineStep;
-            // Handle wrap-around (assuming 16 steps per measure)
+            // Handle wrap-around (use actual steps from engine)
             if (delta < 0) {
-                delta += 16;
+                delta += primarySteps;
             }
             // First tick initialization
             if (lastEngineStep === -1) {
@@ -79,10 +87,18 @@
         }
         currentStep = rawStep;
 
+        primarySteps = handle.get_primary_steps();
         primaryPulses = handle.get_primary_pulses();
-        secondaryPulses = handle.get_secondary_pulses();
         primaryRotation = handle.get_primary_rotation();
+        // Convertir Uint8Array en boolean[]
+        const rawPrimaryPattern = handle.get_primary_pattern();
+        primaryPattern = Array.from(rawPrimaryPattern).map(v => v === 1);
+
+        secondarySteps = handle.get_secondary_steps();
+        secondaryPulses = handle.get_secondary_pulses();
         secondaryRotation = handle.get_secondary_rotation();
+        const rawSecondaryPattern = handle.get_secondary_pattern();
+        secondaryPattern = Array.from(rawSecondaryPattern).map(v => v === 1);
         
         currentChord = handle.get_current_chord_name();
         currentMeasure = handle.get_current_measure();
@@ -132,6 +148,7 @@
         }
     }
 
+
     async function togglePlay() {
         if (isPlaying) {
             if (handle) {
@@ -155,7 +172,8 @@
             
             // Initialiser les paramètres émotionnels
             handle.set_params(arousal, valence, density, tension);
-            
+            handle.set_algorithm(algorithm);
+
             const key = handle.get_key();
             const scale = handle.get_scale();
             
@@ -214,17 +232,55 @@
     <h1 class="text-4xl font-bold mb-2">Harmonium</h1>
     <p class="text-neutral-400 mb-8">Morphing Music Engine</p>
     
+    {#if !isPlaying}
+        <!-- Algorithm Selection (only when stopped) -->
+        <div class="mb-6 p-4 bg-neutral-800 rounded-xl border border-neutral-700 w-80">
+            <h3 class="text-sm font-semibold text-neutral-400 mb-3 text-center">Rhythm Algorithm</h3>
+            <div class="flex flex-col gap-2">
+                <label class="flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors
+                    {algorithm === 0 ? 'bg-orange-500/20 border border-orange-500' : 'bg-neutral-700/50 border border-transparent hover:bg-neutral-700'}">
+                    <input
+                        type="radio"
+                        name="algorithm"
+                        value={0}
+                        bind:group={algorithm}
+                        class="w-4 h-4 accent-orange-500"
+                    />
+                    <div>
+                        <span class="font-semibold {algorithm === 0 ? 'text-orange-400' : 'text-neutral-300'}">Euclidean</span>
+                        <p class="text-xs text-neutral-500">16 steps - Classic Bjorklund grooves</p>
+                    </div>
+                </label>
+
+                <label class="flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors
+                    {algorithm === 1 ? 'bg-purple-500/20 border border-purple-500' : 'bg-neutral-700/50 border border-transparent hover:bg-neutral-700'}">
+                    <input
+                        type="radio"
+                        name="algorithm"
+                        value={1}
+                        bind:group={algorithm}
+                        class="w-4 h-4 accent-purple-500"
+                    />
+                    <div>
+                        <span class="font-semibold {algorithm === 1 ? 'text-purple-400' : 'text-neutral-300'}">PerfectBalance</span>
+                        <p class="text-xs text-neutral-500">48 steps - Perfect 4:3 polyrhythms</p>
+                    </div>
+                </label>
+            </div>
+        </div>
+    {/if}
+
     <div class="flex gap-4">
-        <button 
+        <button
             onclick={togglePlay}
             class="px-8 py-4 text-2xl font-semibold rounded-lg transition-colors duration-200 cursor-pointer
-                {isPlaying ? 'bg-red-600 hover:bg-red-700' : 'bg-purple-700 hover:bg-purple-800'} 
+                {isPlaying ? 'bg-red-600 hover:bg-red-700' : 'bg-purple-700 hover:bg-purple-800'}
                 disabled:opacity-50 disabled:cursor-not-allowed"
         >
             {isPlaying ? 'Stop Music' : 'Start Music'}
         </button>
 
-        <button 
+        <button
             onclick={reloadPage}
             class="px-8 py-4 text-2xl font-semibold rounded-lg transition-colors duration-200 cursor-pointer bg-neutral-700 hover:bg-neutral-600"
         >
@@ -232,10 +288,6 @@
         </button>
     </div>
 
-    <div class="mt-6 text-neutral-400 text-lg">
-        {status}
-    </div>
-    
     {#if sessionInfo}
         <div class="mt-2 flex flex-col items-center gap-2">
             <div class="text-purple-300 text-xl font-mono">
@@ -264,29 +316,37 @@
                     
                     <!-- 1. CERCLES EUCLIDIENS (Polyrythmie) -->
                     <div class="bg-neutral-800 rounded-xl p-6 shadow-xl border border-neutral-700">
-                        <h2 class="text-xl font-bold mb-4 text-center text-purple-300">Polyrythmic Circles</h2>
+                        <h2 class="text-xl font-bold mb-4 text-center text-purple-300">
+                            {algorithm === 0 ? 'Euclidean Circles' : 'Polygon Circles (48 steps)'}
+                        </h2>
                         <div class="flex flex-wrap justify-center items-center gap-4">
-                            <EuclideanCircle 
-                                steps={16} 
-                                pulses={primaryPulses} 
-                                rotation={primaryRotation} 
+                            <EuclideanCircle
+                                steps={primarySteps}
+                                pulses={primaryPulses}
+                                rotation={primaryRotation}
+                                externalPattern={primaryPattern.length > 0 ? primaryPattern : null}
                                 color="#ff3e00"
-                                label="BASS"
+                                label="PRIMARY"
                                 currentStep={totalSteps}
                                 radius={120}
                             />
-                            <EuclideanCircle 
-                                steps={12} 
-                                pulses={secondaryPulses} 
+                            <EuclideanCircle
+                                steps={secondarySteps}
+                                pulses={secondaryPulses}
                                 rotation={secondaryRotation}
+                                externalPattern={secondaryPattern.length > 0 ? secondaryPattern : null}
                                 color="#4ade80"
-                                label="LEAD"
+                                label="SECONDARY"
                                 currentStep={totalSteps}
                                 radius={120}
                             />
                         </div>
                         <p class="text-xs text-center text-neutral-500 mt-4">
-                            Observe how the two rings rotate against each other based on Tension.
+                            {#if algorithm === 0}
+                                Observe how the two rings rotate against each other based on Tension.
+                            {:else}
+                                48-step circle enables perfect 4:3 polyrhythms (Square + Triangle).
+                            {/if}
                         </p>
                     </div>
 
@@ -349,6 +409,19 @@
                         {#if $aiStatus === 'ready' && !aiInputText}
                             <div class="text-green-400 text-xs mt-2">AI Engine Ready</div>
                         {/if}
+                    </div>
+
+                    <!-- Algorithm: Current mode indicator -->
+                    <div class="mb-6 p-4 bg-neutral-900 rounded-lg border-l-4 {algorithm === 0 ? 'border-orange-500' : 'border-purple-500'}">
+                        <div class="flex justify-between items-center">
+                            <span class="text-lg font-semibold">Algorithm</span>
+                            <span class="text-xl font-mono {algorithm === 0 ? 'text-orange-400' : 'text-purple-400'}">
+                                {algorithm === 0 ? 'Euclidean' : 'PerfectBalance'}
+                            </span>
+                        </div>
+                        <p class="text-xs text-neutral-500 mt-1">
+                            {algorithm === 0 ? '16 steps - Classic Bjorklund' : '48 steps - Geometric polygons 4:3'}
+                        </p>
                     </div>
 
                     <!-- BPM Display -->

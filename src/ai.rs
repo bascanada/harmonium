@@ -130,6 +130,7 @@ impl EmotionEngine {
                     tension,
                     density,
                     smoothness: 0.5,
+                    algorithm: crate::sequencer::RhythmMode::default(),
                 },
             });
         }
@@ -150,6 +151,7 @@ impl EmotionEngine {
             tension: 0.0,
             density: 0.0,
             smoothness: 0.0,
+            algorithm: crate::sequencer::RhythmMode::default(),
         };
 
         // 2. Compare the input vector to each Anchor vector
@@ -186,6 +188,7 @@ impl EmotionEngine {
                 tension: 0.1,
                 density: 0.2,
                 smoothness: 0.5,
+                algorithm: crate::sequencer::RhythmMode::default(),
             };
         }
 

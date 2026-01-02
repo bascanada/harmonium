@@ -200,6 +200,29 @@ impl Handle {
         self.harmony_state.lock().map(|s| s.secondary_rotation).unwrap_or(0)
     }
 
+    pub fn get_primary_steps(&self) -> usize {
+        self.harmony_state.lock().map(|s| s.primary_steps).unwrap_or(16)
+    }
+
+    pub fn get_secondary_steps(&self) -> usize {
+        self.harmony_state.lock().map(|s| s.secondary_steps).unwrap_or(12)
+    }
+
+    /// Récupérer le pattern primaire (Vec<bool> converti en Vec<u8> pour WASM)
+    /// 1 = pulse actif, 0 = silence
+    pub fn get_primary_pattern(&self) -> Vec<u8> {
+        self.harmony_state.lock()
+            .map(|s| s.primary_pattern.iter().map(|&b| if b { 1 } else { 0 }).collect())
+            .unwrap_or_else(|_| vec![0; 16])
+    }
+
+    /// Récupérer le pattern secondaire
+    pub fn get_secondary_pattern(&self) -> Vec<u8> {
+        self.harmony_state.lock()
+            .map(|s| s.secondary_pattern.iter().map(|&b| if b { 1 } else { 0 }).collect())
+            .unwrap_or_else(|_| vec![0; 12])
+    }
+
     /// Récupérer les événements de visualisation (Note On)
     /// Retourne un tableau plat [note, instr, step, dur, note, instr, step, dur, ...]
     pub fn get_events(&self) -> Vec<u32> {

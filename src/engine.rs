@@ -27,14 +27,19 @@ pub struct HarmonyState {
     pub chord_name: String,          // "I", "vi", "IV", "V"
     pub measure_number: usize,       // Numéro de mesure (1, 2, 3...)
     pub cycle_number: usize,         // Numéro de cycle complet (1, 2, 3...)
-    pub current_step: usize,         // Step dans la mesure (0-15)
+    pub current_step: usize,         // Step dans la mesure (0-15 ou 0-47)
     pub progression_name: String,    // Nom de la progression active ("Pop Energetic", etc.)
     pub progression_length: usize,   // Longueur de la progression (2-4 accords)
     // Visualisation Rythmique
+    pub primary_steps: usize,        // Nombre de steps (16 ou 48)
     pub primary_pulses: usize,
+    pub secondary_steps: usize,      // Nombre de steps secondaire (12)
     pub secondary_pulses: usize,
     pub primary_rotation: usize,
     pub secondary_rotation: usize,
+    // Patterns réels pour visualisation
+    pub primary_pattern: Vec<bool>,   // Pattern du séquenceur primaire
+    pub secondary_pattern: Vec<bool>, // Pattern du séquenceur secondaire
 }
 
 impl Default for HarmonyState {
@@ -49,10 +54,14 @@ impl Default for HarmonyState {
             current_step: 0,
             progression_name: "Folk Peaceful (I-IV-I-V)".to_string(),
             progression_length: 4,
+            primary_steps: 16,
             primary_pulses: 4,
+            secondary_steps: 12,
             secondary_pulses: 3,
             primary_rotation: 0,
             secondary_rotation: 0,
+            primary_pattern: vec![false; 16],
+            secondary_pattern: vec![false; 12],
         }
     }
 }
@@ -603,10 +612,15 @@ impl HarmoniumEngine {
             if let Ok(mut state) = self.harmony_state.lock() {
                 state.current_step = self.sequencer_primary.current_step;
                 // Mettre à jour les infos rythmiques pour la visualisation
+                state.primary_steps = self.sequencer_primary.steps;
                 state.primary_pulses = self.sequencer_primary.pulses;
-                state.secondary_pulses = self.sequencer_secondary.pulses;
                 state.primary_rotation = self.sequencer_primary.rotation;
+                state.primary_pattern = self.sequencer_primary.pattern.clone();
+
+                state.secondary_steps = self.sequencer_secondary.steps;
+                state.secondary_pulses = self.sequencer_secondary.pulses;
                 state.secondary_rotation = self.sequencer_secondary.rotation;
+                state.secondary_pattern = self.sequencer_secondary.pattern.clone();
             }
             
             // === LA CLEF DU GROOVE : COHÉRENCE RYTHMIQUE ===
