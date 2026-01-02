@@ -3,7 +3,7 @@ HF_CLI ?= hf
 .PHONY: run web/build web/serve web/install models/download
 
 run:
-	cargo run
+	cargo run -- $(ARGS)
 
 wasm/build:
 	wasm-pack build --target web

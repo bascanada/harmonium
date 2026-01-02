@@ -24,6 +24,8 @@ pub struct Handle {
     harmony_state: Arc<Mutex<engine::HarmonyState>>,
     /// Queue d'événements pour l'UI
     event_queue: Arc<Mutex<Vec<engine::VisualizationEvent>>>,
+    /// Queue de chargement de SoundFonts
+    font_queue: Arc<Mutex<Vec<(u32, Vec<u8>)>>>,
     bpm: f32,
     key: String,
     scale: String,
@@ -240,6 +242,25 @@ impl Handle {
         result
     }
 
+    /// Définir le routage d'un canal (-1 = FundSP, >=0 = Bank ID)
+    pub fn set_channel_routing(&mut self, channel: usize, mode: i32) {
+        if let Ok(mut state) = self.target_state.lock() {
+            if channel < 16 {
+                if state.channel_routing.len() <= channel {
+                    state.channel_routing.resize(16, -1);
+                }
+                state.channel_routing[channel] = mode;
+            }
+        }
+    }
+
+    /// Ajouter une SoundFont à un bank spécifique
+    pub fn add_soundfont(&self, bank_id: u32, sf2_bytes: Box<[u8]>) {
+        if let Ok(mut queue) = self.font_queue.lock() {
+            queue.push((bank_id, sf2_bytes.into_vec()));
+        }
+    }
+
     pub fn resume(&self) -> Result<(), JsValue> {
         use cpal::traits::StreamTrait;
         self.stream.play().map_err(|e| JsValue::from_str(&e.to_string()))
@@ -252,20 +273,21 @@ impl Handle {
 }
 
 #[wasm_bindgen]
-pub fn start() -> Result<Handle, JsValue> {
+pub fn start(sf2_bytes: Option<Box<[u8]>>) -> Result<Handle, JsValue> {
     console_error_panic_hook::set_once();
 
     // Créer l'état partagé pour WASM (contrôlé par l'UI, pas d'IA)
     let target_state = Arc::new(Mutex::new(engine::EngineParams::default()));
     let target_state_clone = target_state.clone();
     
-    let (stream, config, harmony_state, event_queue) = audio::create_stream(target_state).map_err(|e| JsValue::from_str(&e))?;
+    let (stream, config, harmony_state, event_queue, font_queue) = audio::create_stream(target_state, sf2_bytes.as_deref()).map_err(|e| JsValue::from_str(&e))?;
 
     Ok(Handle { 
         stream,
         target_state: target_state_clone,
         harmony_state,
         event_queue,
+        font_queue,
         bpm: config.bpm,
         key: config.key,
         scale: config.scale,

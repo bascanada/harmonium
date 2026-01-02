@@ -55,6 +55,61 @@
     // AI Input
     let aiInputText = "";
 
+    // SoundFont & Engine
+    let loadedFonts: { id: number, name: string, data: Uint8Array }[] = [];
+    let nextBankId = 0;
+    
+    // Channels: 0=Bass, 1=Lead, 2=Snare, 3=Hat
+    // -1 = FM, >=0 = Bank ID
+    let channelRouting = [-1, -1, -1, -1]; 
+    const channelNames = ["Bass", "Lead", "Snare", "Hat"];
+
+    async function loadSoundFont(event: Event) {
+        const input = event.target as HTMLInputElement;
+        if (input.files && input.files[0]) {
+            const file = input.files[0];
+            const buffer = await file.arrayBuffer();
+            const bytes = new Uint8Array(buffer);
+            
+            const bankId = nextBankId++;
+            loadedFonts = [...loadedFonts, { id: bankId, name: file.name, data: bytes }];
+            
+            if (handle) {
+                // Engine running: add dynamically
+                handle.add_soundfont(bankId, bytes);
+                console.log(`Added SoundFont ${file.name} to Bank ${bankId}`);
+            }
+            
+            // Auto-route to this new font for all channels that are currently FM?
+            // Or just let the user choose. Let's auto-route for convenience if it's the first one.
+            if (loadedFonts.length === 1) {
+                channelRouting = [bankId, bankId, bankId, bankId];
+                if (handle) {
+                    channelRouting.forEach((mode, ch) => handle.set_channel_routing(ch, mode));
+                }
+            }
+        }
+    }
+
+    function cycleChannelEngine(channel: number) {
+        // Options: -1 (FM), then all loaded bank IDs
+        const options = [-1, ...loadedFonts.map(f => f.id)];
+        const currentIndex = options.indexOf(channelRouting[channel]);
+        const nextIndex = (currentIndex + 1) % options.length;
+        const nextValue = options[nextIndex];
+        
+        channelRouting[channel] = nextValue;
+        if (handle) {
+            handle.set_channel_routing(channel, nextValue);
+        }
+    }
+    
+    function getEngineName(routingValue: number): string {
+        if (routingValue === -1) return "FM";
+        const font = loadedFonts.find(f => f.id === routingValue);
+        return font ? font.name : "Unknown";
+    }
+
     // Helper MIDI -> Note Name
     function midiToNoteName(midi: number): string {
         const notes = ["c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b"];
@@ -144,7 +199,10 @@
     // Mise à jour en temps réel lors du drag du slider
     function updateParams() {
         if (handle && isPlaying) {
-            handle.set_params(arousal, valence, density, tension);
+            handle.set_arousal(arousal);
+            handle.set_valence(valence);
+            handle.set_density(density);
+            handle.set_tension(tension);
         }
     }
 
@@ -168,10 +226,23 @@
             }
             
             await init();
-            handle = start();
+            handle = start(undefined);
+            
+            // Load all fonts
+            for (const font of loadedFonts) {
+                handle.add_soundfont(font.id, font.data);
+            }
+            
+            // Apply initial routing
+            channelRouting.forEach((mode, ch) => {
+                handle.set_channel_routing(ch, mode);
+            });
             
             // Initialiser les paramètres émotionnels
-            handle.set_params(arousal, valence, density, tension);
+            handle.set_arousal(arousal);
+            handle.set_valence(valence);
+            handle.set_density(density);
+            handle.set_tension(tension);
             handle.set_algorithm(algorithm);
 
             const key = handle.get_key();
@@ -401,6 +472,48 @@
                         {#if $aiStatus === 'ready' && !aiInputText}
                             <div class="text-green-400 text-xs mt-2">AI Engine Ready</div>
                         {/if}
+                    </div>
+
+                    <!-- Sound Engine Control -->
+                    <div class="mb-6 p-4 bg-neutral-800 rounded-lg border border-neutral-700">
+                        <h3 class="text-lg font-semibold mb-2">Sound Engine</h3>
+                        
+                        <!-- SoundFont Loader -->
+                        <div class="mb-4">
+                            <label class="block text-xs text-neutral-400 mb-1">SoundFonts (.sf2)</label>
+                            <div class="flex flex-col gap-2">
+                                <label class="cursor-pointer bg-neutral-900 border border-neutral-600 rounded px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800 transition-colors flex justify-center items-center">
+                                    <span>+ Add SoundFont</span>
+                                    <input type="file" accept=".sf2" onchange={loadSoundFont} class="hidden" />
+                                </label>
+                                {#if loadedFonts.length > 0}
+                                    <div class="flex flex-col gap-1 mt-2">
+                                        {#each loadedFonts as font}
+                                            <div class="text-xs text-neutral-400 bg-neutral-900/50 px-2 py-1 rounded flex justify-between">
+                                                <span class="truncate">{font.name}</span>
+                                                <span class="text-neutral-600">Bank {font.id}</span>
+                                            </div>
+                                        {/each}
+                                    </div>
+                                {/if}
+                            </div>
+                        </div>
+
+                        <!-- Channel Routing -->
+                        <div class="grid grid-cols-2 gap-2">
+                            {#each channelNames as name, i}
+                                <button 
+                                    class="px-3 py-2 rounded text-sm font-medium transition-colors border {channelRouting[i] !== -1 ? 'bg-blue-900/50 border-blue-500 text-blue-200' : 'bg-neutral-900 border-neutral-700 text-neutral-400'}"
+                                    onclick={() => cycleChannelEngine(i)}
+                                    title="Cycle Engine"
+                                >
+                                    <div class="flex justify-between items-center">
+                                        <span>{name}</span>
+                                        <span class="text-xs opacity-75 truncate max-w-[80px]">{getEngineName(channelRouting[i])}</span>
+                                    </div>
+                                </button>
+                            {/each}
+                        </div>
                     </div>
 
                     <!-- Algorithm: Current mode indicator -->

@@ -4,7 +4,7 @@ use crate::harmony::HarmonyNavigator;
 use crate::progression::{Progression, ChordStep, ChordQuality};
 use crate::log;
 use crate::events::AudioEvent;
-use crate::voice_manager::VoiceManager;
+use crate::voice_manager::{VoiceManager, ChannelType};
 use rust_music_theory::note::PitchSymbol;
 use rust_music_theory::scale::ScaleType;
 use rand::Rng;
@@ -79,6 +79,8 @@ pub struct EngineParams {
     pub smoothness: f32, // 0.0 à 1.0 - Lissage mélodique (Hurst)
     #[serde(default)]
     pub algorithm: RhythmMode, // Euclidean (16 steps) ou PerfectBalance (48 steps)
+    #[serde(default)]
+    pub channel_routing: Vec<i32>, // -1 = FundSP, >=0 = Oxisynth Bank ID
 }
 
 impl Default for EngineParams {
@@ -90,6 +92,7 @@ impl Default for EngineParams {
             tension: 0.4,   // > 0.3 active le Triangle → polyrythme 4:3
             smoothness: 0.7, // Mélodie assez lisse par défaut
             algorithm: RhythmMode::Euclidean, // Mode classique par défaut
+            channel_routing: vec![-1; 16], // Tout en FundSP par défaut
         }
     }
 }
@@ -162,6 +165,7 @@ pub struct HarmoniumEngine {
     pub target_state: Arc<Mutex<EngineParams>>,
     pub harmony_state: Arc<Mutex<HarmonyState>>,  // État harmonique pour l'UI
     pub event_queue: Arc<Mutex<Vec<VisualizationEvent>>>, // Queue d'événements pour l'UI
+    pub font_queue: Arc<Mutex<Vec<(u32, Vec<u8>)>>>, // Queue de chargement de SoundFonts
     current_state: CurrentState,
     // === POLYRYTHMIE: Plusieurs séquenceurs avec cycles différents ===
     sequencer_primary: Sequencer,    // Cycle principal (16 steps)
@@ -184,9 +188,10 @@ pub struct HarmoniumEngine {
 }
 
 impl HarmoniumEngine {
-    pub fn new(sample_rate: f64, target_state: Arc<Mutex<EngineParams>>) -> Self {
+    pub fn new(sample_rate: f64, target_state: Arc<Mutex<EngineParams>>, sf2_bytes: Option<&[u8]>) -> Self {
         let mut rng = rand::thread_rng();
         let initial_params = target_state.lock().unwrap().clone();
+        let font_queue = Arc::new(Mutex::new(Vec::new()));
         let bpm = initial_params.compute_bpm();
         let steps = 16;
         let initial_pulses = std::cmp::min((initial_params.density * 11.0) as usize + 1, 16);
@@ -274,13 +279,22 @@ impl HarmoniumEngine {
         
         let node = BlockRateAdapter::new(Box::new(mix), sample_rate);
 
-        let voice_manager = VoiceManager::new(
+        let mut voice_manager = VoiceManager::new(
+            sf2_bytes, sample_rate as f32,
             frequency_lead, gate_lead,
             frequency_bass, gate_bass,
             gate_snare, gate_hat,
             cutoff, resonance, distortion,
             fm_ratio, fm_amount, timbre_mix, reverb_mix,
         );
+
+        // Apply initial routing
+        for (i, &mode) in initial_params.channel_routing.iter().enumerate() {
+             if i < 16 {
+                 let mode_enum = if mode >= 0 { ChannelType::Oxisynth { bank: mode as u32 } } else { ChannelType::FundSP };
+                 voice_manager.set_channel_route(i, mode_enum);
+            }
+        }
 
         // Séquenceurs
         let sequencer_primary = Sequencer::new(steps, initial_pulses, bpm);
@@ -305,6 +319,7 @@ impl HarmoniumEngine {
             target_state,
             harmony_state,
             event_queue,
+            font_queue,
             current_state: CurrentState::default(),
             sequencer_primary,
             sequencer_secondary,
@@ -326,6 +341,21 @@ impl HarmoniumEngine {
     pub fn process(&mut self) -> (f32, f32) {
         let target = self.target_state.lock().unwrap().clone();
         
+        // === LOAD FONTS ===
+        if let Ok(mut queue) = self.font_queue.lock() {
+            while let Some((id, bytes)) = queue.pop() {
+                self.voice_manager.add_font(id, &bytes);
+            }
+        }
+
+        // === SYNC ROUTING ===
+        for (i, &mode) in target.channel_routing.iter().enumerate() {
+            if i < 16 {
+                 let mode_enum = if mode >= 0 { ChannelType::Oxisynth { bank: mode as u32 } } else { ChannelType::FundSP };
+                 self.voice_manager.set_channel_route(i, mode_enum);
+            }
+        }
+
         // === GESTION DES GATES ===
         self.voice_manager.update_timers();
 
@@ -536,7 +566,10 @@ impl HarmoniumEngine {
         }
         
         self.sample_counter += 1;
-        self.node.get_stereo()
+        let (l_fundsp, r_fundsp) = self.node.get_stereo();
+        let (l_oxi, r_oxi) = self.voice_manager.process_audio();
+        
+        (l_fundsp + l_oxi, r_fundsp + r_oxi)
     }
     
     /// Formatte un nom d'accord pour l'UI (numération romaine)

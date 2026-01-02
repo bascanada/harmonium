@@ -1,6 +1,8 @@
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use std::env;
+use std::fs;
 use harmonium::audio;
 use harmonium::engine::EngineParams;
 use harmonium::log;
@@ -10,8 +12,38 @@ fn main() {
     log::info("🎵 Harmonium - Procedural Music Generator");
     log::info("🧠 State Management + Morphing Engine activé");
 
+    // === 0. Parse Arguments (SoundFont) ===
+    let args: Vec<String> = env::args().collect();
+    let sf2_data = if args.len() > 1 {
+        let path = &args[1];
+        log::info(&format!("📂 Loading SoundFont: {}", path));
+        match fs::read(path) {
+            Ok(bytes) => {
+                log::info("✅ SoundFont loaded successfully");
+                Some(bytes)
+            },
+            Err(e) => {
+                log::warn(&format!("❌ Failed to read SoundFont: {}", e));
+                None
+            }
+        }
+    } else {
+        log::info("ℹ️ No SoundFont provided. Using default synthesis.");
+        None
+    };
+
     // === 1. État Partagé (Thread-safe) ===
     let target_state = Arc::new(Mutex::new(EngineParams::default()));
+    
+    // Si on a un SoundFont, on active le routing Oxisynth par défaut pour tester
+    if sf2_data.is_some() {
+        if let Ok(mut params) = target_state.lock() {
+            // Tout sur Oxisynth (Bank 0) sauf peut-être la batterie ?
+            // Mettons tout sur Oxisynth pour l'instant pour tester le fichier
+            params.channel_routing = vec![0; 16]; 
+            log::info("🔀 Routing set to Oxisynth (Bank 0) for all channels");
+        }
+    }
 
     // === 2. Thread Simulateur d'IA (Changements aléatoires toutes les 5 secondes) ===
     let controller_state = target_state.clone();
@@ -40,7 +72,7 @@ fn main() {
     });
 
     // === 3. Création du Stream Audio avec l'état partagé ===
-    let (_stream, config, _harmony_state, _event_queue) = audio::create_stream(target_state)
+    let (_stream, config, _harmony_state, _event_queue, _font_queue) = audio::create_stream(target_state, sf2_data.as_deref())
         .expect("Failed to create audio stream");
 
     log::info(&format!(

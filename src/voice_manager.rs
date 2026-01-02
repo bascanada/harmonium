@@ -1,7 +1,19 @@
 use fundsp::hacker32::*;
 use crate::events::AudioEvent;
+use std::io::Cursor;
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum ChannelType {
+    FundSP,
+    Oxisynth { bank: u32 },
+}
 
 pub struct VoiceManager {
+    // === HYBRID ENGINE ===
+    pub synth: oxisynth::Synth,
+    pub channel_routing: [ChannelType; 16],
+    pub current_banks: [u32; 16], // Track current bank to avoid redundant CCs
+
     // === LEAD ===
     pub frequency_lead: Shared,
     pub gate_lead: Shared,
@@ -30,25 +42,91 @@ pub struct VoiceManager {
 
 impl VoiceManager {
     pub fn new(
+        sf2_bytes: Option<&[u8]>,
+        sample_rate: f32,
         frequency_lead: Shared, gate_lead: Shared,
         frequency_bass: Shared, gate_bass: Shared,
         gate_snare: Shared, gate_hat: Shared,
         cutoff: Shared, resonance: Shared, distortion: Shared,
         fm_ratio: Shared, fm_amount: Shared, timbre_mix: Shared, reverb_mix: Shared,
     ) -> Self {
-        Self {
+        let mut synth = oxisynth::Synth::default();
+        synth.set_sample_rate(sample_rate);
+        
+        if let Some(_bytes) = sf2_bytes {
+            // Don't load here, use add_font below
+            // let mut cursor = Cursor::new(bytes);
+            // if let Ok(font) = oxisynth::SoundFont::load(&mut cursor) {
+            //    synth.add_font(font, true);
+            // }
+        }
+
+        let channel_routing = [ChannelType::FundSP; 16];
+        let current_banks = [0; 16];
+
+        let mut vm = Self {
+            synth,
+            channel_routing,
+            current_banks,
             frequency_lead, gate_lead, gate_timer_lead: 0,
             frequency_bass, gate_bass, gate_timer_bass: 0,
             gate_snare, gate_timer_snare: 0,
             gate_hat, gate_timer_hat: 0,
             cutoff, resonance, distortion,
             fm_ratio, fm_amount, timbre_mix, reverb_mix,
+        };
+
+        if let Some(bytes) = sf2_bytes {
+            vm.add_font(0, bytes);
+        }
+
+        vm
+    }
+
+    pub fn add_font(&mut self, bank_id: u32, bytes: &[u8]) {
+        let mut cursor = Cursor::new(bytes);
+        if let Ok(font) = oxisynth::SoundFont::load(&mut cursor) {
+            let font_id = self.synth.add_font(font, true);
+            self.synth.set_bank_offset(font_id, bank_id);
+        }
+    }
+
+    pub fn set_channel_route(&mut self, channel: usize, mode: ChannelType) {
+        if channel < 16 {
+            self.channel_routing[channel] = mode;
+            
+            // If switching to Oxisynth, ensure bank is selected
+            if let ChannelType::Oxisynth { bank } = mode {
+                if self.current_banks[channel] != bank {
+                    // Send Bank Select (CC 0)
+                    let _ = self.synth.send_event(oxisynth::MidiEvent::ControlChange { 
+                        channel: channel as u8, 
+                        ctrl: 0, 
+                        value: bank as u8 
+                    });
+                    // Send Program Change (default to 0 for now)
+                    let _ = self.synth.send_event(oxisynth::MidiEvent::ProgramChange { 
+                        channel: channel as u8, 
+                        program_id: 0 
+                    });
+                    self.current_banks[channel] = bank;
+                }
+            }
         }
     }
 
     pub fn process_event(&mut self, event: AudioEvent, samples_per_step: usize) {
         match event {
             AudioEvent::NoteOn { note, velocity, channel } => {
+                if let ChannelType::Oxisynth { .. } = self.channel_routing[channel as usize] {
+                    let _ = self.synth.send_event(oxisynth::MidiEvent::NoteOn { 
+                        channel: channel, 
+                        key: note, 
+                        vel: velocity 
+                    });
+                    return;
+                }
+
                 let freq = 440.0 * 2.0_f32.powf((note as f32 - 69.0) / 12.0);
                 let vel = velocity as f32 / 127.0;
 
@@ -85,7 +163,15 @@ impl VoiceManager {
                     _ => {}
                 }
             },
-            AudioEvent::NoteOff { note: _, channel } => {
+            AudioEvent::NoteOff { note, channel } => {
+                if let ChannelType::Oxisynth { .. } = self.channel_routing[channel as usize] {
+                    let _ = self.synth.send_event(oxisynth::MidiEvent::NoteOff { 
+                        channel: channel, 
+                        key: note 
+                    });
+                    return;
+                }
+
                 match channel {
                     0 => self.gate_bass.set_value(0.0),
                     1 => self.gate_lead.set_value(0.0),
@@ -95,6 +181,13 @@ impl VoiceManager {
                 }
             },
             AudioEvent::ControlChange { ctrl, value } => {
+                // Send global CCs to Oxisynth on channel 0 (or broadcast if needed)
+                let _ = self.synth.send_event(oxisynth::MidiEvent::ControlChange { 
+                    channel: 0, 
+                    ctrl: ctrl, 
+                    value: value 
+                });
+
                 let val_norm = value as f32 / 127.0;
                 match ctrl {
                     1 => { // Modulation / Tension
@@ -135,5 +228,11 @@ impl VoiceManager {
             self.gate_timer_hat -= 1; 
             if self.gate_timer_hat == 0 { self.gate_hat.set_value(0.0); } 
         }
+    }
+
+    pub fn process_audio(&mut self) -> (f32, f32) {
+        let mut buffer = [0.0; 2]; 
+        self.synth.write(&mut buffer[..]);
+        (buffer[0], buffer[1])
     }
 }

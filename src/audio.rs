@@ -3,7 +3,7 @@ use crate::engine::{HarmoniumEngine, SessionConfig, EngineParams, HarmonyState, 
 use crate::log;
 use std::sync::{Arc, Mutex};
 
-pub fn create_stream(target_state: Arc<Mutex<EngineParams>>) -> Result<(cpal::Stream, SessionConfig, Arc<Mutex<HarmonyState>>, Arc<Mutex<Vec<VisualizationEvent>>>), String> {
+pub fn create_stream(target_state: Arc<Mutex<EngineParams>>, sf2_bytes: Option<&[u8]>) -> Result<(cpal::Stream, SessionConfig, Arc<Mutex<HarmonyState>>, Arc<Mutex<Vec<VisualizationEvent>>>, Arc<Mutex<Vec<(u32, Vec<u8>)>>>), String> {
     // 1. Setup CPAL
     let host = cpal::default_host();
 
@@ -31,10 +31,11 @@ pub fn create_stream(target_state: Arc<Mutex<EngineParams>>) -> Result<(cpal::St
 
     log::info(&format!("Sample rate: {}, Channels: {}", sample_rate, channels));
 
-    let mut engine = HarmoniumEngine::new(sample_rate, target_state);
+    let mut engine = HarmoniumEngine::new(sample_rate, target_state, sf2_bytes);
     let session_config = engine.config.clone();
     let harmony_state = engine.harmony_state.clone(); // Cloner l'Arc pour le retourner
     let event_queue = engine.event_queue.clone(); // Cloner l'Arc pour le retourner
+    let font_queue = engine.font_queue.clone();
 
     let err_fn = |err| log::error(&format!("an error occurred on stream: {}", err));
 
@@ -57,5 +58,5 @@ pub fn create_stream(target_state: Arc<Mutex<EngineParams>>) -> Result<(cpal::St
 
     stream.play().map_err(|e| e.to_string())?;
 
-    Ok((stream, session_config, harmony_state, event_queue))
+    Ok((stream, session_config, harmony_state, event_queue, font_queue))
 }

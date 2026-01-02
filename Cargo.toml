@@ -9,6 +9,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 cpal = { version = "0.15", features = ["wasm-bindgen"] }
 fundsp = "0.20.0"
+oxisynth = "0.1.0"
 rand = "0.8.5"
 rust-music-theory = "0.3.0"
 wasm-bindgen = "0.2"
