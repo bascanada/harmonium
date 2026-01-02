@@ -35,7 +35,7 @@ jobs:
         run: pip install -U "huggingface_hub[cli]"
 
       - name: Download Model
-        run: make models/download HF_CLI="python3 -m huggingface_hub.cli"
+        run: make models/download HF_CLI=hf
 
       - name: Build WASM
         run: make wasm/build
