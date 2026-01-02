@@ -1,7 +1,4 @@
 #[cfg(target_arch = "wasm32")]
-#[warn(unused_imports)]
-use wasm_bindgen::prelude::*;
-
 pub fn info(msg: &str) {
     #[cfg(target_arch = "wasm32")]
     web_sys::console::log_1(&msg.into());

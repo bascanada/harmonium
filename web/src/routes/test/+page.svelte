@@ -196,10 +196,6 @@
         }
     }
 
-    function reloadPage() {
-        window.location.reload();
-    }
-
     // AI Input Handling
     let debounceTimer: number;
     async function analyzeText() {
@@ -278,13 +274,6 @@
                 disabled:opacity-50 disabled:cursor-not-allowed"
         >
             {isPlaying ? 'Stop Music' : 'Start Music'}
-        </button>
-
-        <button
-            onclick={reloadPage}
-            class="px-8 py-4 text-2xl font-semibold rounded-lg transition-colors duration-200 cursor-pointer bg-neutral-700 hover:bg-neutral-600"
-        >
-            New Seed
         </button>
     </div>
 

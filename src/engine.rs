@@ -477,10 +477,19 @@ impl HarmoniumEngine {
                 }
             }
 
-            // UI Update
+            // UI Update - Sync ALL sequencer fields for visualization
             if let Ok(mut state) = self.harmony_state.lock() {
                 state.current_step = self.sequencer_primary.current_step;
+                state.primary_steps = self.sequencer_primary.steps;
+                state.primary_pulses = self.sequencer_primary.pulses;
+                state.primary_rotation = self.sequencer_primary.rotation;
                 state.primary_pattern = self.sequencer_primary.pattern.iter().map(|t| t.is_any()).collect();
+
+                // Secondary sequencer (Euclidean mode only)
+                state.secondary_steps = self.sequencer_secondary.steps;
+                state.secondary_pulses = self.sequencer_secondary.pulses;
+                state.secondary_rotation = self.sequencer_secondary.rotation;
+                state.secondary_pattern = self.sequencer_secondary.pattern.iter().map(|t| t.is_any()).collect();
             }
 
             // === VOICE DISTRIBUTION ===
