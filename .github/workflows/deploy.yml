@@ -16,19 +16,6 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Cache AI Models
-        id: cache-models
-        uses: actions/cache@v4
-        with:
-          path: web/static/models
-          key: ai-models-all-MiniLM-L6-v2
-
-      - name: Download AI Models
-        if: steps.cache-models.outputs.cache-hit != 'true'
-        run: |
-          pip install huggingface_hub
-          make models/download
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:

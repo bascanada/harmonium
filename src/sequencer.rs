@@ -343,4 +343,118 @@ mod tests {
         assert_eq!(seq.steps, 48);
         assert_eq!(seq.pattern.len(), 48);
     }
+
+    /// Tests exhaustifs pour la génération de polygones
+    /// Vérifie que chaque combinaison density/tension produit les polygones attendus
+
+    #[test]
+    fn test_polygon_square_only() {
+        // Très basse density (< 0.3) + basse tension (≤ 0.3) = Carré seul
+        let pattern = generate_balanced_pattern_48(48, 0.1, 0.1);
+        let pulse_count = pattern.iter().filter(|&&x| x).count();
+
+        // Carré = 4 sommets
+        assert_eq!(pulse_count, 4, "Square only should have exactly 4 pulses");
+
+        // Vérifier les positions (0, 12, 24, 36)
+        assert!(pattern[0], "Square vertex at 0");
+        assert!(pattern[12], "Square vertex at 12");
+        assert!(pattern[24], "Square vertex at 24");
+        assert!(pattern[36], "Square vertex at 36");
+    }
+
+    #[test]
+    fn test_polygon_hexagon_only() {
+        // Density moyenne (0.3-0.6) + basse tension = Hexagone seul
+        let pattern = generate_balanced_pattern_48(48, 0.4, 0.1);
+        let pulse_count = pattern.iter().filter(|&&x| x).count();
+
+        // Hexagone = 6 sommets (48/6 = 8 steps d'intervalle)
+        assert_eq!(pulse_count, 6, "Hexagon only should have exactly 6 pulses");
+
+        // Vérifier les positions (0, 8, 16, 24, 32, 40)
+        assert!(pattern[0], "Hexagon vertex at 0");
+        assert!(pattern[8], "Hexagon vertex at 8");
+        assert!(pattern[16], "Hexagon vertex at 16");
+        assert!(pattern[24], "Hexagon vertex at 24");
+        assert!(pattern[32], "Hexagon vertex at 32");
+        assert!(pattern[40], "Hexagon vertex at 40");
+    }
+
+    #[test]
+    fn test_polygon_octagon_only() {
+        // Haute density (> 0.6) + basse tension = Octogone seul
+        // Note: density > 0.65 ajoute aussi un fill polygon, donc on utilise 0.61
+        let pattern = generate_balanced_pattern_48(48, 0.61, 0.1);
+        let pulse_count = pattern.iter().filter(|&&x| x).count();
+
+        // Octogone = 8 sommets (48/8 = 6 steps d'intervalle)
+        assert_eq!(pulse_count, 8, "Octagon only should have exactly 8 pulses");
+
+        // Vérifier les positions (0, 6, 12, 18, 24, 30, 36, 42)
+        assert!(pattern[0], "Octagon vertex at 0");
+        assert!(pattern[6], "Octagon vertex at 6");
+        assert!(pattern[12], "Octagon vertex at 12");
+        assert!(pattern[18], "Octagon vertex at 18");
+    }
+
+    #[test]
+    fn test_polygon_square_plus_triangle() {
+        // Basse density + tension moyenne (0.3-0.7) = Carré + Triangle (polyrythme 4:3)
+        let pattern = generate_balanced_pattern_48(48, 0.1, 0.4);
+        let pulse_count = pattern.iter().filter(|&&x| x).count();
+
+        // Carré (4) + Triangle (3) avec collision au step 0 = 6 ou 7 pulses
+        // Step 0: collision (Carré + Triangle)
+        // Carré: 0, 12, 24, 36
+        // Triangle (rotation 0): 0, 16, 32
+        // Union: 0, 12, 16, 24, 32, 36 = 6 pulses
+        assert!(pulse_count >= 6 && pulse_count <= 7,
+            "Square + Triangle should have 6-7 pulses, got {}", pulse_count);
+
+        // Vérifier le polyrythme 4:3
+        assert!(pattern[0], "Origin (both polygons)");
+        assert!(pattern[12], "Square vertex");
+        assert!(pattern[16], "Triangle vertex");
+        assert!(pattern[24], "Square vertex");
+        assert!(pattern[32], "Triangle vertex");
+        assert!(pattern[36], "Square vertex");
+    }
+
+    #[test]
+    fn test_polygon_high_tension_syncope() {
+        // Haute tension (> 0.7) décale le triangle de 6 steps
+        let pattern = generate_balanced_pattern_48(48, 0.1, 0.8);
+
+        // Carré: 0, 12, 24, 36
+        // Triangle (rotation 6): 6, 22, 38
+        assert!(pattern[0], "Square vertex at 0");
+        assert!(pattern[6], "Triangle vertex at 6 (syncopated)");
+        assert!(pattern[12], "Square vertex at 12");
+        assert!(pattern[22], "Triangle vertex at 22 (syncopated)");
+    }
+
+    #[test]
+    fn test_polygon_very_high_density_with_fill() {
+        // Très haute density (> 0.85) ajoute un dodécagone
+        let pattern = generate_balanced_pattern_48(48, 0.9, 0.1);
+        let pulse_count = pattern.iter().filter(|&&x| x).count();
+
+        // Octogone (8) + Dodécagone (12) avec collisions
+        // Devrait avoir significativement plus de pulses
+        assert!(pulse_count >= 12,
+            "High density should have many pulses from fill polygon, got {}", pulse_count);
+    }
+
+    #[test]
+    fn test_polygon_extreme_tension_with_pentagon() {
+        // Tension extrême (> 0.85) ajoute un pentagone
+        let pattern = generate_balanced_pattern_48(48, 0.1, 0.9);
+        let pulse_count = pattern.iter().filter(|&&x| x).count();
+
+        // Carré (4) + Triangle (3) + Pentagone (5) avec collisions
+        // Le pentagone ne divise pas 48 parfaitement, créant des accents irréguliers
+        assert!(pulse_count >= 8,
+            "Extreme tension should add pentagon, got {} pulses", pulse_count);
+    }
 }
