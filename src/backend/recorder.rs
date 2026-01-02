@@ -1,3 +1,4 @@
+use crate::backend::abc_backend::AbcBackend;
 use crate::backend::AudioRenderer;
 use crate::events::{AudioEvent, RecordFormat};
 use hound::{WavSpec, WavWriter};
@@ -47,6 +48,9 @@ pub struct RecorderBackend {
     midi_track: Option<Vec<TrackEvent<'static>>>,
     midi_samples_since_last: u64,
     current_samples_per_step: usize,
+    
+    // ABC State
+    abc_backend: Option<AbcBackend>,
 }
 
 impl RecorderBackend {
@@ -64,6 +68,7 @@ impl RecorderBackend {
             midi_track: None,
             midi_samples_since_last: 0,
             current_samples_per_step: 11025,
+            abc_backend: None,
         }
     }
 
@@ -117,6 +122,19 @@ impl RecorderBackend {
         }
     }
 
+    fn start_abc(&mut self) {
+        self.abc_backend = Some(AbcBackend::new(self.sample_rate));
+    }
+
+    fn stop_abc(&mut self) {
+        if let Some(backend) = self.abc_backend.take() {
+            let data = backend.finalize();
+            if let Ok(mut queue) = self.finished_recordings.lock() {
+                queue.push((RecordFormat::Abc, data));
+            }
+        }
+    }
+
     fn samples_to_ticks(&self, samples: u64) -> u32 {
         if self.current_samples_per_step == 0 { return 0; }
         // 1 step = 1/4 beat (16th note)
@@ -134,19 +152,40 @@ impl AudioRenderer for RecorderBackend {
                 match format {
                     RecordFormat::Wav => self.start_wav(),
                     RecordFormat::Midi => self.start_midi(),
+                    RecordFormat::Abc => self.start_abc(),
                 }
             },
             AudioEvent::StopRecording { format } => {
                 match format {
                     RecordFormat::Wav => self.stop_wav(),
                     RecordFormat::Midi => self.stop_midi(),
+                    RecordFormat::Abc => self.stop_abc(),
                 }
             },
             AudioEvent::TimingUpdate { samples_per_step } => {
                 self.current_samples_per_step = *samples_per_step;
+                if let Some(abc) = &mut self.abc_backend {
+                    abc.handle_event(event.clone());
+                }
             },
-            AudioEvent::NoteOn { note, velocity, channel } => {
+            AudioEvent::NoteOn { .. } | AudioEvent::NoteOff { .. } => {
                 // Capture MIDI
+                let _delta = self.samples_to_ticks(self.midi_samples_since_last);
+                if let Some(_track) = &mut self.midi_track {
+                    // ... existing MIDI logic ...
+                }
+                
+                // Capture ABC
+                if let Some(abc) = &mut self.abc_backend {
+                    abc.handle_event(event.clone());
+                }
+            },
+            _ => {}
+        }
+        
+        // Re-implement MIDI logic because I can't use ...existing code... inside the match arm easily without context
+        match &event {
+             AudioEvent::NoteOn { note, velocity, channel } => {
                 let delta = self.samples_to_ticks(self.midi_samples_since_last);
                 if let Some(track) = &mut self.midi_track {
                     self.midi_samples_since_last = 0;
@@ -160,7 +199,6 @@ impl AudioRenderer for RecorderBackend {
                 }
             },
             AudioEvent::NoteOff { note, channel } => {
-                // Capture MIDI
                 let delta = self.samples_to_ticks(self.midi_samples_since_last);
                 if let Some(track) = &mut self.midi_track {
                     self.midi_samples_since_last = 0;
@@ -175,6 +213,7 @@ impl AudioRenderer for RecorderBackend {
             },
             _ => {}
         }
+        
         self.inner.handle_event(event);
     }
 
@@ -191,6 +230,11 @@ impl AudioRenderer for RecorderBackend {
         // Advance MIDI time
         if self.midi_track.is_some() {
             self.midi_samples_since_last += (output.len() / channels) as u64;
+        }
+        
+        // Advance ABC time
+        if let Some(abc) = &mut self.abc_backend {
+            abc.process_buffer(output, channels);
         }
     }
 }

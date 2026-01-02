@@ -86,6 +86,8 @@ pub struct EngineParams {
     pub record_wav: bool,
     #[serde(default)]
     pub record_midi: bool,
+    #[serde(default)]
+    pub record_abc: bool,
 }
 
 impl Default for EngineParams {
@@ -100,6 +102,7 @@ impl Default for EngineParams {
             channel_routing: vec![-1; 16], // Tout en FundSP par défaut
             record_wav: false,
             record_midi: false,
+            record_abc: false,
         }
     }
 }
@@ -178,6 +181,7 @@ pub struct HarmoniumEngine {
     // Recording State Tracking
     is_recording_wav: bool,
     is_recording_midi: bool,
+    is_recording_abc: bool,
 }
 
 impl HarmoniumEngine {
@@ -251,6 +255,7 @@ impl HarmoniumEngine {
             cached_target: initial_params,
             is_recording_wav: false,
             is_recording_midi: false,
+            is_recording_abc: false,
         }
     }
 
@@ -312,13 +317,14 @@ impl HarmoniumEngine {
         }
 
         // === MORPHING ===
-        self.current_state.arousal += (target.arousal - self.current_state.arousal) * 0.001;
-        self.current_state.valence += (target.valence - self.current_state.valence) * 0.001;
-        self.current_state.density += (target.density - self.current_state.density) * 0.0005;
-        self.current_state.tension += (target.tension - self.current_state.tension) * 0.002;
-        self.current_state.smoothness += (target.smoothness - self.current_state.smoothness) * 0.001;
+        // Increased morphing speed for better responsiveness (was 0.001)
+        self.current_state.arousal += (target.arousal - self.current_state.arousal) * 0.05;
+        self.current_state.valence += (target.valence - self.current_state.valence) * 0.05;
+        self.current_state.density += (target.density - self.current_state.density) * 0.05;
+        self.current_state.tension += (target.tension - self.current_state.tension) * 0.05;
+        self.current_state.smoothness += (target.smoothness - self.current_state.smoothness) * 0.05;
         let target_bpm = target.compute_bpm();
-        self.current_state.bpm += (target_bpm - self.current_state.bpm) * 0.001;
+        self.current_state.bpm += (target_bpm - self.current_state.bpm) * 0.05;
 
         // === RECORDING CONTROL ===
         if target.record_wav != self.is_recording_wav {
@@ -336,6 +342,15 @@ impl HarmoniumEngine {
                 self.renderer.handle_event(AudioEvent::StartRecording { format: crate::events::RecordFormat::Midi });
             } else {
                 self.renderer.handle_event(AudioEvent::StopRecording { format: crate::events::RecordFormat::Midi });
+            }
+        }
+
+        if target.record_abc != self.is_recording_abc {
+            self.is_recording_abc = target.record_abc;
+            if self.is_recording_abc {
+                self.renderer.handle_event(AudioEvent::StartRecording { format: crate::events::RecordFormat::Abc });
+            } else {
+                self.renderer.handle_event(AudioEvent::StopRecording { format: crate::events::RecordFormat::Abc });
             }
         }
 

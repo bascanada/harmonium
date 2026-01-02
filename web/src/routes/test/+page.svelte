@@ -2,8 +2,8 @@
     import { onMount } from 'svelte';
     import init, { start } from 'harmonium';
     import EuclideanCircle from '$lib/components/EuclideanCircle.svelte';
-    import LiveScore from '$lib/components/LiveScore.svelte';
     import { ai, aiStatus, aiError } from '$lib/ai';
+    import abcjs from 'abcjs';
 
     let handle: any = null;
     let status = "Ready to play";
@@ -48,10 +48,6 @@
     let secondaryRotation = 0;
     let secondaryPattern: boolean[] = [];
     
-    // État Partition Live
-    let notesData: { key: string, duration: string, type: 'bass' | 'lead', measure: number }[] = [];
-    let lastMeasure = 1;
-
     // AI Input
     let aiInputText = "";
 
@@ -67,6 +63,8 @@
     // Recording State
     let isRecordingWav = false;
     let isRecordingMidi = false;
+    let isRecordingAbc = false;
+    let abcString = "";
 
     function toggleWavRecording() {
         if (!handle) return;
@@ -90,6 +88,18 @@
         }
     }
 
+    function toggleAbcRecording() {
+        if (!handle) return;
+        if (isRecordingAbc) {
+            handle.stop_recording_abc();
+            isRecordingAbc = false;
+        } else {
+            handle.start_recording_abc();
+            isRecordingAbc = true;
+            abcString = ""; // Clear previous score
+        }
+    }
+
     function checkRecordings() {
         if (!handle) return;
         
@@ -101,11 +111,23 @@
             const fmt = recording.format;
             const data = recording.data;
             
-            const blob = new Blob([data], { type: fmt === 'wav' ? 'audio/wav' : 'audio/midi' });
+            if (fmt === 'abc') {
+                const textDecoder = new TextDecoder();
+                abcString = textDecoder.decode(data);
+                // Render ABC
+                setTimeout(() => {
+                    abcjs.renderAbc("paper", abcString, { responsive: "resize" });
+                }, 0);
+            }
+
+            const mimeType = fmt === 'wav' ? 'audio/wav' : (fmt === 'midi' ? 'audio/midi' : 'text/plain');
+            const ext = fmt === 'wav' ? 'wav' : (fmt === 'midi' ? 'mid' : 'abc');
+
+            const blob = new Blob([data], { type: mimeType });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `recording_${new Date().toISOString()}.${fmt === 'wav' ? 'wav' : 'mid'}`;
+            a.download = `recording_${new Date().toISOString()}.${ext}`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -238,14 +260,8 @@
                 
                 const key = midiToNoteName(midi);
                 const type = instr === 0 ? 'bass' : 'lead';
-                
-                // Ajouter à la partition avec le numéro de mesure
-                // notesData = [...notesData, { key, duration: "16", type, measure: currentMeasure }];
             }
         }
-        
-        // Scroll automatique vers la droite si nécessaire (géré par le composant ou CSS)
-        // On ne vide plus notesData pour garder l'historique
         
         requestAnimationFrame(animate);
     }
@@ -421,6 +437,15 @@
                 >
                     <div class="w-3 h-3 rounded-full {isRecordingMidi ? 'bg-white' : 'bg-red-500'}"></div>
                     {isRecordingMidi ? 'Stop MIDI' : 'Record MIDI'}
+                </button>
+
+                <button
+                    onclick={toggleAbcRecording}
+                    class="px-4 py-2 font-semibold rounded-lg transition-colors duration-200 cursor-pointer flex items-center gap-2
+                        {isRecordingAbc ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' : 'bg-neutral-700 hover:bg-neutral-600 text-neutral-300'}"
+                >
+                    <div class="w-3 h-3 rounded-full {isRecordingAbc ? 'bg-white' : 'bg-red-500'}"></div>
+                    {isRecordingAbc ? 'Stop ABC' : 'Record ABC'}
                 </button>
             </div>
         {/if}
@@ -674,18 +699,12 @@
                 </div>
             </div>
 
-            <!-- BOTTOM SECTION: LIVE SCORE (Full Width) -->
-            <!-- 
-            <div class="w-full bg-neutral-800 rounded-xl p-6 shadow-xl border border-neutral-700 overflow-hidden">
-                <h2 class="text-xl font-bold mb-4 text-center text-green-300">Live Score</h2>
-                <div class="flex justify-center overflow-x-auto">
-                    <LiveScore notesData={notesData} />
+            {#if abcString}
+                <div class="w-full bg-white rounded-xl p-6 shadow-xl border border-neutral-700 overflow-hidden mt-8">
+                    <h2 class="text-xl font-bold mb-4 text-center text-black">Captured Score (ABC)</h2>
+                    <div id="paper" class="w-full overflow-x-auto"></div>
                 </div>
-                <p class="text-xs text-center text-neutral-500 mt-2">
-                    Real-time generated notes (Bass = Red, Lead = Green)
-                </p>
-            </div> 
-            -->
+            {/if}
         </div>
     {/if}
 </div>

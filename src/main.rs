@@ -17,6 +17,7 @@ fn main() {
     let mut sf2_path: Option<String> = None;
     let mut record_wav = false;
     let mut record_midi = false;
+    let mut record_abc = false;
     let mut duration_secs = 0; // 0 = infini
 
     let mut i = 1;
@@ -24,6 +25,7 @@ fn main() {
         match args[i].as_str() {
             "--record-wav" => record_wav = true,
             "--record-midi" => record_midi = true,
+            "--record-abc" => record_abc = true,
             "--duration" => {
                 if i + 1 < args.len() {
                     if let Ok(d) = args[i+1].parse::<u64>() {
@@ -102,10 +104,11 @@ fn main() {
         .expect("Failed to create audio stream");
 
     // Démarrage de l'enregistrement si demandé
-    if record_wav || record_midi {
+    if record_wav || record_midi || record_abc {
         if let Ok(mut params) = target_state.lock() {
             params.record_wav = record_wav;
             params.record_midi = record_midi;
+            params.record_abc = record_abc;
             log::info("Recording started...");
         }
     }
@@ -131,6 +134,7 @@ fn main() {
                 if let Ok(mut params) = target_state.lock() {
                     params.record_wav = false;
                     params.record_midi = false;
+                    params.record_abc = false;
                 }
                 recording_stopped = true;
                 // Attendre un peu que le backend traite l'événement
@@ -144,6 +148,7 @@ fn main() {
                 let filename = match fmt {
                     harmonium::events::RecordFormat::Wav => "output.wav",
                     harmonium::events::RecordFormat::Midi => "output.mid",
+                    harmonium::events::RecordFormat::Abc => "output.abc",
                 };
                 log::info(&format!("Saving recording to {} ({} bytes)", filename, data.len()));
                 if let Err(e) = fs::write(filename, data) {

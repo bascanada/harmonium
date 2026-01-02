@@ -4,6 +4,7 @@ pub mod adapter;
 pub mod synth_backend;
 pub mod wav_backend;
 pub mod midi_backend;
+pub mod abc_backend;
 pub mod recorder;
 
 pub trait AudioRenderer: Send + Sync {

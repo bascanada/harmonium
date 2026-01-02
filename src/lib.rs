@@ -319,6 +319,18 @@ impl Handle {
         }
     }
     
+    pub fn start_recording_abc(&self) {
+        if let Ok(mut state) = self.target_state.lock() {
+            state.record_abc = true;
+        }
+    }
+
+    pub fn stop_recording_abc(&self) {
+        if let Ok(mut state) = self.target_state.lock() {
+            state.record_abc = false;
+        }
+    }
+
     /// Récupère le dernier enregistrement terminé (WAV ou MIDI)
     pub fn pop_finished_recording(&self) -> Option<RecordedData> {
         if let Ok(mut queue) = self.finished_recordings.lock() {
@@ -326,6 +338,7 @@ impl Handle {
                 let format_str = match fmt {
                     events::RecordFormat::Wav => "wav".to_string(),
                     events::RecordFormat::Midi => "midi".to_string(),
+                    events::RecordFormat::Abc => "abc".to_string(),
                 };
                 return Some(RecordedData {
                     format_str,

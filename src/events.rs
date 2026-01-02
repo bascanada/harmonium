@@ -15,4 +15,5 @@ pub enum AudioEvent {
 pub enum RecordFormat {
     Wav,
     Midi,
+    Abc,
 }

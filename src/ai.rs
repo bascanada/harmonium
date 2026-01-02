@@ -134,6 +134,7 @@ impl EmotionEngine {
                     channel_routing: vec![0; 16],
                     record_wav: false,
                     record_midi: false,
+                    record_abc: false,
                 },
             });
         }
@@ -158,6 +159,7 @@ impl EmotionEngine {
             channel_routing: vec![0; 16],
             record_wav: false,
             record_midi: false,
+            record_abc: false,
         };
 
         // 2. Compare the input vector to each Anchor vector
@@ -198,6 +200,7 @@ impl EmotionEngine {
                 channel_routing: vec![0; 16],
                 record_wav: false,
                 record_midi: false,
+                record_abc: false,
             };
         }
 

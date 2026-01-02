@@ -32,8 +32,8 @@
 		"vite-plugin-devtools-json": "^1.0.0"
 	},
 	"dependencies": {
+		"abcjs": "^6.5.2",
 		"harmonium": "file:../pkg",
-		"marked": "^17.0.1",
-		"vexflow": "^5.0.0"
+		"marked": "^17.0.1"
 	}
 }
