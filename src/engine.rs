@@ -523,9 +523,16 @@ impl HarmoniumEngine {
             self.gate_lead.set_value(0.0);
             self.gate_bass.set_value(0.0);
             
-            // Tick des deux séquenceurs
+            // Tick des séquenceurs
             let trigger_primary = self.sequencer_primary.tick();
-            let trigger_secondary = self.sequencer_secondary.tick();
+
+            // En mode PerfectBalance, le polyrythme est encodé dans les 48 steps du primaire
+            // Le secondaire est désactivé pour éviter le chaos (48/12 = 4 tours par mesure)
+            let trigger_secondary = if self.sequencer_primary.mode == RhythmMode::PerfectBalance {
+                false
+            } else {
+                self.sequencer_secondary.tick()
+            };
             
             // === PROGRESSION HARMONIQUE ADAPTATIVE ===
             // Quand le séquenceur primaire revient au step 0, on débute une nouvelle mesure
@@ -628,9 +635,10 @@ impl HarmoniumEngine {
             // 1. BASSE : Le Pilier (Suit le rythme principal)
             let play_bass = trigger_primary;
             
-            // 2. LEAD : La Texture (Suit la Basse ET ajoute du détail)
-            // Le Lead joue en même temps que la basse (Renforcement) 
-            // OU quand le cycle secondaire le dit (Contre-chant/Polyrythmie)
+            // 2. LEAD : La Texture
+            // - Mode Euclidean: Lead joue sur Primary OU Secondary (polyrythme 16:12)
+            // - Mode PerfectBalance: Lead joue seulement sur Primary (polyrythme encodé dans 48 steps)
+            // Note: trigger_secondary est déjà `false` en PerfectBalance (voir ligne 531)
             let play_lead = trigger_primary || trigger_secondary;
             
             // --- INSTRUMENT 1: BASSE ---

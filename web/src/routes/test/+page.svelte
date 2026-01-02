@@ -326,20 +326,23 @@
                                 rotation={primaryRotation}
                                 externalPattern={primaryPattern.length > 0 ? primaryPattern : null}
                                 color="#ff3e00"
-                                label="PRIMARY"
+                                label={algorithm === 0 ? "PRIMARY" : "POLYRHYTHM"}
                                 currentStep={totalSteps}
-                                radius={120}
+                                radius={algorithm === 0 ? 120 : 150}
                             />
-                            <EuclideanCircle
-                                steps={secondarySteps}
-                                pulses={secondaryPulses}
-                                rotation={secondaryRotation}
-                                externalPattern={secondaryPattern.length > 0 ? secondaryPattern : null}
-                                color="#4ade80"
-                                label="SECONDARY"
-                                currentStep={totalSteps}
-                                radius={120}
-                            />
+                            {#if algorithm === 0}
+                                <!-- Euclidean mode: 2 cercles indépendants (polyrythme 16:12) -->
+                                <EuclideanCircle
+                                    steps={secondarySteps}
+                                    pulses={secondaryPulses}
+                                    rotation={secondaryRotation}
+                                    externalPattern={secondaryPattern.length > 0 ? secondaryPattern : null}
+                                    color="#4ade80"
+                                    label="SECONDARY"
+                                    currentStep={totalSteps}
+                                    radius={120}
+                                />
+                            {/if}
                         </div>
                         <p class="text-xs text-center text-neutral-500 mt-4">
                             {#if algorithm === 0}
