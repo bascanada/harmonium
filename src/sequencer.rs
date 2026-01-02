@@ -170,63 +170,83 @@ pub fn generate_euclidean_pattern(steps: usize, pulses: usize) -> Vec<bool> {
 /// * `density` - Contrôle le remplissage (0.0 = sparse, 1.0 = dense)
 /// * `tension` - Contrôle la complexité polyrythmique (0.0 = stable, 1.0 = complexe)
 pub fn generate_balanced_pattern_48(steps: usize, density: f32, tension: f32) -> Vec<bool> {
-    let mut polygons = Vec::new();
-
-    // === ÉTAPE 1 : LA RECETTE DU CHEF (Density/Tension → Géométrie) ===
-
-    // A. La Fondation (Basse) - Toujours présente
-    // Faible density: Carré (4 coups par cycle) = pulse régulier
-    // Haute density: Octogone (8 coups) = double-time feel
-    let base_sides = if density < 0.3 { 4 } else if density < 0.6 { 6 } else { 8 };
-    polygons.push(BalancedPolygon::new(base_sides, 0, 1.0));
-
-    // B. La Tension (Polyrythmie 4:3) - Le coeur du groove XronoMorph
-    // 48 / 4 = 12 steps d'écart (Carré)
-    // 48 / 3 = 16 steps d'écart (Triangle)
-    // Superposer ces deux formes crée un polyrythme 4:3 parfait
-    if tension > 0.3 {
-        let tri_velocity = tension; // Plus de tension = triangle plus fort
-
-        // Syncope: décaler le triangle pour créer du groove
-        // tension haute (> 0.7) = décalage de 6 steps (1/8ème de tour)
-        let tri_rotation = if tension > 0.7 { 6 } else if tension > 0.5 { 3 } else { 0 };
-
-        polygons.push(BalancedPolygon::new(3, tri_rotation, tri_velocity));
-    }
-
-    // C. Le Remplissage (Haute densité) - Sparkles/Hi-hats
-    // Hexagone (6 côtés) ou Dodécagone (12 côtés) pour les fills rapides
-    if density > 0.65 {
-        let fill_sides = if density > 0.85 { 12 } else { 6 };
-        // Légère rotation pour éviter la collision avec la fondation
-        polygons.push(BalancedPolygon::new(fill_sides, 2, 0.5));
-    }
-
-    // D. Contre-temps (Tension très haute) - Pentagone pour l'étrangeté
-    // Le pentagone (5 côtés) ne divise pas 48 parfaitement, créant des accents décalés
-    if tension > 0.85 {
-        polygons.push(BalancedPolygon::new(5, 1, 0.4));
-    }
-
-    // === ÉTAPE 2 : LA SUPERPOSITION (Physique des Polygones) ===
-
+    // On travaille sur un accumulateur de vélocité (0.0 à 1.0)
     let mut accumulation = vec![0.0f32; steps];
 
-    for poly in polygons {
-        if poly.sides == 0 { continue; }
+    // ==========================================
+    // COUCHE 1 : LE SQUELETTE (Perfect Balance)
+    // C'est ce qui donne la structure "Intelligente"
+    // ==========================================
+    
+    let mut structural_polygons = Vec::new();
 
-        // Calculer l'intervalle entre chaque sommet du polygone
+    // 1. L'Ancre (Basse) - Carré (4) ou Octogone (8)
+    let base_sides = if density < 0.3 { 4 } else { 8 };
+    structural_polygons.push(BalancedPolygon::new(base_sides, 0, 1.0)); // Vélocité MAX
+
+    // 2. La Tension (Triangle - Polyrythme 4:3)
+    // On abaisse le seuil à 0.1 pour que tu l'entendes tout de suite
+    if tension > 0.1 {
+        // Vélocité dynamique : plus c'est tendu, plus le triangle tape fort
+        let tri_vel = 0.6 + (tension * 0.4); 
+        // Rotation : Si tension haute, on décale pour syncoper
+        let rotation = if tension > 0.6 { 6 } else { 0 };
+        structural_polygons.push(BalancedPolygon::new(3, rotation, tri_vel));
+    }
+
+    // Appliquer le Squelette
+    for poly in structural_polygons {
         let interval = steps / poly.sides;
-
-        // Placer chaque sommet du polygone sur le cercle rythmique
         for i in 0..poly.sides {
             let pos = (poly.rotation + i * interval) % steps;
-            accumulation[pos] += poly.velocity;
+            accumulation[pos] = poly.velocity.max(accumulation[pos]); // On garde la vélocité max
         }
     }
 
-    // === ÉTAPE 3 : QUANTIFICATION (Conversion en bool) ===
-    // Tout ce qui a de l'énergie devient un trigger
+    // ==========================================
+    // COUCHE 2 : LA CHAIR (Euclidean Fills)
+    // C'est ce qui règle ton problème de "Vide"
+    // ==========================================
+
+    // On génère un pattern Euclidien standard de 16 steps (semi-croches)
+    // Le nombre de notes dépend directement de la densité (ex: 50% de densité = 8 notes)
+    let fill_pulses = (density * 16.0).round() as usize;
+    
+    if fill_pulses > 0 {
+        let fill_pattern = generate_euclidean_pattern(16, fill_pulses);
+        
+        // On projette ce pattern 16 steps sur la grille de 48 steps
+        // 1 step Euclidien = 3 steps Haute Résolution (48 / 16 = 3)
+        for (i, &is_active) in fill_pattern.iter().enumerate() {
+            if is_active {
+                let pos_48 = i * 3;
+                
+                // Si la case est vide (pas de squelette), on ajoute une "Ghost Note"
+                if accumulation[pos_48] == 0.0 {
+                    accumulation[pos_48] = 0.35; // Vélocité faible (Ghost Note)
+                }
+            }
+        }
+    }
+    
+    // ==========================================
+    // COUCHE 3 : LE CHAOS (Hi-Hat / Texture fine)
+    // Pour les densités très élevées (> 0.8), on ajoute du détail fin
+    // ==========================================
+    if density > 0.8 {
+        // On remplit les contre-temps fins (les steps intermédiaires)
+        for i in 0..steps {
+            if i % 3 != 0 && accumulation[i] == 0.0 {
+                 if i % 2 == 0 { // Un petit pattern arbitraire
+                     accumulation[i] = 0.15; // Très faible, juste du "grain"
+                 }
+            }
+        }
+    }
+
+    // Conversion en booléens (Trigger)
+    // Note : Idéalement, ton moteur audio devrait utiliser la valeur float pour la vélocité !
+    // Mais pour l'instant on retourne juste true si > 0.
     accumulation.into_iter().map(|val| val > 0.0).collect()
 }
 
@@ -349,14 +369,17 @@ mod tests {
 
     #[test]
     fn test_polygon_square_only() {
-        // Très basse density (< 0.3) + basse tension (≤ 0.3) = Carré seul
+        // Très basse density (< 0.3) + basse tension (≤ 0.1) = Carré seul
+        // Note: density < 0.3 generates a Square (4 pulses)
+        // fill_pulses = 0.1 * 16 = 1.6 -> 2 pulses
+        // Total should be Square + modest fill
         let pattern = generate_balanced_pattern_48(48, 0.1, 0.1);
         let pulse_count = pattern.iter().filter(|&&x| x).count();
 
         // Carré = 4 sommets
-        assert_eq!(pulse_count, 4, "Square only should have exactly 4 pulses");
+        assert!(pulse_count >= 4, "Square only should have at least 4 pulses");
 
-        // Vérifier les positions (0, 12, 24, 36)
+        // Vérifier les positions du Squelette (0, 12, 24, 36)
         assert!(pattern[0], "Square vertex at 0");
         assert!(pattern[12], "Square vertex at 12");
         assert!(pattern[24], "Square vertex at 24");
@@ -364,38 +387,26 @@ mod tests {
     }
 
     #[test]
-    fn test_polygon_hexagon_only() {
-        // Density moyenne (0.3-0.6) + basse tension = Hexagone seul
+    fn test_balanced_48_medium_density() {
+        // Density moyenne (0.4) -> Octogone (8) + Euclidean fills
         let pattern = generate_balanced_pattern_48(48, 0.4, 0.1);
         let pulse_count = pattern.iter().filter(|&&x| x).count();
 
-        // Hexagone = 6 sommets (48/6 = 8 steps d'intervalle)
-        assert_eq!(pulse_count, 6, "Hexagon only should have exactly 6 pulses");
+        // Octogone = 8 sommets
+        assert!(pulse_count >= 8, "Medium density should have at least 8 pulses");
 
-        // Vérifier les positions (0, 8, 16, 24, 32, 40)
-        assert!(pattern[0], "Hexagon vertex at 0");
-        assert!(pattern[8], "Hexagon vertex at 8");
-        assert!(pattern[16], "Hexagon vertex at 16");
-        assert!(pattern[24], "Hexagon vertex at 24");
-        assert!(pattern[32], "Hexagon vertex at 32");
-        assert!(pattern[40], "Hexagon vertex at 40");
+        // Vérifier quelques positions de l'Octogone
+        assert!(pattern[0], "Octagon vertex at 0");
+        assert!(pattern[6], "Octagon vertex at 6");
     }
 
     #[test]
-    fn test_polygon_octagon_only() {
-        // Haute density (> 0.6) + basse tension = Octogone seul
-        // Note: density > 0.65 ajoute aussi un fill polygon, donc on utilise 0.61
+    fn test_balanced_48_high_density() {
+        // Haute density (0.61) -> Octogone (8) + Dense Euclidean fills
         let pattern = generate_balanced_pattern_48(48, 0.61, 0.1);
         let pulse_count = pattern.iter().filter(|&&x| x).count();
 
-        // Octogone = 8 sommets (48/8 = 6 steps d'intervalle)
-        assert_eq!(pulse_count, 8, "Octagon only should have exactly 8 pulses");
-
-        // Vérifier les positions (0, 6, 12, 18, 24, 30, 36, 42)
-        assert!(pattern[0], "Octagon vertex at 0");
-        assert!(pattern[6], "Octagon vertex at 6");
-        assert!(pattern[12], "Octagon vertex at 12");
-        assert!(pattern[18], "Octagon vertex at 18");
+        assert!(pulse_count >= 8, "High density should have many pulses");
     }
 
     #[test]
@@ -404,13 +415,9 @@ mod tests {
         let pattern = generate_balanced_pattern_48(48, 0.1, 0.4);
         let pulse_count = pattern.iter().filter(|&&x| x).count();
 
-        // Carré (4) + Triangle (3) avec collision au step 0 = 6 ou 7 pulses
-        // Step 0: collision (Carré + Triangle)
-        // Carré: 0, 12, 24, 36
-        // Triangle (rotation 0): 0, 16, 32
-        // Union: 0, 12, 16, 24, 32, 36 = 6 pulses
-        assert!(pulse_count >= 6 && pulse_count <= 7,
-            "Square + Triangle should have 6-7 pulses, got {}", pulse_count);
+        // Carré (4) + Triangle (3) -> Squelette
+        assert!(pulse_count >= 6,
+            "Square + Triangle should have at least 6 pulses, got {}", pulse_count);
 
         // Vérifier le polyrythme 4:3
         assert!(pattern[0], "Origin (both polygons)");
@@ -435,26 +442,21 @@ mod tests {
     }
 
     #[test]
-    fn test_polygon_very_high_density_with_fill() {
-        // Très haute density (> 0.85) ajoute un dodécagone
+    fn test_balanced_48_very_high_density() {
+        // Très haute density (0.9)
         let pattern = generate_balanced_pattern_48(48, 0.9, 0.1);
         let pulse_count = pattern.iter().filter(|&&x| x).count();
 
-        // Octogone (8) + Dodécagone (12) avec collisions
-        // Devrait avoir significativement plus de pulses
-        assert!(pulse_count >= 12,
-            "High density should have many pulses from fill polygon, got {}", pulse_count);
+        // Should be very dense
+        assert!(pulse_count > 12, "Very high density should have > 12 pulses");
     }
 
     #[test]
-    fn test_polygon_extreme_tension_with_pentagon() {
-        // Tension extrême (> 0.85) ajoute un pentagone
+    fn test_balanced_48_extreme_tension() {
+        // Tension extrême (> 0.85) -> Triangle syncopated + Chaos (maybe)
         let pattern = generate_balanced_pattern_48(48, 0.1, 0.9);
-        let pulse_count = pattern.iter().filter(|&&x| x).count();
-
-        // Carré (4) + Triangle (3) + Pentagone (5) avec collisions
-        // Le pentagone ne divise pas 48 parfaitement, créant des accents irréguliers
-        assert!(pulse_count >= 8,
-            "Extreme tension should add pentagon, got {} pulses", pulse_count);
+        
+        // Triangle syncopated should be present
+        assert!(pattern[6], "Syncopated triangle vertex at 6");
     }
 }

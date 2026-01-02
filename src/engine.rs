@@ -178,6 +178,7 @@ pub struct HarmoniumEngine {
     distortion: Shared,
     fm_ratio: Shared,      // Ratio modulateur/carrier (1.0 = unison, 2.0 = octave)
     fm_amount: Shared,     // Profondeur de modulation FM (0.0 = off, 1.0 = intense)
+    timbre_mix: Shared,    // 0.0 = Organique, 1.0 = FM
     reverb_mix: Shared,    // Dry/wet reverb (0.0 = sec, 1.0 = 100% reverb)
     sample_counter: usize,
     samples_per_step: usize,
@@ -236,25 +237,49 @@ impl HarmoniumEngine {
         let distortion = shared(0.0);
         let fm_ratio = shared(2.0);     // Départ: octave (son de cloche)
         let fm_amount = shared(0.3);    // Modulation FM modérée
+        let timbre_mix = shared(0.0);   // 0.0 = Organique, 1.0 = FM
         let reverb_mix = shared(0.25);  // 25% reverb
 
         // === PATCH DSP: DEUX INSTRUMENTS SÉPARÉS ===
         
-        // --- INSTRUMENT 1: LEAD (Aérien, FM, Reverb) ---
-        // A. Oscillateurs FM (comme avant mais pour le lead)
-        let modulator_freq_lead = var(&frequency_lead) * var(&fm_ratio);
+        // --- INSTRUMENT 1: LEAD (Dual Engine: FM + Organic) ---
+        
+        // 0. Imperfection ("Drift")
+        // LFO très lent (0.3 Hz) pour faire vibrer la fréquence (±2 Hz)
+        let drift_lfo = lfo(|t| (t * 0.3).sin() * 2.0); 
+        let frequency_lead_drift = var(&frequency_lead) + drift_lfo;
+
+        // A. MOTEUR 1 : FM (Froid/Tendu)
+        let modulator_freq_lead = frequency_lead_drift.clone() * var(&fm_ratio);
         let modulator_lead = modulator_freq_lead >> sine();
-        let carrier_freq_lead = var(&frequency_lead) + (modulator_lead * var(&fm_amount) * var(&frequency_lead));
+        let carrier_freq_lead = frequency_lead_drift.clone() + (modulator_lead * var(&fm_amount) * frequency_lead_drift.clone());
         let carrier_lead = carrier_freq_lead >> saw();
+        let fm_voice = carrier_lead;
+
+        // B. MOTEUR 2 : ORGANIQUE (Chaud/Doux)
+        // Onde Triangle (flute) + Square (clarinette)
+        let osc_organic = (frequency_lead_drift.clone() >> triangle()) * 0.8 
+                        + (frequency_lead_drift.clone() >> square()) * 0.2;
         
-        // B. Enveloppe ADSR fluide pour le lead
+        // Ajout de "Souffle" (Breath noise) - Boosté pour être audible
+        let breath = (noise() >> lowpass_hz(2000.0, 0.5)) * 0.15;
+        let organic_raw = osc_organic + breath;
+        
+        // Filtre plus doux pour le son organique
+        let organic_voice = organic_raw >> lowpass_hz(1200.0, 1.0);
+
+        // C. Enveloppe ADSR partagée
         let envelope_lead = var(&gate_lead) >> adsr_live(0.005, 0.2, 0.5, 0.15);
-        let voice_lead = carrier_lead * envelope_lead;
+
+        // D. MIXAGE FINAL (Crossfade)
+        let hybrid_lead_raw = (organic_voice * (1.0 - var(&timbre_mix))) 
+                            + (fm_voice * var(&timbre_mix));
         
-        // C. Filtrage dynamique
-        let filtered_lead = voice_lead >> lowpass_hz(2000.0, 1.0);
-        
-        // D. Pan légèrement à droite pour séparation stéréo
+        let hybrid_lead = hybrid_lead_raw * envelope_lead;
+
+        // E. Filtrage global DYNAMIQUE
+        // Le filtre s'ouvre avec la Tension (via cutoff)
+        let filtered_lead = (hybrid_lead | var(&cutoff) | var(&resonance)) >> lowpass();
         let lead_output = filtered_lead >> pan(0.3);
         
         // --- INSTRUMENT 2: BASSE (Solide, Simple, Sub) ---
@@ -336,6 +361,7 @@ impl HarmoniumEngine {
             distortion,
             fm_ratio,
             fm_amount,
+            timbre_mix,
             reverb_mix,
             sample_counter: 0,
             samples_per_step,
@@ -402,6 +428,12 @@ impl HarmoniumEngine {
         // Profondeur de modulation FM: plus de tension = plus d'inharmonicité
         let target_fm_amount = self.current_state.tension * 0.8; // 0.0 → 0.8
         self.fm_amount.set_value(target_fm_amount);
+
+        // C1b. TENSION -> Timbre Mix (Organique vs FM)
+        // Tension basse = Organique (0.0), Tension haute = FM (1.0)
+        // On utilise une courbe linéaire pour une transition claire
+        let target_timbre_mix = self.current_state.tension.clamp(0.0, 1.0);
+        self.timbre_mix.set_value(target_timbre_mix);
         
         // C2. VALENCE → Spatial Depth (espace sonore)
         // Valence positive: son ouvert, spacieux (plus de reverb)
