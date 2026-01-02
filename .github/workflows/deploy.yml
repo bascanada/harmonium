@@ -31,6 +31,12 @@ jobs:
       - name: Install wasm-pack
         uses: jetli/wasm-pack-action@v0.4.0
 
+      - name: Install Hugging Face CLI
+        run: pip install huggingface_hub
+
+      - name: Download Model
+        run: make models/download
+
       - name: Build WASM
         run: make wasm/build
 
