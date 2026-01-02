@@ -1,5 +1,5 @@
 use fundsp::hacker32::*;
-use crate::sequencer::{Sequencer, RhythmMode};
+use crate::sequencer::{Sequencer, RhythmMode, StepTrigger};
 use crate::harmony::HarmonyNavigator;
 use crate::progression::{Progression, ChordStep, ChordQuality};
 use crate::log;
@@ -12,7 +12,7 @@ use serde::{Serialize, Deserialize};
 #[derive(Clone, Debug)]
 pub struct VisualizationEvent {
     pub note_midi: u8,
-    pub instrument: u8, // 0 = Bass, 1 = Lead
+    pub instrument: u8, // 0=Bass, 1=Lead, 2=Snare, 3=Hat
     pub step: usize,
     pub duration_samples: usize,
 }
@@ -172,6 +172,9 @@ pub struct HarmoniumEngine {
     // === BASSE (Fondation) ===
     frequency_bass: Shared,
     gate_bass: Shared,
+    // === BATTERIE (Nouveau) ===
+    gate_snare: Shared,
+    gate_hat: Shared,
     // === EFFETS GLOBAUX ===
     cutoff: Shared,
     resonance: Shared,
@@ -193,13 +196,15 @@ pub struct HarmoniumEngine {
     // === ARTICULATION DYNAMIQUE (Anti-Legato) ===
     gate_timer_lead: usize,               // Compteur dégressif pour la durée de la note lead
     gate_timer_bass: usize,               // Compteur dégressif pour la durée de la note basse
+    gate_timer_snare: usize,
+    gate_timer_hat: usize,
 }
 
 impl HarmoniumEngine {
     pub fn new(sample_rate: f64, target_state: Arc<Mutex<EngineParams>>) -> Self {
         let mut rng = rand::thread_rng();
         let initial_params = target_state.lock().unwrap().clone();
-        let bpm = initial_params.compute_bpm(); // Calculé depuis arousal!
+        let bpm = initial_params.compute_bpm();
         let steps = 16;
         let initial_pulses = std::cmp::min((initial_params.density * 11.0) as usize + 1, 16);
         let keys = [PitchSymbol::C, PitchSymbol::D, PitchSymbol::E, PitchSymbol::F, PitchSymbol::G, PitchSymbol::A, PitchSymbol::B];
@@ -215,127 +220,89 @@ impl HarmoniumEngine {
             steps,
         };
 
-        log::info(&format!("Session: {} {} | BPM: {:.1} | Pulses: {}/{}", config.key, config.scale, bpm, initial_pulses, steps));
+        log::info(&format!("Session: {} {} | BPM: {:.1}", config.key, config.scale, bpm));
 
-        // État harmonique partagé pour l'UI
         let harmony_state = Arc::new(Mutex::new(HarmonyState::default()));
         let event_queue = Arc::new(Mutex::new(Vec::new()));
 
-        // 1. Setup Audio Graph avec DEUX INSTRUMENTS SÉPARÉS
+        // === 1. DSP GRAPH CONSTRUCTION ===
         
-        // --- LEAD (Mélodie/Harmonies) ---
+        // Paramètres partagés
         let frequency_lead = shared(440.0);
         let gate_lead = shared(0.0);
-        
-        // --- BASSE (Fondation) ---
         let frequency_bass = shared(110.0);
         let gate_bass = shared(0.0);
+        let gate_snare = shared(0.0);
+        let gate_hat = shared(0.0);
         
-        // --- EFFETS GLOBAUX ---
         let cutoff = shared(1000.0);
         let resonance = shared(1.0);
         let distortion = shared(0.0);
-        let fm_ratio = shared(2.0);     // Départ: octave (son de cloche)
-        let fm_amount = shared(0.3);    // Modulation FM modérée
-        let timbre_mix = shared(0.0);   // 0.0 = Organique, 1.0 = FM
-        let reverb_mix = shared(0.25);  // 25% reverb
+        let fm_ratio = shared(2.0);
+        let fm_amount = shared(0.3);
+        let timbre_mix = shared(0.0);
+        let reverb_mix = shared(0.25);
 
-        // === PATCH DSP: DEUX INSTRUMENTS SÉPARÉS ===
-        
-        // --- INSTRUMENT 1: LEAD (Dual Engine: FM + Organic) ---
-        
-        // 0. Imperfection ("Drift")
-        // LFO très lent (0.3 Hz) pour faire vibrer la fréquence (±2 Hz)
+        // --- INSTRUMENT 1: LEAD (FM/Organic Hybrid) ---
         let drift_lfo = lfo(|t| (t * 0.3).sin() * 2.0); 
-        let frequency_lead_drift = var(&frequency_lead) + drift_lfo;
+        let freq_lead_mod = var(&frequency_lead) + drift_lfo;
 
-        // A. MOTEUR 1 : FM (Froid/Tendu)
-        let modulator_freq_lead = frequency_lead_drift.clone() * var(&fm_ratio);
-        let modulator_lead = modulator_freq_lead >> sine();
-        let carrier_freq_lead = frequency_lead_drift.clone() + (modulator_lead * var(&fm_amount) * frequency_lead_drift.clone());
-        let carrier_lead = carrier_freq_lead >> saw();
-        let fm_voice = carrier_lead;
+        // FM Path
+        let mod_freq = freq_lead_mod.clone() * var(&fm_ratio);
+        let modulator = mod_freq >> sine();
+        let car_freq = freq_lead_mod.clone() + (modulator * var(&fm_amount) * freq_lead_mod.clone());
+        let fm_voice = car_freq >> saw();
 
-        // B. MOTEUR 2 : ORGANIQUE (Chaud/Doux)
-        // Onde Triangle (flute) + Square (clarinette)
-        let osc_organic = (frequency_lead_drift.clone() >> triangle()) * 0.8 
-                        + (frequency_lead_drift.clone() >> square()) * 0.2;
-        
-        // Ajout de "Souffle" (Breath noise) - Boosté pour être audible
+        // Organic Path
+        let osc_organic = (freq_lead_mod.clone() >> triangle()) * 0.8 
+                        + (freq_lead_mod.clone() >> square()) * 0.2;
         let breath = (noise() >> lowpass_hz(2000.0, 0.5)) * 0.15;
-        let organic_raw = osc_organic + breath;
-        
-        // Filtre plus doux pour le son organique
-        let organic_voice = organic_raw >> lowpass_hz(1200.0, 1.0);
+        let organic_voice = (osc_organic + breath) >> lowpass_hz(1200.0, 1.0);
 
-        // C. Enveloppe ADSR partagée
-        let envelope_lead = var(&gate_lead) >> adsr_live(0.005, 0.2, 0.5, 0.15);
+        // Mix & Envelope
+        let env_lead = var(&gate_lead) >> adsr_live(0.005, 0.2, 0.5, 0.15);
+        let lead_mix = (organic_voice * (1.0 - var(&timbre_mix))) + (fm_voice * var(&timbre_mix));
+        let lead_out = (lead_mix * env_lead | var(&cutoff) | var(&resonance)) >> lowpass() >> pan(0.3);
 
-        // D. MIXAGE FINAL (Crossfade)
-        let hybrid_lead_raw = (organic_voice * (1.0 - var(&timbre_mix))) 
-                            + (fm_voice * var(&timbre_mix));
-        
-        let hybrid_lead = hybrid_lead_raw * envelope_lead;
+        // --- INSTRUMENT 2: BASS ---
+        let bass_osc = (var(&frequency_bass) >> sine()) * 0.7 + (var(&frequency_bass) >> saw()) * 0.3;
+        let env_bass = var(&gate_bass) >> adsr_live(0.005, 0.1, 0.6, 0.1);
+        let bass_out = ((bass_osc * env_bass) >> lowpass_hz(800.0, 0.5)) >> pan(0.0);
 
-        // E. Filtrage global DYNAMIQUE
-        // Le filtre s'ouvre avec la Tension (via cutoff)
-        let filtered_lead = (hybrid_lead | var(&cutoff) | var(&resonance)) >> lowpass();
-        let lead_output = filtered_lead >> pan(0.3);
-        
-        // --- INSTRUMENT 2: BASSE (Solide, Simple, Sub) ---
-        // --- INSTRUMENT 2: BASSE (Modifié pour plus de présence) ---
-        // A. Oscillateurs: Sine pur (Sub) + Saw filtrée (Texture)
-        let bass_sub = var(&frequency_bass) >> sine();
-        // On ajoute un peu de Saw pour que la basse perce le mix, pas juste du "boum"
-        let bass_texture = var(&frequency_bass) >> saw(); 
-        let bass_osc = bass_sub * 0.7 + bass_texture * 0.3;
-        
-        // B. Enveloppe: On utilise la MÊME sortie d'enveloppe pour le volume et le filtre
-        let envelope_bass = var(&gate_bass) >> adsr_live(0.005, 0.1, 0.6, 0.1);
-        
-        // C. Filtre DYNAMIQUE (Wah): Le filtre s'ouvre quand la note frappe
-        // Cutoff de base (300Hz) + Modulation par l'enveloppe (jusqu'à 1000Hz)
-        // let bass_filter_freq = 300.0 + (envelope_bass.clone() * 1000.0); // Note: fundsp gère ça différemment
-        // Pour simplifier avec fundsp statique, on garde un lowpass fixe mais plus ouvert
-        let filtered_bass = (bass_osc * envelope_bass) >> lowpass_hz(800.0, 0.5); 
-        
-        // D. PANNING: BASSE AU CENTRE (0.0) ! C'est vital pour l'énergie.
-        let bass_output = filtered_bass >> pan(0.0);
-        
+        // --- INSTRUMENT 3: SNARE (Noise Burst + Tone) ---
+        // Bruit blanc filtré passe-bande pour le "claquement"
+        let snare_noise = noise() >> bandpass_hz(1500.0, 0.8);
+        // Onde triangle rapide pour le corps (pitch drop rapide)
+        // Note: fundsp statique limite les env de pitch complexes, on fait simple
+        let snare_tone = sine_hz(180.0) >> saw(); 
+        let snare_src = (snare_noise * 0.8) + (snare_tone * 0.2);
+        let env_snare = var(&gate_snare) >> adsr_live(0.001, 0.1, 0.0, 0.1);
+        let snare_out = (snare_src * env_snare) >> pan(-0.2);
+
+        // --- INSTRUMENT 4: HAT (High Frequency Noise) ---
+        // Bruit rose filtré passe-haut
+        let hat_src = noise() >> highpass_hz(6000.0, 0.8);
+        // Enveloppe très courte
+        let env_hat = var(&gate_hat) >> adsr_live(0.001, 0.05, 0.0, 0.05);
+        let hat_out = (hat_src * env_hat * 0.4) >> pan(0.2);
+
         // --- MIXAGE FINAL ---
-        let mix = lead_output + bass_output;
+        let mix = lead_out + bass_out + snare_out + hat_out;
         
-        // Note: Pour l'instant, on ne met pas de reverb globale sur le mix final 
-        // pour éviter les erreurs de type complexes avec fundsp (stéréo vs mono).
-        // La reverb est déjà appliquée sur le Lead (via spatial).
-        // La basse reste sèche et centrée, ce qui est mieux pour le mix.
-        let node = mix;
-        
-        // Si on veut vraiment de la reverb globale, il faut un graph stéréo complexe
-        // Pour l'instant, la reverb est déjà dans le patch Lead (via spatial)
-        // On va ajouter un peu de reverb sur la basse si nécessaire, mais généralement la basse est sèche.
-        
-        let node = BlockRateAdapter::new(Box::new(node), sample_rate);
+        let node = BlockRateAdapter::new(Box::new(mix), sample_rate);
 
-        // 2. Setup Logic Components - POLYRYTHMIE
-        // Séquenceur principal: 16 steps (cycle standard)
+        // Séquenceurs
         let sequencer_primary = Sequencer::new(steps, initial_pulses, bpm);
-        
-        // Séquenceur secondaire: 12 steps (déphasage à la Steve Reich)
-        // Ratio 16:12 = 4:3 - crée un cycle complet tous les 48 steps
         let secondary_pulses = std::cmp::min((initial_params.density * 8.0) as usize + 1, 12);
         let sequencer_secondary = Sequencer::new_with_rotation(12, secondary_pulses, bpm, 0);
         
         let harmony = HarmonyNavigator::new(random_key, random_scale, 4);
-
         let samples_per_step = (sample_rate * 60.0 / (bpm as f64) / 4.0) as usize;
 
-        // === PROGRESSION HARMONIQUE INITIALE ===
-        // Commencer avec une progression basée sur l'état émotionnel initial
+        // Progression initiale
         let current_progression = Progression::get_palette(initial_params.valence, initial_params.tension);
         let progression_name = Progression::get_progression_name(initial_params.valence, initial_params.tension);
         
-        // Initialiser harmony_state avec la progression initiale
         {
             let mut state = harmony_state.lock().unwrap();
             state.progression_name = progression_name.to_string();
@@ -352,17 +319,11 @@ impl HarmoniumEngine {
             sequencer_secondary,
             harmony,
             node,
-            frequency_lead,
-            gate_lead,
-            frequency_bass,
-            gate_bass,
-            cutoff,
-            resonance,
-            distortion,
-            fm_ratio,
-            fm_amount,
-            timbre_mix,
-            reverb_mix,
+            frequency_lead, gate_lead,
+            frequency_bass, gate_bass,
+            gate_snare, gate_hat, // Nouveaux champs
+            cutoff, resonance, distortion,
+            fm_ratio, fm_amount, timbre_mix, reverb_mix,
             sample_counter: 0,
             samples_per_step,
             last_pulse_count: initial_pulses,
@@ -374,399 +335,207 @@ impl HarmoniumEngine {
             last_tension_choice: initial_params.tension,
             gate_timer_lead: 0,
             gate_timer_bass: 0,
+            gate_timer_snare: 0,
+            gate_timer_hat: 0,
         }
     }
 
     pub fn process(&mut self) -> (f32, f32) {
-        // === ÉTAPE A: Récupérer l'état cible (Target) ===
-        let target = {
-            self.target_state.lock().unwrap().clone()
-        }; // Lock relâché immédiatement
+        let target = self.target_state.lock().unwrap().clone();
         
-        // === GESTION DES GATE TIMERS (ARTICULATION) ===
-        // Timer LEAD (Mélodie)
-        if self.gate_timer_lead > 0 {
-            self.gate_timer_lead -= 1;
-            if self.gate_timer_lead == 0 {
-                self.gate_lead.set_value(0.0);
-            }
-        }
-        
-        // Timer BASS (Fondation)
-        if self.gate_timer_bass > 0 {
-            self.gate_timer_bass -= 1;
-            if self.gate_timer_bass == 0 {
-                self.gate_bass.set_value(0.0);
-            }
-        }
+        // === GESTION DES GATES ===
+        if self.gate_timer_lead > 0 { self.gate_timer_lead -= 1; if self.gate_timer_lead == 0 { self.gate_lead.set_value(0.0); } }
+        if self.gate_timer_bass > 0 { self.gate_timer_bass -= 1; if self.gate_timer_bass == 0 { self.gate_bass.set_value(0.0); } }
+        if self.gate_timer_snare > 0 { self.gate_timer_snare -= 1; if self.gate_timer_snare == 0 { self.gate_snare.set_value(0.0); } }
+        if self.gate_timer_hat > 0 { self.gate_timer_hat -= 1; if self.gate_timer_hat == 0 { self.gate_hat.set_value(0.0); } }
 
-        // === ÉTAPE B: MORPHING - Interpolation linéaire (Lerp) ===
-        // Facteurs de lissage (plus petit = plus fluide/lent)
-        const AROUSAL_SMOOTHING: f32 = 0.06;
-        const VALENCE_SMOOTHING: f32 = 0.04;  // Lent pour transitions harmoniques douces
-        const DENSITY_SMOOTHING: f32 = 0.02;  // Plus lent pour éviter les changements brusques
-        const TENSION_SMOOTHING: f32 = 0.08;  // Plus rapide pour la réactivité du timbre
-        const SMOOTHNESS_SMOOTHING: f32 = 0.05;
-
-        self.current_state.arousal += (target.arousal - self.current_state.arousal) * AROUSAL_SMOOTHING;
-        self.current_state.valence += (target.valence - self.current_state.valence) * VALENCE_SMOOTHING;
-        self.current_state.density += (target.density - self.current_state.density) * DENSITY_SMOOTHING;
-        self.current_state.tension += (target.tension - self.current_state.tension) * TENSION_SMOOTHING;
-        self.current_state.smoothness += (target.smoothness - self.current_state.smoothness) * SMOOTHNESS_SMOOTHING;
-
-        // Calculer le BPM depuis l'arousal (activation émotionnelle)
+        // === MORPHING ===
+        self.current_state.arousal += (target.arousal - self.current_state.arousal) * 0.06;
+        self.current_state.valence += (target.valence - self.current_state.valence) * 0.04;
+        self.current_state.density += (target.density - self.current_state.density) * 0.02;
+        self.current_state.tension += (target.tension - self.current_state.tension) * 0.08;
+        self.current_state.smoothness += (target.smoothness - self.current_state.smoothness) * 0.05;
         let target_bpm = target.compute_bpm();
         self.current_state.bpm += (target_bpm - self.current_state.bpm) * 0.05;
-        // === ÉTAPE C: Mise à jour DSP (Timbre Dynamique) ===
-        
-        // C1. TENSION → FM Synthesis (brillance spectrale)
-        // Faible tension: FM ratio proche de 1.0 (son doux, peu d'harmoniques)
-        // Haute tension: FM ratio 3-5 (son métallique, cloche, bell-like)
-        let target_fm_ratio = 1.0 + (self.current_state.tension * 4.0); // 1.0 → 5.0
-        self.fm_ratio.set_value(target_fm_ratio);
-        
-        // Profondeur de modulation FM: plus de tension = plus d'inharmonicité
-        let target_fm_amount = self.current_state.tension * 0.8; // 0.0 → 0.8
-        self.fm_amount.set_value(target_fm_amount);
 
-        // C1b. TENSION -> Timbre Mix (Organique vs FM)
-        // Tension basse = Organique (0.0), Tension haute = FM (1.0)
-        // On utilise une courbe linéaire pour une transition claire
-        let target_timbre_mix = self.current_state.tension.clamp(0.0, 1.0);
-        self.timbre_mix.set_value(target_timbre_mix);
+        // === DSP UPDATES ===
+        self.fm_ratio.set_value(1.0 + (self.current_state.tension * 4.0));
+        self.fm_amount.set_value(self.current_state.tension * 0.8);
+        self.timbre_mix.set_value(self.current_state.tension.clamp(0.0, 1.0));
+        self.cutoff.set_value(500.0 + (self.current_state.tension * 3500.0));
+        self.resonance.set_value(1.0 + (self.current_state.tension * 4.0));
         
-        // C2. VALENCE → Spatial Depth (espace sonore)
-        // Valence positive: son ouvert, spacieux (plus de reverb)
-        // Valence négative: son fermé, intime (sec)
-        let target_reverb = 0.1 + (self.current_state.valence.abs() * 0.4); // 10% → 50%
-        self.reverb_mix.set_value(target_reverb);
-        
-        // C3. AROUSAL → Attack Time (réactivité)
-        // (Note: pour l'instant ADSR est fixe dans le graph, mais on pourrait le rendre variable)
-        
-        // Mapping Tension -> Cutoff (500Hz à 4000Hz)
-        let target_cutoff = 500.0 + (self.current_state.tension * 3500.0);
-        self.cutoff.set_value(target_cutoff);
+        // Restored missing DSP updates
+        self.distortion.set_value(self.current_state.arousal * 0.8);
+        self.reverb_mix.set_value(0.1 + (self.current_state.valence.abs() * 0.4));
 
-        // Mapping Tension -> Résonance (1.0 à 5.0)
-        let target_resonance = 1.0 + (self.current_state.tension * 4.0);
-        self.resonance.set_value(target_resonance);
-
-        // Mapping Arousal -> Distortion (0.0 à 0.8)
-        let target_distortion = self.current_state.arousal * 0.8;
-        self.distortion.set_value(target_distortion);
-
-        // === ÉTAPE D: Mise à jour Séquenceurs (Logique Rythmique + Polyrythmie) ===
-
-        // D0. GESTION DU CHANGEMENT DE MODE (Strategy Pattern)
-        // Vérifie si l'algorithme a changé (Euclidean ↔ PerfectBalance)
+        // === LOGIQUE SÉQUENCEUR ===
         let target_algo = target.algorithm;
         let mode_changed = self.sequencer_primary.mode != target_algo;
+        
         if mode_changed {
             self.sequencer_primary.mode = target_algo;
-
-            // Si on passe en PerfectBalance, on UPGRADE la résolution à 48 steps
-            // C'est le "nombre magique" pour les polyrythmes parfaits (4:3)
             if target_algo == RhythmMode::PerfectBalance {
                 self.sequencer_primary.upgrade_to_48_steps();
-                log::info("🚀 UPGRADE: Sequencer resolution -> 48 steps (High Precision Polyrhythm)");
-            } else {
-                // Retour en Euclidean: on garde 48 steps (compatible) ou on revient à 16
-                // Pour éviter les glitches, on garde la haute résolution
-                // L'algo Euclidean fonctionne avec n'importe quel nombre de steps
             }
         }
 
-        // D1. Density → Pulses (pour mode Euclidean)
-        let target_pulses = if self.sequencer_primary.mode == RhythmMode::Euclidean {
-            std::cmp::min((self.current_state.density * 11.0) as usize + 1, self.sequencer_primary.steps)
-        } else {
-            // En mode PerfectBalance, les pulses sont calculés par l'algorithme géométrique
-            self.sequencer_primary.pulses
-        };
-
-        // D2. Tension → Rotation (géométrie rythmique à la Toussaint)
-        // Plus de tension = plus de décalage rythmique (transformation Necklace → Bracelet)
+        // Rotation Logic (Restored)
         let max_rotation = if self.sequencer_primary.mode == RhythmMode::PerfectBalance { 24 } else { 8 };
         let target_rotation = (self.current_state.tension * max_rotation as f32) as usize;
 
-        // Régénérer pattern principal si:
-        // - Mode a changé (besoin de recalculer avec le nouvel algorithme)
-        // - Pulses changent (mode Euclidean)
-        // - Density/tension changent (mode PerfectBalance - régénération continue)
-        // IMPORTANT: Comparer AVANT de mettre à jour les valeurs du séquenceur!
+        // Regeneration Logic
+        let target_pulses = if self.sequencer_primary.mode == RhythmMode::Euclidean {
+            std::cmp::min((self.current_state.density * 11.0) as usize + 1, self.sequencer_primary.steps)
+        } else {
+            self.sequencer_primary.pulses
+        };
+
         let needs_regen = mode_changed || if self.sequencer_primary.mode == RhythmMode::Euclidean {
             target_pulses != self.last_pulse_count
         } else {
-            // En PerfectBalance, on régénère si density ou tension ont significativement changé
             (self.current_state.density - self.sequencer_primary.density).abs() > 0.05 ||
             (self.current_state.tension - self.sequencer_primary.tension).abs() > 0.05
         };
 
         if needs_regen {
-            // D0.5. Mettre à jour les paramètres du séquenceur AVANT régénération
-            // Ces valeurs sont utilisées par generate_balanced_pattern_48
             self.sequencer_primary.tension = self.current_state.tension;
             self.sequencer_primary.density = self.current_state.density;
             self.sequencer_primary.pulses = target_pulses;
-
             self.sequencer_primary.regenerate_pattern();
             self.last_pulse_count = target_pulses;
-
-            if self.sequencer_primary.mode == RhythmMode::PerfectBalance {
-                log::info(&format!("🔷 Morphing Geometry -> Density: {:.2} | Tension: {:.2} | 48 Steps",
-                    self.current_state.density, self.current_state.tension));
-            } else {
-                log::info(&format!("🔄 Morphing Rhythm -> Pulses: {} | BPM: {:.1}", target_pulses, self.current_state.bpm));
-            }
         }
 
-        // Appliquer rotation si tension change
         if target_rotation != self.last_rotation {
             self.sequencer_primary.set_rotation(target_rotation);
             self.last_rotation = target_rotation;
-            log::info(&format!("🔀 Rotation shift: {} steps (Tension: {:.2})", target_rotation, self.current_state.tension));
         }
 
-        // D3. Mettre à jour le séquenceur secondaire (polyrythmie 12 steps)
-        // En mode PerfectBalance, le séquenceur secondaire devient moins important
-        // car le polyrythme est déjà intégré dans les 48 steps
+        // Secondary Sequencer Logic (Restored)
         let secondary_pulses = std::cmp::min((self.current_state.density * 8.0) as usize + 1, 12);
         if secondary_pulses != self.sequencer_secondary.pulses {
             self.sequencer_secondary.pulses = secondary_pulses;
-            // Rotation inversée pour créer un déphasage intéressant
             self.sequencer_secondary.set_rotation(8 - (target_rotation % 8));
             self.sequencer_secondary.regenerate_pattern();
         }
 
-        // Mise à jour du timing (samples_per_step basé sur le BPM actuel et le nombre de steps)
-        // En mode 48 steps: on divise par 12 au lieu de 4 pour garder la même durée de mesure
-        // 48 steps / 4 beats = 12 steps par beat (au lieu de 4 en mode 16 steps)
+        // Timing
         let steps_per_beat = (self.sequencer_primary.steps / 4) as f64;
         let new_samples_per_step = (self.node.sample_rate() * 60.0 / (self.current_state.bpm as f64) / steps_per_beat) as usize;
-        if new_samples_per_step != self.samples_per_step {
-            self.samples_per_step = new_samples_per_step;
-        }
+        if new_samples_per_step != self.samples_per_step { self.samples_per_step = new_samples_per_step; }
 
-        // === ÉTAPE E: Logique de Tick des Séquenceurs (Polyrythmie + Progression Harmonique) ===
+        // === TICK ===
         if self.sample_counter >= self.samples_per_step {
             self.sample_counter = 0;
             
-            // On force les Gates à 0 au début du step pour garantir le "re-trigger"
-            // si les notes précédentes étaient très longues (Legato)
-            self.gate_lead.set_value(0.0);
-            self.gate_bass.set_value(0.0);
-            
-            // Tick des séquenceurs
             let trigger_primary = self.sequencer_primary.tick();
-
-            // En mode PerfectBalance, le polyrythme est encodé dans les 48 steps du primaire
-            // Le secondaire est désactivé pour éviter le chaos (48/12 = 4 tours par mesure)
-            let trigger_secondary = if self.sequencer_primary.mode == RhythmMode::PerfectBalance {
-                false
-            } else {
+            let trigger_secondary = if self.sequencer_primary.mode == RhythmMode::Euclidean {
                 self.sequencer_secondary.tick()
+            } else {
+                StepTrigger::default()
             };
-            
-            // === PROGRESSION HARMONIQUE ADAPTATIVE ===
-            // Quand le séquenceur primaire revient au step 0, on débute une nouvelle mesure
+
+            // === HARMONY & PROGRESSION (Restored) ===
             if self.sequencer_primary.current_step == 0 {
                 self.measure_counter += 1;
                 
-                // === 1. SÉLECTION DE PALETTE (Macro-structure) ===
-                // Toutes les 4 mesures, vérifier si l'état émotionnel a suffisamment changé
-                // pour justifier un changement de progression harmonique (hystérésis)
+                // Palette Selection (Hysteresis)
                 if self.measure_counter % 4 == 0 {
                     let valence_delta = (self.current_state.valence - self.last_valence_choice).abs();
                     let tension_delta = (self.current_state.tension - self.last_tension_choice).abs();
                     
-                    // Seuil d'hystérésis: changer uniquement si déplacement significatif (> 0.4)
-                    // Évite les oscillations chaotiques entre progressions
                     if valence_delta > 0.4 || tension_delta > 0.4 {
-                        // Charger nouvelle palette basée sur l'état émotionnel actuel
-                        self.current_progression = Progression::get_palette(
-                            self.current_state.valence, 
-                            self.current_state.tension
-                        );
-                        self.progression_index = 0; // Reset au début de la nouvelle progression
-                        
-                        // Mémoriser le choix pour hystérésis
+                        self.current_progression = Progression::get_palette(self.current_state.valence, self.current_state.tension);
+                        self.progression_index = 0;
                         self.last_valence_choice = self.current_state.valence;
                         self.last_tension_choice = self.current_state.tension;
                         
-                        let prog_name = Progression::get_progression_name(
-                            self.current_state.valence, 
-                            self.current_state.tension
-                        );
-                        
-                        // Mettre à jour l'UI avec le nouveau contexte harmonique
+                        let prog_name = Progression::get_progression_name(self.current_state.valence, self.current_state.tension);
                         if let Ok(mut state) = self.harmony_state.lock() {
                             state.progression_name = prog_name.to_string();
                             state.progression_length = self.current_progression.len();
                         }
-                        
-                        log::info(&format!("🎼 New Harmonic Context: {} | Valence: {:.2}, Tension: {:.2}", 
-                                          prog_name, self.current_state.valence, self.current_state.tension));
                     }
                 }
                 
-                // === 2. AVANCEMENT DANS LA PROGRESSION (Micro-structure) ===
-                // Vitesse de changement d'accord contrôlée par tension:
-                // Haute tension (> 0.6): changements fréquents (chaque mesure)
-                // Basse tension: changements lents (toutes les 4 mesures)
+                // Chord Progression
                 let measures_per_chord = if self.current_state.tension > 0.6 { 1 } else { 2 };
-                
                 if self.measure_counter % measures_per_chord == 0 {
-                    // Avancer dans la progression actuelle (cyclique)
                     self.progression_index = (self.progression_index + 1) % self.current_progression.len();
+                    let chord = &self.current_progression[self.progression_index];
                     
-                    let current_chord = &self.current_progression[self.progression_index];
+                    self.harmony.set_chord_context(chord.root_offset, chord.quality);
+                    let chord_name = self.format_chord_name(chord.root_offset, chord.quality);
                     
-                    // === 3. APPLICATION DE L'ACCORD AU NAVIGATEUR HARMONIQUE ===
-                    self.harmony.set_chord_context(current_chord.root_offset, current_chord.quality);
-                    
-                    // Nommage des accords pour l'UI
-                    let chord_name = self.format_chord_name(current_chord.root_offset, current_chord.quality);
-                    
-                    // Mettre à jour l'état harmonique pour l'UI
                     if let Ok(mut state) = self.harmony_state.lock() {
                         state.current_chord_index = self.progression_index;
-                        state.chord_root_offset = current_chord.root_offset;
-                        state.chord_is_minor = matches!(current_chord.quality, ChordQuality::Minor);
-                        state.chord_name = chord_name.clone();
+                        state.chord_root_offset = chord.root_offset;
+                        state.chord_is_minor = matches!(chord.quality, ChordQuality::Minor);
+                        state.chord_name = chord_name;
                         state.measure_number = self.measure_counter;
-                        state.cycle_number = (self.measure_counter / (measures_per_chord * self.current_progression.len())) + 1;
-                        state.current_step = self.sequencer_primary.current_step;
                     }
-                    
-                    log::info(&format!("🎵 Chord: {} | Measure: {} | Progression: {}/{}", 
-                                      chord_name, self.measure_counter, 
-                                      self.progression_index + 1, self.current_progression.len()));
                 }
             }
-            
-            // Déterminer si on est sur un temps fort
-            // Temps forts: début de mesure, beats 1 et 3 en 4/4
-            let _is_strong_beat = self.sequencer_primary.current_step % 4 == 0;
-            
-            // Mettre à jour le step courant dans harmony_state (pour l'UI)
+
+            // UI Update
             if let Ok(mut state) = self.harmony_state.lock() {
                 state.current_step = self.sequencer_primary.current_step;
-                // Mettre à jour les infos rythmiques pour la visualisation
-                state.primary_steps = self.sequencer_primary.steps;
-                state.primary_pulses = self.sequencer_primary.pulses;
-                state.primary_rotation = self.sequencer_primary.rotation;
-                state.primary_pattern = self.sequencer_primary.pattern.clone();
-
-                state.secondary_steps = self.sequencer_secondary.steps;
-                state.secondary_pulses = self.sequencer_secondary.pulses;
-                state.secondary_rotation = self.sequencer_secondary.rotation;
-                state.secondary_pattern = self.sequencer_secondary.pattern.clone();
+                state.primary_pattern = self.sequencer_primary.pattern.iter().map(|t| t.is_any()).collect();
             }
-            
-            // === LA CLEF DU GROOVE : COHÉRENCE RYTHMIQUE ===
-            
-            // 1. BASSE : Le Pilier (Suit le rythme principal)
-            let play_bass = trigger_primary;
-            
-            // 2. LEAD : La Texture
-            // - Mode Euclidean: Lead joue sur Primary OU Secondary (polyrythme 16:12)
-            // - Mode PerfectBalance: Lead joue seulement sur Primary (polyrythme encodé dans 48 steps)
-            // Note: trigger_secondary est déjà `false` en PerfectBalance (voir ligne 531)
-            let play_lead = trigger_primary || trigger_secondary;
-            
-            // --- INSTRUMENT 1: BASSE ---
-            if play_bass {
-                // La basse joue TOUJOURS la fondamentale (root) de l'accord actuel
-                let chord_root = if let Ok(state) = self.harmony_state.lock() {
-                    state.chord_root_offset
-                } else {
-                    0
-                };
-                
-                // Convertir en fréquence MIDI (Octave basse: MIDI 36-48 = C2-C3)
-                let bass_midi = 36 + chord_root; // C2 = MIDI 36
-                let bass_freq = 440.0 * 2.0_f32.powf((bass_midi as f32 - 69.0) / 12.0);
-                
-                self.frequency_bass.set_value(bass_freq);
-                
-                // Articulation Basse : Toujours assez percussive (60% du step)
-                let mut bass_duration = (self.samples_per_step as f32 * 0.6) as usize;
-                if bass_duration < 800 { bass_duration = 800; }
-                
-                self.gate_timer_bass = bass_duration;
-                self.gate_bass.set_value(1.0);
 
-                // Event pour l'UI
-                if let Ok(mut queue) = self.event_queue.lock() {
-                    queue.push(VisualizationEvent {
-                        note_midi: bass_midi as u8,
-                        instrument: 0,
-                        step: self.sequencer_primary.current_step,
-                        duration_samples: bass_duration,
-                    });
+            // === VOICE DISTRIBUTION ===
+            
+            // 1. KICK -> BASS
+            if trigger_primary.kick {
+                let root = if let Ok(s) = self.harmony_state.lock() { s.chord_root_offset } else { 0 };
+                let midi = 36 + root;
+                let freq = 440.0 * 2.0_f32.powf((midi as f32 - 69.0) / 12.0);
+                self.frequency_bass.set_value(freq);
+                self.gate_bass.set_value(trigger_primary.velocity);
+                self.gate_timer_bass = (self.samples_per_step as f32 * 0.6) as usize;
+                
+                if let Ok(mut q) = self.event_queue.lock() {
+                    q.push(VisualizationEvent { note_midi: midi as u8, instrument: 0, step: self.sequencer_primary.current_step, duration_samples: 2000 });
                 }
             }
-            
-            // --- INSTRUMENT 2: LEAD ---
+
+            // 2. SNARE
+            if trigger_primary.snare {
+                self.gate_snare.set_value(trigger_primary.velocity);
+                self.gate_timer_snare = (self.samples_per_step as f32 * 0.3) as usize;
+                if let Ok(mut q) = self.event_queue.lock() {
+                    q.push(VisualizationEvent { note_midi: 38, instrument: 2, step: self.sequencer_primary.current_step, duration_samples: 1000 });
+                }
+            }
+
+            // 3. HAT
+            if trigger_primary.hat || trigger_secondary.hat {
+                let vel = if trigger_primary.hat { trigger_primary.velocity } else { 0.5 };
+                self.gate_hat.set_value(vel);
+                self.gate_timer_hat = (self.samples_per_step as f32 * 0.1) as usize;
+            }
+
+            // 4. LEAD
+            let play_lead = trigger_primary.kick || trigger_primary.snare || trigger_secondary.is_any();
             if play_lead {
-                // Mise à jour du facteur Hurst (lissage mélodique)
-                self.harmony.set_hurst_factor(self.current_state.smoothness);
-
-                // L'harmonie change intelligemment :
-                // Si c'est un coup de Basse (Primary), le Lead joue une note structurante (Tierce/Quinte)
-                // Si c'est un coup "Fantôme" (Secondary seul), le Lead peut oser une note de tension
-                // Note: is_strong_beat || play_bass signifie qu'on joue "safe" sur les temps forts ET sur les coups de basse
+                let is_strong = trigger_primary.kick;
+                let freq = self.harmony.next_note_hybrid(is_strong);
+                self.frequency_lead.set_value(freq);
                 
-                // IMPORTANT : On calcule si on est sur un temps fort pour aider Markov
-                // Temps fort = début de mesure (0) ou temps 3 (si 16 steps/4 temps)
-                // Ou simplement aligné avec la basse
-                let is_strong_beat = play_bass || (self.sequencer_primary.current_step % 4 == 0);
-
-                // --- CHANGEMENT ICI : Appel de la méthode HYBRIDE ---
-                let lead_freq = self.harmony.next_note_hybrid(is_strong_beat);
+                let dur_factor = if trigger_primary.kick { 0.8 } else { 0.4 };
+                let duration = (self.samples_per_step as f32 * dur_factor) as usize;
                 
-                self.frequency_lead.set_value(lead_freq);
+                self.gate_lead.set_value(0.8);
+                self.gate_timer_lead = duration;
                 
-                // Calculer MIDI approximatif pour l'affichage
-                let lead_midi = (69.0 + 12.0 * (lead_freq / 440.0).log2()).round() as u8;
-
-                // Articulation Lead liée à la Tension
-                let articulation_base = 0.90 - (self.current_state.tension * 0.75);
-                
-                // Humanisation légère sur le TEMPS (±5%)
-                let mut rng = rand::thread_rng();
-                let micro_timing = rng.gen_range(0.95..1.05);
-                
-                let mut lead_duration = (self.samples_per_step as f32 * articulation_base * micro_timing) as usize;
-                
-                // Variation : Si le Lead joue SEUL (sans la basse), on le fait plus court/léger
-                if !play_bass {
-                     lead_duration = (lead_duration as f32 * 0.7) as usize;
-                }
-                
-                // Contraintes physiques
-                if lead_duration < 500 { lead_duration = 500; }
-                
-                let max_lead_duration = (self.samples_per_step as f32 * 0.90) as usize;
-                if lead_duration > max_lead_duration { lead_duration = max_lead_duration; }
-                
-                self.gate_timer_lead = lead_duration;
-                self.gate_lead.set_value(1.0);
-
-                // Event pour l'UI
-                if let Ok(mut queue) = self.event_queue.lock() {
-                    queue.push(VisualizationEvent {
-                        note_midi: lead_midi,
-                        instrument: 1,
-                        step: self.sequencer_primary.current_step, // On utilise le step primaire comme référence temporelle
-                        duration_samples: lead_duration,
-                    });
+                let midi = (69.0 + 12.0 * (freq / 440.0).log2()).round() as u8;
+                if let Ok(mut q) = self.event_queue.lock() {
+                    q.push(VisualizationEvent { note_midi: midi, instrument: 1, step: self.sequencer_primary.current_step, duration_samples: duration });
                 }
             }
         }
+        
         self.sample_counter += 1;
-
         self.node.get_stereo()
     }
     
