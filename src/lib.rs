@@ -8,6 +8,7 @@ pub mod engine;
 pub mod audio;
 pub mod progression;
 pub mod fractal;
+pub mod ai;
 
 #[wasm_bindgen]
 pub struct Handle {
@@ -190,6 +191,16 @@ impl Handle {
             }
         }
         result
+    }
+
+    pub fn resume(&self) -> Result<(), JsValue> {
+        use cpal::traits::StreamTrait;
+        self.stream.play().map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn pause(&self) -> Result<(), JsValue> {
+        use cpal::traits::StreamTrait;
+        self.stream.pause().map_err(|e| JsValue::from_str(&e.to_string()))
     }
 }
 

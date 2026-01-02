@@ -7,6 +7,7 @@ use rust_music_theory::note::PitchSymbol;
 use rust_music_theory::scale::ScaleType;
 use rand::Rng;
 use std::sync::{Arc, Mutex};
+use serde::{Serialize, Deserialize};
 
 #[derive(Clone, Debug)]
 pub struct VisualizationEvent {
@@ -58,7 +59,7 @@ impl Default for HarmonyState {
 
 /// État cible (Target) - Ce que l'IA demande
 /// Basé sur le modèle dimensionnel des émotions (Russell's Circumplex Model)
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EngineParams {
     pub arousal: f32,   // 0.0 à 1.0 - Activation/Énergie → contrôle BPM
     pub valence: f32,   // -1.0 à 1.0 - Positif/Négatif → contrôle Harmonie (Majeur/Mineur)

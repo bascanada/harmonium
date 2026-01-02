@@ -1,17 +1,11 @@
 <script lang="ts">
-  export let primarySteps = 16;
-  export let primaryPulses = 4;
-  export let primaryRotation = 0;
-  
-  export let secondarySteps = 12;
-  export let secondaryPulses = 3;
-  export let secondaryRotation = 0;
-
+  export let steps = 16;
+  export let pulses = 4;
+  export let rotation = 0;
+  export let color = "#ff3e00";
+  export let label = "";
   export let currentStep = 0;
-  export let radius = 150; // Plus grand pour accommoder les deux
-
-  const PRIMARY_COLOR = "#ff3e00"; // Bass (Red)
-  const SECONDARY_COLOR = "#4ade80"; // Lead (Green)
+  export let radius = 150;
 
   // Fonction utilitaire pour générer le pattern de Bjorklund (Euclidien)
   function getPattern(steps: number, pulses: number): boolean[] {
@@ -28,40 +22,21 @@
     return pattern;
   }
 
-  // --- PRIMARY RING (Bass) ---
-  $: primaryPattern = getPattern(primarySteps, primaryPulses);
-  $: primaryRotated = [...primaryPattern.slice(primarySteps - primaryRotation), ...primaryPattern.slice(0, primarySteps - primaryRotation)];
+  $: pattern = getPattern(steps, pulses);
+  $: rotated = [...pattern.slice(steps - rotation), ...pattern.slice(0, steps - rotation)];
   
-  $: primaryPoints = Array.from({ length: primarySteps }).map((_, i) => {
-    const angle = (i * 2 * Math.PI) / primarySteps - Math.PI / 2;
-    const r = 45; // Shared radius
+  $: points = Array.from({ length: steps }).map((_, i) => {
+    const angle = (i * 2 * Math.PI) / steps - Math.PI / 2;
+    const r = 45; 
     return {
       x: 50 + r * Math.cos(angle),
       y: 50 + r * Math.sin(angle),
-      active: primaryRotated[i],
-      isCurrent: (currentStep % primarySteps) === i
+      active: rotated[i],
+      isCurrent: (currentStep % steps) === i
     };
   });
 
-  $: primaryPath = primaryPoints.filter(p => p.active).map(p => `${p.x},${p.y}`).join(" ");
-
-  // --- SECONDARY RING (Lead) ---
-  $: secondaryPattern = getPattern(secondarySteps, secondaryPulses);
-  $: secondaryRotated = [...secondaryPattern.slice(secondarySteps - secondaryRotation), ...secondaryPattern.slice(0, secondarySteps - secondaryRotation)];
-
-  $: secondaryPoints = Array.from({ length: secondarySteps }).map((_, i) => {
-    const angle = (i * 2 * Math.PI) / secondarySteps - Math.PI / 2;
-    const r = 45; // Shared radius
-    return {
-      x: 50 + r * Math.cos(angle),
-      y: 50 + r * Math.sin(angle),
-      active: secondaryRotated[i],
-      isCurrent: (currentStep % secondarySteps) === i
-    };
-  });
-
-  $: secondaryPath = secondaryPoints.filter(p => p.active).map(p => `${p.x},${p.y}`).join(" ");
-
+  $: path = points.filter(p => p.active).map(p => `${p.x},${p.y}`).join(" ");
 </script>
 
 <div class="circle-container" style="width: {radius * 2}px; height: {radius * 2}px;">
@@ -69,41 +44,28 @@
     <!-- Background Circle -->
     <circle cx="50" cy="50" r="45" stroke="#333" stroke-width="0.5" fill="none" />
     
-    <!-- Polygons -->
-    <polygon points={primaryPath} fill={PRIMARY_COLOR} fill-opacity="0.1" stroke={PRIMARY_COLOR} stroke-width="1.5" />
-    <polygon points={secondaryPath} fill={SECONDARY_COLOR} fill-opacity="0.1" stroke={SECONDARY_COLOR} stroke-width="1.5" />
+    <!-- Polygon -->
+    <polygon points={path} fill={color} fill-opacity="0.1" stroke={color} stroke-width="1.5" />
 
-    <!-- Primary Dots (Bass) -->
-    {#each primaryPoints as point}
+    <!-- Dots -->
+    {#each points as point}
       {#if point.active}
         <circle 
           cx={point.x} 
           cy={point.y} 
-          r="2" 
-          fill={PRIMARY_COLOR}
+          r={point.isCurrent ? 3 : 2} 
+          fill={color}
+          class:current={point.isCurrent}
         />
       {/if}
     {/each}
 
-    <!-- Secondary Dots (Lead) -->
-    {#each secondaryPoints as point}
-      {#if point.active}
-        <circle 
-          cx={point.x} 
-          cy={point.y} 
-          r="2" 
-          fill={SECONDARY_COLOR}
-        />
-      {/if}
-    {/each}
-
-    <!-- Cursor Line (Based on Primary Step) -->
-    <!-- On dessine une ligne qui tourne selon le step principal -->
-    {#if primaryPoints.length > 0}
+    <!-- Cursor Line -->
+    {#if points.length > 0}
         <line 
         x1="50" y1="50" 
-        x2={primaryPoints[currentStep % primarySteps].x} 
-        y2={primaryPoints[currentStep % primarySteps].y} 
+        x2={points[currentStep % steps].x} 
+        y2={points[currentStep % steps].y} 
         stroke="white" 
         stroke-width="1"
         stroke-dasharray="2,2"
@@ -111,8 +73,9 @@
         />
     {/if}
     
-    <text x="50" y="48" text-anchor="middle" font-size="4" fill={SECONDARY_COLOR} font-weight="bold">LEAD</text>
-    <text x="50" y="54" text-anchor="middle" font-size="4" fill={PRIMARY_COLOR} font-weight="bold">BASS</text>
+    {#if label}
+      <text x="50" y="52" text-anchor="middle" font-size="6" fill={color} font-weight="bold">{label}</text>
+    {/if}
   </svg>
 </div>
 
@@ -125,7 +88,6 @@
   .current {
     stroke: white;
     stroke-width: 1.5px;
-    r: 3.5px; 
     transition: all 0.1s ease;
   }
 </style>

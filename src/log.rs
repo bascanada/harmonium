@@ -1,4 +1,5 @@
 #[cfg(target_arch = "wasm32")]
+#[warn(unused_imports)]
 use wasm_bindgen::prelude::*;
 
 pub fn info(msg: &str) {
