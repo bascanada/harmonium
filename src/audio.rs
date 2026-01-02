@@ -1,5 +1,6 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::engine::{HarmoniumEngine, SessionConfig, EngineParams, HarmonyState, VisualizationEvent};
+use crate::backend::synth_backend::SynthBackend;
 use crate::log;
 use std::sync::{Arc, Mutex};
 
@@ -31,7 +32,9 @@ pub fn create_stream(target_state: Arc<Mutex<EngineParams>>, sf2_bytes: Option<&
 
     log::info(&format!("Sample rate: {}, Channels: {}", sample_rate, channels));
 
-    let mut engine = HarmoniumEngine::new(sample_rate, target_state, sf2_bytes);
+    let initial_routing = target_state.lock().unwrap().channel_routing.clone();
+    let backend = Box::new(SynthBackend::new(sample_rate, sf2_bytes, &initial_routing));
+    let mut engine = HarmoniumEngine::new(sample_rate, target_state, backend);
     let session_config = engine.config.clone();
     let harmony_state = engine.harmony_state.clone(); // Cloner l'Arc pour le retourner
     let event_queue = engine.event_queue.clone(); // Cloner l'Arc pour le retourner

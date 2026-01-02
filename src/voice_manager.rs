@@ -247,6 +247,7 @@ impl VoiceManager {
                     _ => {}
                 }
             }
+            AudioEvent::TimingUpdate { .. } | AudioEvent::LoadFont { .. } | AudioEvent::SetChannelRoute { .. } => {},
         }
     }
 

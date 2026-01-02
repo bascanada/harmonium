@@ -1,10 +1,9 @@
-use fundsp::hacker32::*;
 use crate::sequencer::{Sequencer, RhythmMode, StepTrigger};
 use crate::harmony::HarmonyNavigator;
 use crate::progression::{Progression, ChordStep, ChordQuality};
 use crate::log;
 use crate::events::AudioEvent;
-use crate::voice_manager::{VoiceManager, ChannelType};
+use crate::backend::AudioRenderer;
 use rust_music_theory::note::PitchSymbol;
 use rust_music_theory::scale::ScaleType;
 use rand::Rng;
@@ -139,27 +138,6 @@ pub struct SessionConfig {
     pub steps: usize,
 }
 
-pub struct BlockRateAdapter {
-    block: Box<dyn AudioUnit>,
-    sample_rate: f64,
-}
-
-impl BlockRateAdapter {
-    pub fn new(mut block: Box<dyn AudioUnit>, sample_rate: f64) -> Self {
-        block.set_sample_rate(sample_rate);
-        block.allocate();
-        Self { block, sample_rate }
-    }
-
-    pub fn get_stereo(&mut self) -> (f32, f32) {
-        self.block.get_stereo()
-    }
-
-    pub fn sample_rate(&self) -> f64 {
-        self.sample_rate
-    }
-}
-
 pub struct HarmoniumEngine {
     pub config: SessionConfig,
     pub target_state: Arc<Mutex<EngineParams>>,
@@ -171,9 +149,9 @@ pub struct HarmoniumEngine {
     sequencer_primary: Sequencer,    // Cycle principal (16 steps)
     sequencer_secondary: Sequencer,  // Cycle secondaire (12 steps) - déphasage de Steve Reich
     harmony: HarmonyNavigator,
-    node: BlockRateAdapter,
     
-    voice_manager: VoiceManager,
+    renderer: Box<dyn AudioRenderer>,
+    sample_rate: f64,
 
     sample_counter: usize,
     samples_per_step: usize,
@@ -185,10 +163,14 @@ pub struct HarmoniumEngine {
     progression_index: usize,             // Position dans la progression actuelle
     last_valence_choice: f32,             // Hystérésis: valence qui a déclenché le dernier choix
     last_tension_choice: f32,             // Hystérésis: tension qui a déclenché le dernier choix
+    
+    // Optimization
+    control_counter: usize,
+    cached_target: EngineParams,
 }
 
 impl HarmoniumEngine {
-    pub fn new(sample_rate: f64, target_state: Arc<Mutex<EngineParams>>, sf2_bytes: Option<&[u8]>) -> Self {
+    pub fn new(sample_rate: f64, target_state: Arc<Mutex<EngineParams>>, mut renderer: Box<dyn AudioRenderer>) -> Self {
         let mut rng = rand::thread_rng();
         let initial_params = target_state.lock().unwrap().clone();
         let font_queue = Arc::new(Mutex::new(Vec::new()));
@@ -213,89 +195,6 @@ impl HarmoniumEngine {
         let harmony_state = Arc::new(Mutex::new(HarmonyState::default()));
         let event_queue = Arc::new(Mutex::new(Vec::new()));
 
-        // === 1. DSP GRAPH CONSTRUCTION ===
-        
-        // Paramètres partagés
-        let frequency_lead = shared(440.0);
-        let gate_lead = shared(0.0);
-        let frequency_bass = shared(110.0);
-        let gate_bass = shared(0.0);
-        let gate_snare = shared(0.0);
-        let gate_hat = shared(0.0);
-        
-        let cutoff = shared(1000.0);
-        let resonance = shared(1.0);
-        let distortion = shared(0.0);
-        let fm_ratio = shared(2.0);
-        let fm_amount = shared(0.3);
-        let timbre_mix = shared(0.0);
-        let reverb_mix = shared(0.25);
-
-        // --- INSTRUMENT 1: LEAD (FM/Organic Hybrid) ---
-        let drift_lfo = lfo(|t| (t * 0.3).sin() * 2.0); 
-        let freq_lead_mod = var(&frequency_lead) + drift_lfo;
-
-        // FM Path
-        let mod_freq = freq_lead_mod.clone() * var(&fm_ratio);
-        let modulator = mod_freq >> sine();
-        let car_freq = freq_lead_mod.clone() + (modulator * var(&fm_amount) * freq_lead_mod.clone());
-        let fm_voice = car_freq >> saw();
-
-        // Organic Path
-        let osc_organic = (freq_lead_mod.clone() >> triangle()) * 0.8 
-                        + (freq_lead_mod.clone() >> square()) * 0.2;
-        let breath = (noise() >> lowpass_hz(2000.0, 0.5)) * 0.15;
-        let organic_voice = (osc_organic + breath) >> lowpass_hz(1200.0, 1.0);
-
-        // Mix & Envelope
-        let env_lead = var(&gate_lead) >> adsr_live(0.005, 0.2, 0.5, 0.15);
-        let lead_mix = (organic_voice * (1.0 - var(&timbre_mix))) + (fm_voice * var(&timbre_mix));
-        let lead_out = (lead_mix * env_lead | var(&cutoff) | var(&resonance)) >> lowpass() >> pan(0.3);
-
-        // --- INSTRUMENT 2: BASS ---
-        let bass_osc = (var(&frequency_bass) >> sine()) * 0.7 + (var(&frequency_bass) >> saw()) * 0.3;
-        let env_bass = var(&gate_bass) >> adsr_live(0.005, 0.1, 0.6, 0.1);
-        let bass_out = ((bass_osc * env_bass) >> lowpass_hz(800.0, 0.5)) >> pan(0.0);
-
-        // --- INSTRUMENT 3: SNARE (Noise Burst + Tone) ---
-        // Bruit blanc filtré passe-bande pour le "claquement"
-        let snare_noise = noise() >> bandpass_hz(1500.0, 0.8);
-        // Onde triangle rapide pour le corps (pitch drop rapide)
-        // Note: fundsp statique limite les env de pitch complexes, on fait simple
-        let snare_tone = sine_hz(180.0) >> saw(); 
-        let snare_src = (snare_noise * 0.8) + (snare_tone * 0.2);
-        let env_snare = var(&gate_snare) >> adsr_live(0.001, 0.1, 0.0, 0.1);
-        let snare_out = (snare_src * env_snare) >> pan(-0.2);
-
-        // --- INSTRUMENT 4: HAT (High Frequency Noise) ---
-        // Bruit rose filtré passe-haut
-        let hat_src = noise() >> highpass_hz(6000.0, 0.8);
-        // Enveloppe très courte
-        let env_hat = var(&gate_hat) >> adsr_live(0.001, 0.05, 0.0, 0.05);
-        let hat_out = (hat_src * env_hat * 0.4) >> pan(0.2);
-
-        // --- MIXAGE FINAL ---
-        let mix = lead_out + bass_out + snare_out + hat_out;
-        
-        let node = BlockRateAdapter::new(Box::new(mix), sample_rate);
-
-        let mut voice_manager = VoiceManager::new(
-            sf2_bytes, sample_rate as f32,
-            frequency_lead, gate_lead,
-            frequency_bass, gate_bass,
-            gate_snare, gate_hat,
-            cutoff, resonance, distortion,
-            fm_ratio, fm_amount, timbre_mix, reverb_mix,
-        );
-
-        // Apply initial routing
-        for (i, &mode) in initial_params.channel_routing.iter().enumerate() {
-             if i < 16 {
-                 let mode_enum = if mode >= 0 { ChannelType::Oxisynth { bank: mode as u32 } } else { ChannelType::FundSP };
-                 voice_manager.set_channel_route(i, mode_enum);
-            }
-        }
-
         // Séquenceurs
         let sequencer_primary = Sequencer::new(steps, initial_pulses, bpm);
         let secondary_pulses = std::cmp::min((initial_params.density * 8.0) as usize + 1, 12);
@@ -303,6 +202,9 @@ impl HarmoniumEngine {
         
         let harmony = HarmonyNavigator::new(random_key, random_scale, 4);
         let samples_per_step = (sample_rate * 60.0 / (bpm as f64) / 4.0) as usize;
+        
+        // Initialize renderer timing
+        renderer.handle_event(AudioEvent::TimingUpdate { samples_per_step });
 
         // Progression initiale
         let current_progression = Progression::get_palette(initial_params.valence, initial_params.tension);
@@ -324,8 +226,8 @@ impl HarmoniumEngine {
             sequencer_primary,
             sequencer_secondary,
             harmony,
-            node,
-            voice_manager,
+            renderer,
+            sample_rate,
             sample_counter: 0,
             samples_per_step,
             last_pulse_count: initial_pulses,
@@ -335,49 +237,63 @@ impl HarmoniumEngine {
             progression_index: 0,
             last_valence_choice: initial_params.valence,
             last_tension_choice: initial_params.tension,
+            control_counter: 0,
+            cached_target: initial_params,
         }
     }
 
     pub fn process(&mut self) -> (f32, f32) {
-        let target = self.target_state.lock().unwrap().clone();
-        
-        // === LOAD FONTS ===
-        if let Ok(mut queue) = self.font_queue.lock() {
-            while let Some((id, bytes)) = queue.pop() {
-                self.voice_manager.add_font(id, &bytes);
+        // Update control parameters every 64 samples (~689Hz at 44.1kHz)
+        if self.control_counter == 0 {
+            if let Ok(guard) = self.target_state.try_lock() {
+                self.cached_target = guard.clone();
             }
+            
+            // === LOAD FONTS ===
+            if let Ok(mut queue) = self.font_queue.try_lock() {
+                while let Some((id, bytes)) = queue.pop() {
+                    self.renderer.handle_event(AudioEvent::LoadFont { id, bytes });
+                }
+            }
+            
+            self.control_counter = 64;
         }
+        self.control_counter -= 1;
+
+        let target = &self.cached_target;
 
         // === SYNC ROUTING ===
-        for (i, &mode) in target.channel_routing.iter().enumerate() {
-            if i < 16 {
-                 let mode_enum = if mode >= 0 { ChannelType::Oxisynth { bank: mode as u32 } } else { ChannelType::FundSP };
-                 self.voice_manager.set_channel_route(i, mode_enum);
+        // Optimization: Only check routing if it changed? 
+        // For now, we keep it but it's expensive to iterate every sample.
+        // Let's move it to control rate too.
+        if self.control_counter == 63 { // Do it once per block
+            for (i, &mode) in target.channel_routing.iter().enumerate() {
+                if i < 16 {
+                     self.renderer.handle_event(AudioEvent::SetChannelRoute { channel: i as u8, bank: mode });
+                }
             }
         }
 
-        // === GESTION DES GATES ===
-        self.voice_manager.update_timers();
-
         // === MORPHING ===
-        self.current_state.arousal += (target.arousal - self.current_state.arousal) * 0.06;
-        self.current_state.valence += (target.valence - self.current_state.valence) * 0.04;
-        self.current_state.density += (target.density - self.current_state.density) * 0.02;
-        self.current_state.tension += (target.tension - self.current_state.tension) * 0.08;
-        self.current_state.smoothness += (target.smoothness - self.current_state.smoothness) * 0.05;
+        // Slower morphing since we update target less often, but smooth enough
+        self.current_state.arousal += (target.arousal - self.current_state.arousal) * 0.001; // Adjusted coeff
+        self.current_state.valence += (target.valence - self.current_state.valence) * 0.001;
+        self.current_state.density += (target.density - self.current_state.density) * 0.0005;
+        self.current_state.tension += (target.tension - self.current_state.tension) * 0.002;
+        self.current_state.smoothness += (target.smoothness - self.current_state.smoothness) * 0.001;
         let target_bpm = target.compute_bpm();
-        self.current_state.bpm += (target_bpm - self.current_state.bpm) * 0.05;
+        self.current_state.bpm += (target_bpm - self.current_state.bpm) * 0.001;
 
         // === DSP UPDATES ===
         // Map internal state to MIDI CC
         // Tension -> CC 1 (Modulation)
-        self.voice_manager.process_event(AudioEvent::ControlChange { ctrl: 1, value: (self.current_state.tension * 127.0) as u8 }, self.samples_per_step);
+        self.renderer.handle_event(AudioEvent::ControlChange { ctrl: 1, value: (self.current_state.tension * 127.0) as u8 });
         
         // Arousal -> CC 11 (Expression)
-        self.voice_manager.process_event(AudioEvent::ControlChange { ctrl: 11, value: (self.current_state.arousal * 127.0) as u8 }, self.samples_per_step);
+        self.renderer.handle_event(AudioEvent::ControlChange { ctrl: 11, value: (self.current_state.arousal * 127.0) as u8 });
 
         // Valence -> CC 91 (Reverb)
-        self.voice_manager.process_event(AudioEvent::ControlChange { ctrl: 91, value: (self.current_state.valence.abs() * 127.0) as u8 }, self.samples_per_step);
+        self.renderer.handle_event(AudioEvent::ControlChange { ctrl: 91, value: (self.current_state.valence.abs() * 127.0) as u8 });
         
         // === LOGIQUE SÉQUENCEUR ===
         let target_algo = target.algorithm;
@@ -431,8 +347,11 @@ impl HarmoniumEngine {
 
         // Timing
         let steps_per_beat = (self.sequencer_primary.steps / 4) as f64;
-        let new_samples_per_step = (self.node.sample_rate() * 60.0 / (self.current_state.bpm as f64) / steps_per_beat) as usize;
-        if new_samples_per_step != self.samples_per_step { self.samples_per_step = new_samples_per_step; }
+        let new_samples_per_step = (self.sample_rate * 60.0 / (self.current_state.bpm as f64) / steps_per_beat) as usize;
+        if new_samples_per_step != self.samples_per_step { 
+            self.samples_per_step = new_samples_per_step; 
+            self.renderer.handle_event(AudioEvent::TimingUpdate { samples_per_step: new_samples_per_step });
+        }
 
         // === TICK ===
         if self.sample_counter >= self.samples_per_step {
@@ -509,11 +428,11 @@ impl HarmoniumEngine {
                 let root = if let Ok(s) = self.harmony_state.lock() { s.chord_root_offset } else { 0 };
                 let midi = 36 + root;
                 
-                self.voice_manager.process_event(AudioEvent::NoteOn { 
+                self.renderer.handle_event(AudioEvent::NoteOn { 
                     note: midi as u8, 
                     velocity: (trigger_primary.velocity * 127.0) as u8, 
                     channel: 0 
-                }, self.samples_per_step);
+                });
                 
                 if let Ok(mut q) = self.event_queue.lock() {
                     q.push(VisualizationEvent { note_midi: midi as u8, instrument: 0, step: self.sequencer_primary.current_step, duration_samples: 2000 });
@@ -522,11 +441,11 @@ impl HarmoniumEngine {
 
             // 2. SNARE
             if trigger_primary.snare {
-                self.voice_manager.process_event(AudioEvent::NoteOn { 
+                self.renderer.handle_event(AudioEvent::NoteOn { 
                     note: 38, 
                     velocity: (trigger_primary.velocity * 127.0) as u8, 
                     channel: 2 
-                }, self.samples_per_step);
+                });
 
                 if let Ok(mut q) = self.event_queue.lock() {
                     q.push(VisualizationEvent { note_midi: 38, instrument: 2, step: self.sequencer_primary.current_step, duration_samples: 1000 });
@@ -536,11 +455,11 @@ impl HarmoniumEngine {
             // 3. HAT
             if trigger_primary.hat || trigger_secondary.hat {
                 let vel = if trigger_primary.hat { trigger_primary.velocity } else { 0.5 };
-                self.voice_manager.process_event(AudioEvent::NoteOn { 
+                self.renderer.handle_event(AudioEvent::NoteOn { 
                     note: 42, // Closed Hi-Hat
                     velocity: (vel * 127.0) as u8, 
                     channel: 3 
-                }, self.samples_per_step);
+                });
             }
 
             // 4. LEAD
@@ -553,11 +472,11 @@ impl HarmoniumEngine {
                 let dur_factor = if trigger_primary.kick { 0.8 } else { 0.4 };
                 let duration = (self.samples_per_step as f32 * dur_factor) as usize;
                 
-                self.voice_manager.process_event(AudioEvent::NoteOn { 
+                self.renderer.handle_event(AudioEvent::NoteOn { 
                     note: midi, 
                     velocity: (0.8 * 127.0) as u8, 
                     channel: 1 
-                }, self.samples_per_step);
+                });
                 
                 if let Ok(mut q) = self.event_queue.lock() {
                     q.push(VisualizationEvent { note_midi: midi, instrument: 1, step: self.sequencer_primary.current_step, duration_samples: duration });
@@ -566,10 +485,7 @@ impl HarmoniumEngine {
         }
         
         self.sample_counter += 1;
-        let (l_fundsp, r_fundsp) = self.node.get_stereo();
-        let (l_oxi, r_oxi) = self.voice_manager.process_audio();
-        
-        (l_fundsp + l_oxi, r_fundsp + r_oxi)
+        self.renderer.next_frame().unwrap_or((0.0, 0.0))
     }
     
     /// Formatte un nom d'accord pour l'UI (numération romaine)

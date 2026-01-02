@@ -268,7 +268,7 @@
     }
 
     // AI Input Handling
-    let debounceTimer: number;
+    let debounceTimer: any;
     async function analyzeText() {
         if (!aiInputText) return;
         

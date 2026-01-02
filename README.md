@@ -1,15 +1,9 @@
-# Harmonium: a library for procedural music generation
+# Harmonium: a library for reactive procedural music generation based on emotions
 
 Harmonium is a rust library to create procedural music with the help of math based
 on emotions.
 
 Design to be used in applications, websites and games.
-
-## Library used
-
-* FunDSP
-* rust-music-theory
-* cpal
 
 ## Method used
 
@@ -32,36 +26,68 @@ Everything starts with the state of the system (the emotion of the audience)
 
 ### Skeleton
 
-    Bjorklund Algorithm: Distributes notes ("pulses") as evenly as possible within the measure ("steps"). This creates natural "groovy" rhythms (e.g., 3 hits on 8 = Tresillo).
+* Bjorklund Algorithm: Distributes notes ("pulses") as evenly as possible within the measure ("steps"). This creates natural "groovy" rhythms (e.g., 3 hits on 8 = Tresillo).
 
-    Polyrhythm (Steve Reich): Two sequencers run in parallel. The first takes 16 steps, the second 12. This creates a phase shift that evolves over time.
+* Polyrhythm (Steve Reich): Two sequencers run in parallel. The first takes 16 steps, the second 12. This creates a phase shift that evolves over time.
 
-    Rotation (Necklace vs Bracelet): Tension changes the starting point of the rhythmic circle. The same distribution of notes sounds very different if shifted (rotation).
+* Rotation (Necklace vs Bracelet): Tension changes the starting point of the rhythmic circle. The same distribution of notes sounds very different if shifted (rotation).
 
 ### The body
 
-    Emotional Palettes: The system selects a chord progression (I-IV-V, i-vii°, etc.) based on the emotional quadrant (e.g., "Sad & Tense" vs "Happy & Calm").
+* Emotional Palettes: The system selects a chord progression (I-IV-V, i-vii°, etc.) based on the emotional quadrant (e.g., "Sad & Tense" vs "Happy & Calm").
 
-    Inertia (Hysteresis): To prevent the music from changing "style" chaotically, the system waits for a significant emotional change before switching progressions.
+* Inertia (Hysteresis): To prevent the music from changing "style" chaotically, the system waits for a significant emotional change before switching progressions.
 
-    Local Context: At any moment, the system knows the current chord (e.g., C Major) and its constituent notes (C, E, G).
+* Local Context: At any moment, the system knows the current chord (e.g., C Major) and its constituent notes (C, E, G).
 
 ### The voice
 
-    Hybrid Generation (Biased Random Walk): Combines the long-term structure of Fractal Pink Noise (1/f) with the local harmonic rules of Markov Chains. The fractal noise acts as a "GPS" guiding the general direction, while Markov chains ensure each step makes musical sense.
+* Hybrid Generation (Biased Random Walk): Combines the long-term structure of Fractal Pink Noise (1/f) with the local harmonic rules of Markov Chains. The fractal noise acts as a "GPS" guiding the general direction, while Markov chains ensure each step makes musical sense.
 
-    Smoothness Control: The Hurst exponent allows adjusting the melody from erratic (low smoothness) to lyrical and conjunct (high smoothness).
+* Smoothness Control: The Hurst exponent allows adjusting the melody from erratic (low smoothness) to lyrical and conjunct (high smoothness).
 
 ### The lung
 
 Sound is sculpted in real-time via fundsp:
 
-    FM Synthesis: Uses a modulator and a carrier. As Tension rises, the FM ratio increases, creating inharmonic sounds (bell/metallic type).
+* FM Synthesis: Uses a modulator and a carrier. As Tension rises, the FM ratio increases, creating inharmonic sounds (bell/metallic type).
 
-    Articulation (Anti-Legato): Note duration changes dynamically.
+* Articulation (Anti-Legato): Note duration changes dynamically.
+  * Low tension = Long and connected notes (Legato).
+  * High tension = Short and percussive notes (Staccato).
 
-        Low tension = Long and connected notes (Legato).
-
-        High tension = Short and percussive notes (Staccato).
+* Possibility to manually configure SoundFont sample on each sound channel (Will be reworked with something more procedural in the choice of sample based on the emotion)
 
 ## Usefull sources
+
+### Fondation and Geometric Music
+
+* Loy, Gareth (2006). Musimathics: The Mathematical Foundations of Music.
+* Toussaint, Godfried (2013). The Geometry of Musical Rhythm
+* Van Heerden, Derrick Scott (2018). Music, Geometry and Mathematics
+
+### Algorithmes Rythmiques
+
+* Toussaint, Godfried (2005). The Euclidean Algorithm Generates Traditional Musical Rhythms
+* Milne, A. J., Bulger, D., & Herff, S. A. (2017). Exploring the space of perfectly balanced rhythms and scales
+* Carey, Norman & Clampitt, David (1989). Aspects of well-formed scales.
+
+### Procedural
+
+* Hiller, Lejaren & Isaacson, Leonard (1959). Experimental Music
+
+## Library used
+
+Music generation:
+
+* rust-music-theory
+
+Sound generation:
+
+* FunDSP
+* oxysynth
+
+Sound output:
+
+* cpal
+* kira

@@ -10,6 +10,7 @@ pub mod progression;
 pub mod fractal;
 pub mod ai;
 pub mod events;
+pub mod backend;
 pub mod voice_manager;
 
 pub use sequencer::RhythmMode;
