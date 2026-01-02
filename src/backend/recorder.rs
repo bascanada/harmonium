@@ -1,7 +1,7 @@
 use crate::backend::AudioRenderer;
 use crate::events::{AudioEvent, RecordFormat};
 use hound::{WavSpec, WavWriter};
-use midly::{Header, Smf, Track, TrackEvent, TrackEventKind, MidiMessage, Format, Timing};
+use midly::{Header, Smf, TrackEvent, TrackEventKind, MidiMessage, Format, Timing};
 use std::sync::{Arc, Mutex};
 use std::io::{Cursor, Write, Seek};
 
@@ -178,22 +178,19 @@ impl AudioRenderer for RecorderBackend {
         self.inner.handle_event(event);
     }
 
-    fn next_frame(&mut self) -> Option<(f32, f32)> {
-        let frame = self.inner.next_frame();
+    fn process_buffer(&mut self, output: &mut [f32], channels: usize) {
+        self.inner.process_buffer(output, channels);
         
         // Capture WAV
-        if let Some((l, r)) = frame {
-            if let Some(writer) = &mut self.wav_writer {
-                writer.write_sample(l).ok();
-                writer.write_sample(r).ok();
+        if let Some(writer) = &mut self.wav_writer {
+            for sample in output.iter() {
+                writer.write_sample(*sample).ok();
             }
         }
         
         // Advance MIDI time
         if self.midi_track.is_some() {
-            self.midi_samples_since_last += 1;
+            self.midi_samples_since_last += (output.len() / channels) as u64;
         }
-
-        frame
     }
 }

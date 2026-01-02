@@ -8,10 +8,6 @@ pub struct SynthBackend {
     voice_manager: VoiceManager,
     node: BlockRateAdapter,
     samples_per_step: usize, // Needed for VoiceManager::process_event
-    
-    // Buffering for Oxisynth
-    oxi_buffer: Vec<f32>,
-    oxi_buffer_idx: usize,
 }
 
 impl SynthBackend {
@@ -103,8 +99,6 @@ impl SynthBackend {
             voice_manager,
             node,
             samples_per_step: 0, // Will be updated
-            oxi_buffer: vec![0.0; 128], // 64 stereo frames
-            oxi_buffer_idx: 128, // Force refill on first call
         }
     }
 
@@ -144,20 +138,23 @@ impl AudioRenderer for SynthBackend {
         }
     }
 
-    fn next_frame(&mut self) -> Option<(f32, f32)> {
-        self.voice_manager.update_timers();
-        let (l_fundsp, r_fundsp) = self.node.get_stereo();
-        
-        // Oxisynth buffering
-        if self.oxi_buffer_idx >= self.oxi_buffer.len() {
-            self.voice_manager.synth.write(&mut self.oxi_buffer[..]);
-            self.oxi_buffer_idx = 0;
+    fn process_buffer(&mut self, output: &mut [f32], channels: usize) {
+        // 1. Oxisynth (Stereo)
+        if channels == 2 {
+            self.voice_manager.synth.write(&mut *output);
+        } else {
+            output.fill(0.0);
         }
-        
-        let l_oxi = self.oxi_buffer[self.oxi_buffer_idx];
-        let r_oxi = self.oxi_buffer[self.oxi_buffer_idx + 1];
-        self.oxi_buffer_idx += 2;
-        
-        Some((l_fundsp + l_oxi, r_fundsp + r_oxi))
+
+        // 2. FundSP + Mix
+        for frame in output.chunks_mut(channels) {
+            self.voice_manager.update_timers();
+            let (l, r) = self.node.get_stereo();
+            
+            frame[0] += l;
+            if channels >= 2 {
+                frame[1] += r;
+            }
+        }
     }
 }

@@ -51,15 +51,7 @@ pub fn create_stream(target_state: Arc<Mutex<EngineParams>>, sf2_bytes: Option<&
     let stream = device.build_output_stream(
         &config.into(),
         move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-            for frame in data.chunks_mut(channels) {
-                let (l, r) = engine.process();
-                
-                if channels >= 1 { frame[0] = l; }
-                if channels >= 2 { frame[1] = r; }
-                for sample in frame.iter_mut().skip(2) {
-                    *sample = 0.0;
-                }
-            }
+            engine.process_buffer(data, channels);
         },
         err_fn,
         None,

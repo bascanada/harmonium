@@ -81,10 +81,6 @@ Sound is sculpted in real-time via fundsp:
 To control the emotions dynamically to help to music evolve the library include ML integration
 to run a tensorflow model to transform words into parameters to control the value of our emotions.
 
-### Glossary implementation
-
-
-
 ## Library used
 
 Music generation:
@@ -98,5 +94,12 @@ Sound generation:
 
 Sound output:
 
-* cpal
-* kira
+* cpal (device)
+* kira (device)
+* hound (wav)
+* midly (midi)
+
+ML:
+
+* candle
+* tokenizers

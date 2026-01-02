@@ -173,7 +173,6 @@ pub struct HarmoniumEngine {
     last_tension_choice: f32,             // Hystérésis: tension qui a déclenché le dernier choix
     
     // Optimization
-    control_counter: usize,
     cached_target: EngineParams,
     
     // Recording State Tracking
@@ -249,48 +248,71 @@ impl HarmoniumEngine {
             progression_index: 0,
             last_valence_choice: initial_params.valence,
             last_tension_choice: initial_params.tension,
-            control_counter: 0,
             cached_target: initial_params,
             is_recording_wav: false,
             is_recording_midi: false,
         }
     }
 
-    pub fn process(&mut self) -> (f32, f32) {
-        // Update control parameters every 64 samples (~689Hz at 44.1kHz)
-        if self.control_counter == 0 {
-            if let Ok(guard) = self.target_state.try_lock() {
-                self.cached_target = guard.clone();
-            }
+
+
+    pub fn process_buffer(&mut self, output: &mut [f32], channels: usize) {
+        let total_samples = output.len() / channels;
+        let mut processed = 0;
+        
+        // Run control logic once per block
+        self.update_controls();
+        
+        while processed < total_samples {
+            let remaining = total_samples - processed;
+            let samples_until_tick = if self.samples_per_step > self.sample_counter {
+                self.samples_per_step - self.sample_counter
+            } else {
+                1
+            };
             
-            // === LOAD FONTS ===
-            if let Ok(mut queue) = self.font_queue.try_lock() {
-                while let Some((id, bytes)) = queue.pop() {
-                    self.renderer.handle_event(AudioEvent::LoadFont { id, bytes });
-                }
-            }
+            let chunk_size = std::cmp::min(remaining, samples_until_tick);
             
-            self.control_counter = 64;
+            let start_idx = processed * channels;
+            let end_idx = (processed + chunk_size) * channels;
+            let chunk = &mut output[start_idx..end_idx];
+            
+            // Generate audio for this chunk
+            self.renderer.process_buffer(chunk, channels);
+            
+            self.sample_counter += chunk_size;
+            processed += chunk_size;
+            
+            if self.sample_counter >= self.samples_per_step {
+                self.sample_counter = 0;
+                self.tick();
+            }
         }
-        self.control_counter -= 1;
+    }
+
+    fn update_controls(&mut self) {
+        if let Ok(guard) = self.target_state.try_lock() {
+            self.cached_target = guard.clone();
+        }
+        
+        // === LOAD FONTS ===
+        if let Ok(mut queue) = self.font_queue.try_lock() {
+            while let Some((id, bytes)) = queue.pop() {
+                self.renderer.handle_event(AudioEvent::LoadFont { id, bytes });
+            }
+        }
 
         let target = &self.cached_target;
 
         // === SYNC ROUTING ===
-        // Optimization: Only check routing if it changed? 
-        // For now, we keep it but it's expensive to iterate every sample.
-        // Let's move it to control rate too.
-        if self.control_counter == 63 { // Do it once per block
-            for (i, &mode) in target.channel_routing.iter().enumerate() {
-                if i < 16 {
-                     self.renderer.handle_event(AudioEvent::SetChannelRoute { channel: i as u8, bank: mode });
-                }
+        for (i, &mode) in target.channel_routing.iter().enumerate() {
+            if i < 16 {
+                    self.renderer.handle_event(AudioEvent::SetChannelRoute { channel: i as u8, bank: mode });
             }
         }
 
         // === MORPHING ===
-        // Slower morphing since we update target less often, but smooth enough
-        self.current_state.arousal += (target.arousal - self.current_state.arousal) * 0.001; // Adjusted coeff
+        self.current_state.arousal += (target.arousal - self.current_state.arousal) * 0.001;
         self.current_state.valence += (target.valence - self.current_state.valence) * 0.001;
         self.current_state.density += (target.density - self.current_state.density) * 0.0005;
         self.current_state.tension += (target.tension - self.current_state.tension) * 0.002;
@@ -299,35 +321,27 @@ impl HarmoniumEngine {
         self.current_state.bpm += (target_bpm - self.current_state.bpm) * 0.001;
 
         // === RECORDING CONTROL ===
-        if self.control_counter == 63 {
-            if target.record_wav != self.is_recording_wav {
-                self.is_recording_wav = target.record_wav;
-                if self.is_recording_wav {
-                    self.renderer.handle_event(AudioEvent::StartRecording { format: crate::events::RecordFormat::Wav });
-                } else {
-                    self.renderer.handle_event(AudioEvent::StopRecording { format: crate::events::RecordFormat::Wav });
-                }
+        if target.record_wav != self.is_recording_wav {
+            self.is_recording_wav = target.record_wav;
+            if self.is_recording_wav {
+                self.renderer.handle_event(AudioEvent::StartRecording { format: crate::events::RecordFormat::Wav });
+            } else {
+                self.renderer.handle_event(AudioEvent::StopRecording { format: crate::events::RecordFormat::Wav });
             }
-            
-            if target.record_midi != self.is_recording_midi {
-                self.is_recording_midi = target.record_midi;
-                if self.is_recording_midi {
-                    self.renderer.handle_event(AudioEvent::StartRecording { format: crate::events::RecordFormat::Midi });
-                } else {
-                    self.renderer.handle_event(AudioEvent::StopRecording { format: crate::events::RecordFormat::Midi });
-                }
+        }
+        
+        if target.record_midi != self.is_recording_midi {
+            self.is_recording_midi = target.record_midi;
+            if self.is_recording_midi {
+                self.renderer.handle_event(AudioEvent::StartRecording { format: crate::events::RecordFormat::Midi });
+            } else {
+                self.renderer.handle_event(AudioEvent::StopRecording { format: crate::events::RecordFormat::Midi });
             }
         }
 
         // === DSP UPDATES ===
-        // Map internal state to MIDI CC
-        // Tension -> CC 1 (Modulation)
         self.renderer.handle_event(AudioEvent::ControlChange { ctrl: 1, value: (self.current_state.tension * 127.0) as u8 });
-        
-        // Arousal -> CC 11 (Expression)
         self.renderer.handle_event(AudioEvent::ControlChange { ctrl: 11, value: (self.current_state.arousal * 127.0) as u8 });
-
-        // Valence -> CC 91 (Reverb)
         self.renderer.handle_event(AudioEvent::ControlChange { ctrl: 91, value: (self.current_state.valence.abs() * 127.0) as u8 });
         
         // === LOGIQUE SÉQUENCEUR ===
@@ -341,7 +355,7 @@ impl HarmoniumEngine {
             }
         }
 
-        // Rotation Logic (Restored)
+        // Rotation Logic
         let max_rotation = if self.sequencer_primary.mode == RhythmMode::PerfectBalance { 24 } else { 8 };
         let target_rotation = (self.current_state.tension * max_rotation as f32) as usize;
 
@@ -372,7 +386,7 @@ impl HarmoniumEngine {
             self.last_rotation = target_rotation;
         }
 
-        // Secondary Sequencer Logic (Restored)
+        // Secondary Sequencer Logic
         let secondary_pulses = std::cmp::min((self.current_state.density * 8.0) as usize + 1, 12);
         if secondary_pulses != self.sequencer_secondary.pulses {
             self.sequencer_secondary.pulses = secondary_pulses;
@@ -387,140 +401,125 @@ impl HarmoniumEngine {
             self.samples_per_step = new_samples_per_step; 
             self.renderer.handle_event(AudioEvent::TimingUpdate { samples_per_step: new_samples_per_step });
         }
+    }
 
-        // === TICK ===
-        if self.sample_counter >= self.samples_per_step {
-            self.sample_counter = 0;
+    fn tick(&mut self) {
+        let trigger_primary = self.sequencer_primary.tick();
+        let trigger_secondary = if self.sequencer_primary.mode == RhythmMode::Euclidean {
+            self.sequencer_secondary.tick()
+        } else {
+            StepTrigger::default()
+        };
+
+        // === HARMONY & PROGRESSION ===
+        if self.sequencer_primary.current_step == 0 {
+            self.measure_counter += 1;
             
-            let trigger_primary = self.sequencer_primary.tick();
-            let trigger_secondary = if self.sequencer_primary.mode == RhythmMode::Euclidean {
-                self.sequencer_secondary.tick()
-            } else {
-                StepTrigger::default()
-            };
-
-            // === HARMONY & PROGRESSION (Restored) ===
-            if self.sequencer_primary.current_step == 0 {
-                self.measure_counter += 1;
+            // Palette Selection (Hysteresis)
+            if self.measure_counter % 4 == 0 {
+                let valence_delta = (self.current_state.valence - self.last_valence_choice).abs();
+                let tension_delta = (self.current_state.tension - self.last_tension_choice).abs();
                 
-                // Palette Selection (Hysteresis)
-                if self.measure_counter % 4 == 0 {
-                    let valence_delta = (self.current_state.valence - self.last_valence_choice).abs();
-                    let tension_delta = (self.current_state.tension - self.last_tension_choice).abs();
+                if valence_delta > 0.4 || tension_delta > 0.4 {
+                    self.current_progression = Progression::get_palette(self.current_state.valence, self.current_state.tension);
+                    self.progression_index = 0;
+                    self.last_valence_choice = self.current_state.valence;
+                    self.last_tension_choice = self.current_state.tension;
                     
-                    if valence_delta > 0.4 || tension_delta > 0.4 {
-                        self.current_progression = Progression::get_palette(self.current_state.valence, self.current_state.tension);
-                        self.progression_index = 0;
-                        self.last_valence_choice = self.current_state.valence;
-                        self.last_tension_choice = self.current_state.tension;
-                        
-                        let prog_name = Progression::get_progression_name(self.current_state.valence, self.current_state.tension);
-                        if let Ok(mut state) = self.harmony_state.lock() {
-                            state.progression_name = prog_name.to_string();
-                            state.progression_length = self.current_progression.len();
-                        }
-                    }
-                }
-                
-                // Chord Progression
-                let measures_per_chord = if self.current_state.tension > 0.6 { 1 } else { 2 };
-                if self.measure_counter % measures_per_chord == 0 {
-                    self.progression_index = (self.progression_index + 1) % self.current_progression.len();
-                    let chord = &self.current_progression[self.progression_index];
-                    
-                    self.harmony.set_chord_context(chord.root_offset, chord.quality);
-                    let chord_name = self.format_chord_name(chord.root_offset, chord.quality);
-                    
+                    let prog_name = Progression::get_progression_name(self.current_state.valence, self.current_state.tension);
                     if let Ok(mut state) = self.harmony_state.lock() {
-                        state.current_chord_index = self.progression_index;
-                        state.chord_root_offset = chord.root_offset;
-                        state.chord_is_minor = matches!(chord.quality, ChordQuality::Minor);
-                        state.chord_name = chord_name;
-                        state.measure_number = self.measure_counter;
+                        state.progression_name = prog_name.to_string();
+                        state.progression_length = self.current_progression.len();
                     }
                 }
             }
-
-            // UI Update - Sync ALL sequencer fields for visualization
-            if let Ok(mut state) = self.harmony_state.lock() {
-                state.current_step = self.sequencer_primary.current_step;
-                state.primary_steps = self.sequencer_primary.steps;
-                state.primary_pulses = self.sequencer_primary.pulses;
-                state.primary_rotation = self.sequencer_primary.rotation;
-                state.primary_pattern = self.sequencer_primary.pattern.iter().map(|t| t.is_any()).collect();
-
-                // Secondary sequencer (Euclidean mode only)
-                state.secondary_steps = self.sequencer_secondary.steps;
-                state.secondary_pulses = self.sequencer_secondary.pulses;
-                state.secondary_rotation = self.sequencer_secondary.rotation;
-                state.secondary_pattern = self.sequencer_secondary.pattern.iter().map(|t| t.is_any()).collect();
-            }
-
-            // === VOICE DISTRIBUTION ===
             
-            // 1. KICK -> BASS
-            if trigger_primary.kick {
-                let root = if let Ok(s) = self.harmony_state.lock() { s.chord_root_offset } else { 0 };
-                let midi = 36 + root;
+            // Chord Progression
+            let measures_per_chord = if self.current_state.tension > 0.6 { 1 } else { 2 };
+            if self.measure_counter % measures_per_chord == 0 {
+                self.progression_index = (self.progression_index + 1) % self.current_progression.len();
+                let chord = &self.current_progression[self.progression_index];
                 
-                self.renderer.handle_event(AudioEvent::NoteOn { 
-                    note: midi as u8, 
-                    velocity: (trigger_primary.velocity * 127.0) as u8, 
-                    channel: 0 
-                });
+                self.harmony.set_chord_context(chord.root_offset, chord.quality);
+                let chord_name = self.format_chord_name(chord.root_offset, chord.quality);
                 
-                if let Ok(mut q) = self.event_queue.lock() {
-                    q.push(VisualizationEvent { note_midi: midi as u8, instrument: 0, step: self.sequencer_primary.current_step, duration_samples: 2000 });
-                }
-            }
-
-            // 2. SNARE
-            if trigger_primary.snare {
-                self.renderer.handle_event(AudioEvent::NoteOn { 
-                    note: 38, 
-                    velocity: (trigger_primary.velocity * 127.0) as u8, 
-                    channel: 2 
-                });
-
-                if let Ok(mut q) = self.event_queue.lock() {
-                    q.push(VisualizationEvent { note_midi: 38, instrument: 2, step: self.sequencer_primary.current_step, duration_samples: 1000 });
-                }
-            }
-
-            // 3. HAT
-            if trigger_primary.hat || trigger_secondary.hat {
-                let vel = if trigger_primary.hat { trigger_primary.velocity } else { 0.5 };
-                self.renderer.handle_event(AudioEvent::NoteOn { 
-                    note: 42, // Closed Hi-Hat
-                    velocity: (vel * 127.0) as u8, 
-                    channel: 3 
-                });
-            }
-
-            // 4. LEAD
-            let play_lead = trigger_primary.kick || trigger_primary.snare || trigger_secondary.is_any();
-            if play_lead {
-                let is_strong = trigger_primary.kick;
-                let freq = self.harmony.next_note_hybrid(is_strong);
-                let midi = (69.0 + 12.0 * (freq / 440.0).log2()).round() as u8;
-                
-                let dur_factor = if trigger_primary.kick { 0.8 } else { 0.4 };
-                let duration = (self.samples_per_step as f32 * dur_factor) as usize;
-                
-                self.renderer.handle_event(AudioEvent::NoteOn { 
-                    note: midi, 
-                    velocity: (0.8 * 127.0) as u8, 
-                    channel: 1 
-                });
-                
-                if let Ok(mut q) = self.event_queue.lock() {
-                    q.push(VisualizationEvent { note_midi: midi, instrument: 1, step: self.sequencer_primary.current_step, duration_samples: duration });
+                if let Ok(mut state) = self.harmony_state.lock() {
+                    state.current_chord_index = self.progression_index;
+                    state.chord_root_offset = chord.root_offset;
+                    state.chord_is_minor = matches!(chord.quality, ChordQuality::Minor);
+                    state.chord_name = chord_name;
+                    state.measure_number = self.measure_counter;
                 }
             }
         }
+
+        // UI Update
+        if let Ok(mut state) = self.harmony_state.lock() {
+            state.current_step = self.sequencer_primary.current_step;
+            state.primary_steps = self.sequencer_primary.steps;
+            state.primary_pulses = self.sequencer_primary.pulses;
+            state.primary_rotation = self.sequencer_primary.rotation;
+            state.primary_pattern = self.sequencer_primary.pattern.iter().map(|t| t.is_any()).collect();
+            
+            state.secondary_steps = self.sequencer_secondary.steps;
+            state.secondary_pulses = self.sequencer_secondary.pulses;
+            state.secondary_rotation = self.sequencer_secondary.rotation;
+            state.secondary_pattern = self.sequencer_secondary.pattern.iter().map(|t| t.is_any()).collect();
+        }
+
+        // === GENERATE EVENTS ===
+        let mut events = Vec::new();
         
-        self.sample_counter += 1;
-        self.renderer.next_frame().unwrap_or((0.0, 0.0))
+        // Bass (Kick)
+        if trigger_primary.kick {
+            let root = if let Ok(s) = self.harmony_state.lock() { s.chord_root_offset } else { 0 };
+            let midi = 36 + root;
+            let vel = 100 + (self.current_state.arousal * 27.0) as u8;
+            events.push(AudioEvent::NoteOn { note: midi as u8, velocity: vel, channel: 0 });
+        }
+        
+        // Lead
+        let play_lead = trigger_primary.kick || trigger_primary.snare || trigger_secondary.kick || trigger_secondary.snare || trigger_secondary.hat;
+        if play_lead {
+            let is_strong = trigger_primary.kick;
+            let freq = self.harmony.next_note_hybrid(is_strong);
+            let midi = (69.0 + 12.0 * (freq / 440.0).log2()).round() as u8;
+            let vel = 90 + (self.current_state.arousal * 30.0) as u8;
+            events.push(AudioEvent::NoteOn { note: midi, velocity: vel, channel: 1 });
+        }
+        
+        // Snare
+        if trigger_primary.snare {
+             let vel = 80 + (self.current_state.arousal * 40.0) as u8;
+             events.push(AudioEvent::NoteOn { note: 38, velocity: vel, channel: 2 });
+        }
+        
+        // Hat
+        if trigger_primary.hat || trigger_secondary.hat {
+             let vel = 70 + (self.current_state.arousal * 30.0) as u8;
+             events.push(AudioEvent::NoteOn { note: 42, velocity: vel, channel: 3 });
+        }
+
+        // Send events to renderer
+        for event in events.iter() {
+            self.renderer.handle_event(event.clone());
+        }
+        
+        // Send events to UI
+        if !events.is_empty() {
+            if let Ok(mut queue) = self.event_queue.lock() {
+                for event in events {
+                    if let AudioEvent::NoteOn { note, channel, .. } = event {
+                        queue.push(VisualizationEvent {
+                            note_midi: note,
+                            instrument: channel,
+                            step: self.sequencer_primary.current_step,
+                            duration_samples: self.samples_per_step,
+                        });
+                    }
+                }
+            }
+        }
     }
     
     /// Formatte un nom d'accord pour l'UI (numération romaine)

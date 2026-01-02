@@ -27,12 +27,10 @@ impl AudioRenderer for WavBackend {
         self.inner.handle_event(event);
     }
 
-    fn next_frame(&mut self) -> Option<(f32, f32)> {
-        let frame = self.inner.next_frame();
-        if let Some((l, r)) = frame {
-            self.writer.write_sample(l).ok();
-            self.writer.write_sample(r).ok();
+    fn process_buffer(&mut self, output: &mut [f32], channels: usize) {
+        self.inner.process_buffer(output, channels);
+        for sample in output.iter() {
+            self.writer.write_sample(*sample).ok();
         }
-        frame
     }
 }

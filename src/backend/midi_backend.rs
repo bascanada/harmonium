@@ -76,8 +76,8 @@ impl AudioRenderer for MidiBackend {
         }
     }
 
-    fn next_frame(&mut self) -> Option<(f32, f32)> {
-        self.samples_since_last_event += 1;
-        None // No audio generated
+    fn process_buffer(&mut self, output: &mut [f32], channels: usize) {
+        self.samples_since_last_event += (output.len() / channels) as u64;
+        output.fill(0.0);
     }
 }
