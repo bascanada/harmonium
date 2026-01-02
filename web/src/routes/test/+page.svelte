@@ -14,8 +14,8 @@
     // Paramètres émotionnels (modèle dimensionnel)
     let arousal = 0.5;  // Activation/Énergie → BPM
     let valence = 0.3;  // Positif/Négatif → Harmonie
-    let density = 0.5;  // Complexité rythmique
-    let tension = 0.3;  // Dissonance harmonique
+    let density = 0.5;  // Complexité rythmique (< 0.3 = Carré, > 0.3 = Hexagone)
+    let tension = 0.3;  // Dissonance harmonique (> 0.3 active le Triangle → polyrythme 4:3)
 
     // Algorithme rythmique (0 = Euclidean 16 steps, 1 = PerfectBalance 48 steps)
     let algorithm = 0;

@@ -84,8 +84,8 @@ impl Default for EngineParams {
         EngineParams {
             arousal: 0.5,   // Énergie moyenne
             valence: 0.3,   // Légèrement positif
-            density: 0.3,
-            tension: 0.2,
+            density: 0.2,   // < 0.3 = Carré (4 côtés), > 0.3 = Hexagone (6 côtés)
+            tension: 0.4,   // > 0.3 active le Triangle → polyrythme 4:3
             smoothness: 0.7, // Mélodie assez lisse par défaut
             algorithm: RhythmMode::Euclidean, // Mode classique par défaut
         }
@@ -117,7 +117,7 @@ impl Default for CurrentState {
         CurrentState {
             arousal: 0.5,
             valence: 0.3,
-            density: 0.3,
+            density: 0.4,
             tension: 0.2,
             smoothness: 0.7,
             bpm: 125.0,  // (0.5 * 110) + 70
@@ -429,7 +429,8 @@ impl HarmoniumEngine {
         // D0. GESTION DU CHANGEMENT DE MODE (Strategy Pattern)
         // Vérifie si l'algorithme a changé (Euclidean ↔ PerfectBalance)
         let target_algo = target.algorithm;
-        if self.sequencer_primary.mode != target_algo {
+        let mode_changed = self.sequencer_primary.mode != target_algo;
+        if mode_changed {
             self.sequencer_primary.mode = target_algo;
 
             // Si on passe en PerfectBalance, on UPGRADE la résolution à 48 steps
@@ -442,14 +443,7 @@ impl HarmoniumEngine {
                 // Pour éviter les glitches, on garde la haute résolution
                 // L'algo Euclidean fonctionne avec n'importe quel nombre de steps
             }
-
-            self.sequencer_primary.regenerate_pattern();
         }
-
-        // D0.5. Mettre à jour les paramètres du séquenceur pour PerfectBalance
-        // Ces valeurs sont utilisées par generate_balanced_pattern_48
-        self.sequencer_primary.tension = self.current_state.tension;
-        self.sequencer_primary.density = self.current_state.density;
 
         // D1. Density → Pulses (pour mode Euclidean)
         let target_pulses = if self.sequencer_primary.mode == RhythmMode::Euclidean {
@@ -464,9 +458,12 @@ impl HarmoniumEngine {
         let max_rotation = if self.sequencer_primary.mode == RhythmMode::PerfectBalance { 24 } else { 8 };
         let target_rotation = (self.current_state.tension * max_rotation as f32) as usize;
 
-        // Régénérer pattern principal si pulses changent (mode Euclidean)
-        // ou si density/tension changent (mode PerfectBalance - régénération continue)
-        let needs_regen = if self.sequencer_primary.mode == RhythmMode::Euclidean {
+        // Régénérer pattern principal si:
+        // - Mode a changé (besoin de recalculer avec le nouvel algorithme)
+        // - Pulses changent (mode Euclidean)
+        // - Density/tension changent (mode PerfectBalance - régénération continue)
+        // IMPORTANT: Comparer AVANT de mettre à jour les valeurs du séquenceur!
+        let needs_regen = mode_changed || if self.sequencer_primary.mode == RhythmMode::Euclidean {
             target_pulses != self.last_pulse_count
         } else {
             // En PerfectBalance, on régénère si density ou tension ont significativement changé
@@ -475,7 +472,12 @@ impl HarmoniumEngine {
         };
 
         if needs_regen {
+            // D0.5. Mettre à jour les paramètres du séquenceur AVANT régénération
+            // Ces valeurs sont utilisées par generate_balanced_pattern_48
+            self.sequencer_primary.tension = self.current_state.tension;
+            self.sequencer_primary.density = self.current_state.density;
             self.sequencer_primary.pulses = target_pulses;
+
             self.sequencer_primary.regenerate_pattern();
             self.last_pulse_count = target_pulses;
 
