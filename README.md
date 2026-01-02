@@ -76,6 +76,15 @@ Sound is sculpted in real-time via fundsp:
 
 * Hiller, Lejaren & Isaacson, Leonard (1959). Experimental Music
 
+## ML integration
+
+To control the emotions dynamically to help to music evolve the library include ML integration
+to run a tensorflow model to transform words into parameters to control the value of our emotions.
+
+### Glossary implementation
+
+
+
 ## Library used
 
 Music generation:

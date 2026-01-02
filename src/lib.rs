@@ -16,6 +16,25 @@ pub mod voice_manager;
 pub use sequencer::RhythmMode;
 
 #[wasm_bindgen]
+pub struct RecordedData {
+    format_str: String,
+    data: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl RecordedData {
+    #[wasm_bindgen(getter)]
+    pub fn format(&self) -> String {
+        self.format_str.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn data(&self) -> Vec<u8> {
+        self.data.clone()
+    }
+}
+
+#[wasm_bindgen]
 pub struct Handle {
     #[allow(dead_code)]
     stream: cpal::Stream,
@@ -27,6 +46,8 @@ pub struct Handle {
     event_queue: Arc<Mutex<Vec<engine::VisualizationEvent>>>,
     /// Queue de chargement de SoundFonts
     font_queue: Arc<Mutex<Vec<(u32, Vec<u8>)>>>,
+    /// Enregistrements terminés
+    finished_recordings: Arc<Mutex<Vec<(events::RecordFormat, Vec<u8>)>>>,
     bpm: f32,
     key: String,
     scale: String,
@@ -271,6 +292,49 @@ impl Handle {
         use cpal::traits::StreamTrait;
         self.stream.pause().map_err(|e| JsValue::from_str(&e.to_string()))
     }
+
+    // === Recording ===
+
+    pub fn start_recording_wav(&self) {
+        if let Ok(mut state) = self.target_state.lock() {
+            state.record_wav = true;
+        }
+    }
+
+    pub fn stop_recording_wav(&self) {
+        if let Ok(mut state) = self.target_state.lock() {
+            state.record_wav = false;
+        }
+    }
+
+    pub fn start_recording_midi(&self) {
+        if let Ok(mut state) = self.target_state.lock() {
+            state.record_midi = true;
+        }
+    }
+
+    pub fn stop_recording_midi(&self) {
+        if let Ok(mut state) = self.target_state.lock() {
+            state.record_midi = false;
+        }
+    }
+    
+    /// Récupère le dernier enregistrement terminé (WAV ou MIDI)
+    pub fn pop_finished_recording(&self) -> Option<RecordedData> {
+        if let Ok(mut queue) = self.finished_recordings.lock() {
+            if let Some((fmt, data)) = queue.pop() {
+                let format_str = match fmt {
+                    events::RecordFormat::Wav => "wav".to_string(),
+                    events::RecordFormat::Midi => "midi".to_string(),
+                };
+                return Some(RecordedData {
+                    format_str,
+                    data,
+                });
+            }
+        }
+        None
+    }
 }
 
 #[wasm_bindgen]
@@ -281,7 +345,7 @@ pub fn start(sf2_bytes: Option<Box<[u8]>>) -> Result<Handle, JsValue> {
     let target_state = Arc::new(Mutex::new(engine::EngineParams::default()));
     let target_state_clone = target_state.clone();
     
-    let (stream, config, harmony_state, event_queue, font_queue) = audio::create_stream(target_state, sf2_bytes.as_deref()).map_err(|e| JsValue::from_str(&e))?;
+    let (stream, config, harmony_state, event_queue, font_queue, finished_recordings) = audio::create_stream(target_state, sf2_bytes.as_deref()).map_err(|e| JsValue::from_str(&e))?;
 
     Ok(Handle { 
         stream,
@@ -289,6 +353,7 @@ pub fn start(sf2_bytes: Option<Box<[u8]>>) -> Result<Handle, JsValue> {
         harmony_state,
         event_queue,
         font_queue,
+        finished_recordings,
         bpm: config.bpm,
         key: config.key,
         scale: config.scale,

@@ -64,6 +64,60 @@
     let channelRouting = [-1, -1, -1, -1]; 
     const channelNames = ["Bass", "Lead", "Snare", "Hat"];
 
+    // Recording State
+    let isRecordingWav = false;
+    let isRecordingMidi = false;
+
+    function toggleWavRecording() {
+        if (!handle) return;
+        if (isRecordingWav) {
+            handle.stop_recording_wav();
+            isRecordingWav = false;
+        } else {
+            handle.start_recording_wav();
+            isRecordingWav = true;
+        }
+    }
+
+    function toggleMidiRecording() {
+        if (!handle) return;
+        if (isRecordingMidi) {
+            handle.stop_recording_midi();
+            isRecordingMidi = false;
+        } else {
+            handle.start_recording_midi();
+            isRecordingMidi = true;
+        }
+    }
+
+    function checkRecordings() {
+        if (!handle) return;
+        
+        // Loop to get all finished recordings
+        while (true) {
+            const recording = handle.pop_finished_recording();
+            if (!recording) break;
+            
+            const fmt = recording.format;
+            const data = recording.data;
+            
+            const blob = new Blob([data], { type: fmt === 'wav' ? 'audio/wav' : 'audio/midi' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `recording_${new Date().toISOString()}.${fmt === 'wav' ? 'wav' : 'mid'}`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+    }
+
+    onMount(() => {
+        const interval = setInterval(checkRecordings, 1000);
+        return () => clearInterval(interval);
+    });
+
     async function loadSoundFont(event: Event) {
         const input = event.target as HTMLInputElement;
         if (input.files && input.files[0]) {
@@ -337,15 +391,39 @@
         </div>
     {/if}
 
-    <div class="flex gap-4">
-        <button
-            onclick={togglePlay}
-            class="px-8 py-4 text-2xl font-semibold rounded-lg transition-colors duration-200 cursor-pointer
-                {isPlaying ? 'bg-red-600 hover:bg-red-700' : 'bg-purple-700 hover:bg-purple-800'}
-                disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-            {isPlaying ? 'Stop Music' : 'Start Music'}
-        </button>
+    <div class="flex flex-col items-center gap-4">
+        <div class="flex gap-4">
+            <button
+                onclick={togglePlay}
+                class="px-8 py-4 text-2xl font-semibold rounded-lg transition-colors duration-200 cursor-pointer
+                    {isPlaying ? 'bg-red-600 hover:bg-red-700' : 'bg-purple-700 hover:bg-purple-800'}
+                    disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+                {isPlaying ? 'Stop Music' : 'Start Music'}
+            </button>
+        </div>
+
+        {#if isPlaying}
+            <div class="flex gap-4">
+                <button
+                    onclick={toggleWavRecording}
+                    class="px-4 py-2 font-semibold rounded-lg transition-colors duration-200 cursor-pointer flex items-center gap-2
+                        {isRecordingWav ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' : 'bg-neutral-700 hover:bg-neutral-600 text-neutral-300'}"
+                >
+                    <div class="w-3 h-3 rounded-full {isRecordingWav ? 'bg-white' : 'bg-red-500'}"></div>
+                    {isRecordingWav ? 'Stop WAV' : 'Record WAV'}
+                </button>
+
+                <button
+                    onclick={toggleMidiRecording}
+                    class="px-4 py-2 font-semibold rounded-lg transition-colors duration-200 cursor-pointer flex items-center gap-2
+                        {isRecordingMidi ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' : 'bg-neutral-700 hover:bg-neutral-600 text-neutral-300'}"
+                >
+                    <div class="w-3 h-3 rounded-full {isRecordingMidi ? 'bg-white' : 'bg-red-500'}"></div>
+                    {isRecordingMidi ? 'Stop MIDI' : 'Record MIDI'}
+                </button>
+            </div>
+        {/if}
     </div>
 
     {#if sessionInfo}

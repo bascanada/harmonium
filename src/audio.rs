@@ -1,10 +1,12 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::engine::{HarmoniumEngine, SessionConfig, EngineParams, HarmonyState, VisualizationEvent};
 use crate::backend::synth_backend::SynthBackend;
+use crate::backend::recorder::RecorderBackend;
+use crate::events::RecordFormat;
 use crate::log;
 use std::sync::{Arc, Mutex};
 
-pub fn create_stream(target_state: Arc<Mutex<EngineParams>>, sf2_bytes: Option<&[u8]>) -> Result<(cpal::Stream, SessionConfig, Arc<Mutex<HarmonyState>>, Arc<Mutex<Vec<VisualizationEvent>>>, Arc<Mutex<Vec<(u32, Vec<u8>)>>>), String> {
+pub fn create_stream(target_state: Arc<Mutex<EngineParams>>, sf2_bytes: Option<&[u8]>) -> Result<(cpal::Stream, SessionConfig, Arc<Mutex<HarmonyState>>, Arc<Mutex<Vec<VisualizationEvent>>>, Arc<Mutex<Vec<(u32, Vec<u8>)>>>, Arc<Mutex<Vec<(RecordFormat, Vec<u8>)>>>), String> {
     // 1. Setup CPAL
     let host = cpal::default_host();
 
@@ -33,8 +35,12 @@ pub fn create_stream(target_state: Arc<Mutex<EngineParams>>, sf2_bytes: Option<&
     log::info(&format!("Sample rate: {}, Channels: {}", sample_rate, channels));
 
     let initial_routing = target_state.lock().unwrap().channel_routing.clone();
-    let backend = Box::new(SynthBackend::new(sample_rate, sf2_bytes, &initial_routing));
-    let mut engine = HarmoniumEngine::new(sample_rate, target_state, backend);
+    let synth_backend = Box::new(SynthBackend::new(sample_rate, sf2_bytes, &initial_routing));
+    
+    let finished_recordings = Arc::new(Mutex::new(Vec::new()));
+    let recorder_backend = Box::new(RecorderBackend::new(synth_backend, finished_recordings.clone(), sample_rate as u32));
+    
+    let mut engine = HarmoniumEngine::new(sample_rate, target_state, recorder_backend);
     let session_config = engine.config.clone();
     let harmony_state = engine.harmony_state.clone(); // Cloner l'Arc pour le retourner
     let event_queue = engine.event_queue.clone(); // Cloner l'Arc pour le retourner
@@ -61,5 +67,5 @@ pub fn create_stream(target_state: Arc<Mutex<EngineParams>>, sf2_bytes: Option<&
 
     stream.play().map_err(|e| e.to_string())?;
 
-    Ok((stream, session_config, harmony_state, event_queue, font_queue))
+    Ok((stream, session_config, harmony_state, event_queue, font_queue, finished_recordings))
 }

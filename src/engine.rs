@@ -80,6 +80,12 @@ pub struct EngineParams {
     pub algorithm: RhythmMode, // Euclidean (16 steps) ou PerfectBalance (48 steps)
     #[serde(default)]
     pub channel_routing: Vec<i32>, // -1 = FundSP, >=0 = Oxisynth Bank ID
+    
+    // Recording Control
+    #[serde(default)]
+    pub record_wav: bool,
+    #[serde(default)]
+    pub record_midi: bool,
 }
 
 impl Default for EngineParams {
@@ -92,6 +98,8 @@ impl Default for EngineParams {
             smoothness: 0.7, // Mélodie assez lisse par défaut
             algorithm: RhythmMode::Euclidean, // Mode classique par défaut
             channel_routing: vec![-1; 16], // Tout en FundSP par défaut
+            record_wav: false,
+            record_midi: false,
         }
     }
 }
@@ -167,6 +175,10 @@ pub struct HarmoniumEngine {
     // Optimization
     control_counter: usize,
     cached_target: EngineParams,
+    
+    // Recording State Tracking
+    is_recording_wav: bool,
+    is_recording_midi: bool,
 }
 
 impl HarmoniumEngine {
@@ -239,6 +251,8 @@ impl HarmoniumEngine {
             last_tension_choice: initial_params.tension,
             control_counter: 0,
             cached_target: initial_params,
+            is_recording_wav: false,
+            is_recording_midi: false,
         }
     }
 
@@ -283,6 +297,27 @@ impl HarmoniumEngine {
         self.current_state.smoothness += (target.smoothness - self.current_state.smoothness) * 0.001;
         let target_bpm = target.compute_bpm();
         self.current_state.bpm += (target_bpm - self.current_state.bpm) * 0.001;
+
+        // === RECORDING CONTROL ===
+        if self.control_counter == 63 {
+            if target.record_wav != self.is_recording_wav {
+                self.is_recording_wav = target.record_wav;
+                if self.is_recording_wav {
+                    self.renderer.handle_event(AudioEvent::StartRecording { format: crate::events::RecordFormat::Wav });
+                } else {
+                    self.renderer.handle_event(AudioEvent::StopRecording { format: crate::events::RecordFormat::Wav });
+                }
+            }
+            
+            if target.record_midi != self.is_recording_midi {
+                self.is_recording_midi = target.record_midi;
+                if self.is_recording_midi {
+                    self.renderer.handle_event(AudioEvent::StartRecording { format: crate::events::RecordFormat::Midi });
+                } else {
+                    self.renderer.handle_event(AudioEvent::StopRecording { format: crate::events::RecordFormat::Midi });
+                }
+            }
+        }
 
         // === DSP UPDATES ===
         // Map internal state to MIDI CC
