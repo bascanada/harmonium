@@ -1,6 +1,7 @@
 use fundsp::hacker32::*;
 use crate::events::AudioEvent;
 use std::io::Cursor;
+use rand::Rng;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ChannelType {
@@ -198,6 +199,44 @@ impl VoiceManager {
                         self.timbre_mix.set_value(val_norm);
                         self.cutoff.set_value(500.0 + (val_norm * 3500.0));
                         self.resonance.set_value(1.0 + (val_norm * 4.0));
+
+                        // === SOUNDFONT TENSION EFFECTS ===
+                        // Apply to all channels (0-3 are used)
+                        for ch in 0..4 {
+                            if let ChannelType::Oxisynth { .. } = self.channel_routing[ch] {
+                                // 1. Standard: Filter & Resonance
+                                // Cutoff (CC 74): 30 (dull) -> 127 (bright)
+                                let cutoff_val = (30.0 + val_norm * 97.0) as i32;
+                                // Resonance (CC 71): 0 -> 90 (resonant)
+                                let res_val = (val_norm * 90.0) as i32;
+
+                                let _ = self.synth.send_event(oxisynth::MidiEvent::ControlChange { 
+                                    channel: ch as u8, 
+                                    ctrl: 74, 
+                                    value: cutoff_val.clamp(0, 127) as u8
+                                });
+                                let _ = self.synth.send_event(oxisynth::MidiEvent::ControlChange { 
+                                    channel: ch as u8, 
+                                    ctrl: 71, 
+                                    value: res_val.clamp(0, 127) as u8
+                                });
+
+                                // 2. Horror: Pitch Instability (Detune)
+                                let bend_val = if val_norm > 0.6 {
+                                    let mut rng = rand::thread_rng();
+                                    let wobble_amount = (val_norm - 0.6) * 2000.0;
+                                    let random_bend = rng.gen_range(-0.5..0.5) * wobble_amount;
+                                    (8192.0 + random_bend) as i32
+                                } else {
+                                    8192
+                                };
+
+                                let _ = self.synth.send_event(oxisynth::MidiEvent::PitchBend { 
+                                    channel: ch as u8, 
+                                    value: bend_val.clamp(0, 16383) as u16
+                                });
+                            }
+                        }
                     },
                     11 => { // Expression / Arousal
                          self.distortion.set_value(val_norm * 0.8);
