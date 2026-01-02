@@ -27,7 +27,7 @@ jobs:
         if: steps.cache-models.outputs.cache-hit != 'true'
         run: |
           pip install huggingface_hub
-          make models/download
+          make models/download HF_CLI="python3 -m huggingface_hub.cli"
 
       - name: Setup Node
         uses: actions/setup-node@v4

@@ -10,6 +10,8 @@ pub mod progression;
 pub mod fractal;
 pub mod ai;
 
+pub use sequencer::RhythmMode;
+
 #[wasm_bindgen]
 pub struct Handle {
     #[allow(dead_code)]
@@ -79,6 +81,26 @@ impl Handle {
         if let Ok(mut state) = self.target_state.lock() {
             state.tension = tension.clamp(0.0, 1.0);
         }
+    }
+
+    /// Définir l'algorithme rythmique (0 = Euclidean, 1 = PerfectBalance)
+    /// PerfectBalance active le mode 48 steps pour les polyrythmes parfaits 4:3
+    pub fn set_algorithm(&mut self, algorithm: u8) {
+        if let Ok(mut state) = self.target_state.lock() {
+            state.algorithm = match algorithm {
+                0 => RhythmMode::Euclidean,
+                1 => RhythmMode::PerfectBalance,
+                _ => RhythmMode::Euclidean, // Fallback
+            };
+        }
+    }
+
+    /// Obtenir l'algorithme rythmique actuel (0 = Euclidean, 1 = PerfectBalance)
+    pub fn get_algorithm(&self) -> u8 {
+        self.target_state.lock().map(|s| match s.algorithm {
+            RhythmMode::Euclidean => 0,
+            RhythmMode::PerfectBalance => 1,
+        }).unwrap_or(0)
     }
 
     // === Getters pour l'état actuel ===

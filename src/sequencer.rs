@@ -1,3 +1,31 @@
+use serde::{Serialize, Deserialize};
+
+// --- RHYTHM MODE (Strategy Pattern) ---
+
+#[derive(Clone, Copy, Debug, PartialEq, Default, Serialize, Deserialize)]
+pub enum RhythmMode {
+    #[default]
+    Euclidean,      // Algorithme de Bjorklund (Classique)
+    PerfectBalance, // Algorithme Additif (XronoMorph style) - 48 steps
+}
+
+/// Une forme géométrique pure qui tourne sur le cercle
+/// Représente un polygone régulier inscrit dans le cercle rythmique
+#[derive(Clone, Debug)]
+pub struct BalancedPolygon {
+    pub sides: usize,    // Ex: 3 (Triangle), 4 (Carré), 6 (Hexagone)
+    pub rotation: usize, // Décalage en steps (0 à 47)
+    pub velocity: f32,   // Poids de la forme pour le mix (0.0 à 1.0)
+}
+
+impl BalancedPolygon {
+    pub fn new(sides: usize, rotation: usize, velocity: f32) -> Self {
+        Self { sides, rotation, velocity }
+    }
+}
+
+// --- SEQUENCER STRUCT ---
+
 pub struct Sequencer {
     pub steps: usize,
     pub pulses: usize,
@@ -6,19 +34,33 @@ pub struct Sequencer {
     pub current_step: usize,
     pub bpm: f32,
     pub last_tick_time: f64,
+    // --- NEW: Strategy Pattern fields ---
+    pub mode: RhythmMode,
+    pub tension: f32,        // Contrôle la complexité polyrythmique (0.0 à 1.0)
+    pub density: f32,        // Contrôle le remplissage (0.0 à 1.0)
 }
 
 impl Sequencer {
     pub fn new(steps: usize, pulses: usize, bpm: f32) -> Self {
-        Sequencer {
+        Self::new_with_mode(steps, pulses, bpm, RhythmMode::Euclidean)
+    }
+
+    /// Créer un séquenceur avec un mode spécifique (Euclidean ou PerfectBalance)
+    pub fn new_with_mode(steps: usize, pulses: usize, bpm: f32, mode: RhythmMode) -> Self {
+        let mut seq = Sequencer {
             steps,
             pulses,
-            pattern: generate_euclidean_pattern(steps, pulses),
+            pattern: vec![false; steps],
             rotation: 0,
             current_step: 0,
             bpm,
             last_tick_time: 0.0,
-        }
+            mode,
+            tension: 0.0,
+            density: 0.5,
+        };
+        seq.regenerate_pattern();
+        seq
     }
 
     /// Créer un séquenceur avec une rotation initiale (point de départ différent)
@@ -37,11 +79,34 @@ impl Sequencer {
     }
 
     /// Régénérer le pattern avec les paramètres actuels
+    /// Utilise le Strategy Pattern pour choisir l'algorithme approprié
     pub fn regenerate_pattern(&mut self) {
-        self.pattern = rotate_pattern(&generate_euclidean_pattern(self.steps, self.pulses), self.rotation);
+        let raw = match self.mode {
+            RhythmMode::Euclidean => {
+                // Algorithme de Bjorklund classique
+                generate_euclidean_pattern(self.steps, self.pulses)
+            }
+            RhythmMode::PerfectBalance => {
+                // Algorithme de superposition de polygones (XronoMorph style)
+                // Utilise density et tension au lieu de pulses
+                generate_balanced_pattern_48(self.steps, self.density, self.tension)
+            }
+        };
+        self.pattern = rotate_pattern(&raw, self.rotation);
+    }
+
+    /// Passer en mode haute résolution (48 steps) pour PerfectBalance
+    pub fn upgrade_to_48_steps(&mut self) {
+        if self.steps != 48 {
+            self.steps = 48;
+            self.current_step = 0;
+            self.pattern = vec![false; 48];
+            self.regenerate_pattern();
+        }
     }
 
     pub fn tick(&mut self) -> bool {
+        if self.pattern.is_empty() { return false; }
         let trigger = self.pattern[self.current_step];
         self.current_step = (self.current_step + 1) % self.steps;
         trigger
@@ -89,6 +154,80 @@ pub fn generate_euclidean_pattern(steps: usize, pulses: usize) -> Vec<bool> {
     // The standard Bjorklund might need rotation to match musical expectations (like starting on a beat),
     // but this mathematically correct distribution is a good start.
     result
+}
+
+// --- ALGORITHME 2 : PERFECT BALANCE (48 STEPS) ---
+// Pourquoi 48 ? C'est un nombre hautement composé:
+// - Divisible par 2, 4, 8, 16 (Rythmes binaires)
+// - Divisible par 3, 6, 12, 24 (Rythmes ternaires/triplés)
+// Permet des polyrythmes 4:3 parfaits sans approximation.
+
+/// Génère un rythme par superposition de polygones réguliers sur une grille de N steps
+/// Inspiré de XronoMorph (Andrew Milne) et des Well-Formed Scales
+///
+/// # Arguments
+/// * `steps` - Nombre de steps (48 recommandé pour les polyrythmes)
+/// * `density` - Contrôle le remplissage (0.0 = sparse, 1.0 = dense)
+/// * `tension` - Contrôle la complexité polyrythmique (0.0 = stable, 1.0 = complexe)
+pub fn generate_balanced_pattern_48(steps: usize, density: f32, tension: f32) -> Vec<bool> {
+    let mut polygons = Vec::new();
+
+    // === ÉTAPE 1 : LA RECETTE DU CHEF (Density/Tension → Géométrie) ===
+
+    // A. La Fondation (Basse) - Toujours présente
+    // Faible density: Carré (4 coups par cycle) = pulse régulier
+    // Haute density: Octogone (8 coups) = double-time feel
+    let base_sides = if density < 0.3 { 4 } else if density < 0.6 { 6 } else { 8 };
+    polygons.push(BalancedPolygon::new(base_sides, 0, 1.0));
+
+    // B. La Tension (Polyrythmie 4:3) - Le coeur du groove XronoMorph
+    // 48 / 4 = 12 steps d'écart (Carré)
+    // 48 / 3 = 16 steps d'écart (Triangle)
+    // Superposer ces deux formes crée un polyrythme 4:3 parfait
+    if tension > 0.3 {
+        let tri_velocity = tension; // Plus de tension = triangle plus fort
+
+        // Syncope: décaler le triangle pour créer du groove
+        // tension haute (> 0.7) = décalage de 6 steps (1/8ème de tour)
+        let tri_rotation = if tension > 0.7 { 6 } else if tension > 0.5 { 3 } else { 0 };
+
+        polygons.push(BalancedPolygon::new(3, tri_rotation, tri_velocity));
+    }
+
+    // C. Le Remplissage (Haute densité) - Sparkles/Hi-hats
+    // Hexagone (6 côtés) ou Dodécagone (12 côtés) pour les fills rapides
+    if density > 0.65 {
+        let fill_sides = if density > 0.85 { 12 } else { 6 };
+        // Légère rotation pour éviter la collision avec la fondation
+        polygons.push(BalancedPolygon::new(fill_sides, 2, 0.5));
+    }
+
+    // D. Contre-temps (Tension très haute) - Pentagone pour l'étrangeté
+    // Le pentagone (5 côtés) ne divise pas 48 parfaitement, créant des accents décalés
+    if tension > 0.85 {
+        polygons.push(BalancedPolygon::new(5, 1, 0.4));
+    }
+
+    // === ÉTAPE 2 : LA SUPERPOSITION (Physique des Polygones) ===
+
+    let mut accumulation = vec![0.0f32; steps];
+
+    for poly in polygons {
+        if poly.sides == 0 { continue; }
+
+        // Calculer l'intervalle entre chaque sommet du polygone
+        let interval = steps / poly.sides;
+
+        // Placer chaque sommet du polygone sur le cercle rythmique
+        for i in 0..poly.sides {
+            let pos = (poly.rotation + i * interval) % steps;
+            accumulation[pos] += poly.velocity;
+        }
+    }
+
+    // === ÉTAPE 3 : QUANTIFICATION (Conversion en bool) ===
+    // Tout ce qui a de l'énergie devient un trigger
+    accumulation.into_iter().map(|val| val > 0.0).collect()
 }
 
 /// Rotation circulaire d'un pattern (Necklace → Bracelet)

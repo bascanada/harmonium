@@ -1,3 +1,5 @@
+HF_CLI ?= huggingface-cli
+
 .PHONY: run web/build web/serve web/install models/download
 
 run:
@@ -21,14 +23,14 @@ models/clear:
 models/download: models/clear
 	mkdir -p web/static/models
 	# ~80MB - Best balance of size/performance for embeddings
-	huggingface-cli download sentence-transformers/all-MiniLM-L6-v2 config.json model.safetensors tokenizer.json --local-dir web/static/models --local-dir-use-symlinks False
+	$(HF_CLI) download sentence-transformers/all-MiniLM-L6-v2 config.json model.safetensors tokenizer.json --local-dir web/static/models --local-dir-use-symlinks False
 
 models/download-tiny: models/clear
 	mkdir -p web/static/models
 	# ~17MB - Extremely small, but lower quality embeddings
-	huggingface-cli download prajjwal1/bert-tiny config.json model.safetensors tokenizer.json --local-dir web/static/models --local-dir-use-symlinks False
+	$(HF_CLI) download prajjwal1/bert-tiny config.json model.safetensors tokenizer.json --local-dir web/static/models --local-dir-use-symlinks False
 
 models/download-emotion: models/clear
 	mkdir -p web/static/models
 	# ~260MB - Specialized Emotion Detection (DistilBERT) - REQUIRES CODE CHANGE to DistilBertModel
-	huggingface-cli download bhadresh-savani/distilbert-base-uncased-emotion config.json model.safetensors tokenizer.json --local-dir web/static/models --local-dir-use-symlinks False
+	$(HF_CLI) download bhadresh-savani/distilbert-base-uncased-emotion config.json model.safetensors tokenizer.json --local-dir web/static/models --local-dir-use-symlinks False

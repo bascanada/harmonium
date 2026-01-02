@@ -1,5 +1,5 @@
 use fundsp::hacker32::*;
-use crate::sequencer::Sequencer;
+use crate::sequencer::{Sequencer, RhythmMode};
 use crate::harmony::HarmonyNavigator;
 use crate::progression::{Progression, ChordStep, ChordQuality};
 use crate::log;
@@ -66,6 +66,8 @@ pub struct EngineParams {
     pub density: f32,   // 0.0 à 1.0 - Complexité rythmique
     pub tension: f32,   // 0.0 à 1.0 - Dissonance harmonique
     pub smoothness: f32, // 0.0 à 1.0 - Lissage mélodique (Hurst)
+    #[serde(default)]
+    pub algorithm: RhythmMode, // Euclidean (16 steps) ou PerfectBalance (48 steps)
 }
 
 impl Default for EngineParams {
@@ -76,6 +78,7 @@ impl Default for EngineParams {
             density: 0.3,
             tension: 0.2,
             smoothness: 0.7, // Mélodie assez lisse par défaut
+            algorithm: RhythmMode::Euclidean, // Mode classique par défaut
         }
     }
 }
@@ -413,40 +416,91 @@ impl HarmoniumEngine {
         self.distortion.set_value(target_distortion);
 
         // === ÉTAPE D: Mise à jour Séquenceurs (Logique Rythmique + Polyrythmie) ===
-        
-        // D1. Density → Pulses (séquenceur principal 16 steps)
-        let target_pulses = std::cmp::min((self.current_state.density * 11.0) as usize + 1, 16);
-        
+
+        // D0. GESTION DU CHANGEMENT DE MODE (Strategy Pattern)
+        // Vérifie si l'algorithme a changé (Euclidean ↔ PerfectBalance)
+        let target_algo = target.algorithm;
+        if self.sequencer_primary.mode != target_algo {
+            self.sequencer_primary.mode = target_algo;
+
+            // Si on passe en PerfectBalance, on UPGRADE la résolution à 48 steps
+            // C'est le "nombre magique" pour les polyrythmes parfaits (4:3)
+            if target_algo == RhythmMode::PerfectBalance {
+                self.sequencer_primary.upgrade_to_48_steps();
+                log::info("🚀 UPGRADE: Sequencer resolution -> 48 steps (High Precision Polyrhythm)");
+            } else {
+                // Retour en Euclidean: on garde 48 steps (compatible) ou on revient à 16
+                // Pour éviter les glitches, on garde la haute résolution
+                // L'algo Euclidean fonctionne avec n'importe quel nombre de steps
+            }
+
+            self.sequencer_primary.regenerate_pattern();
+        }
+
+        // D0.5. Mettre à jour les paramètres du séquenceur pour PerfectBalance
+        // Ces valeurs sont utilisées par generate_balanced_pattern_48
+        self.sequencer_primary.tension = self.current_state.tension;
+        self.sequencer_primary.density = self.current_state.density;
+
+        // D1. Density → Pulses (pour mode Euclidean)
+        let target_pulses = if self.sequencer_primary.mode == RhythmMode::Euclidean {
+            std::cmp::min((self.current_state.density * 11.0) as usize + 1, self.sequencer_primary.steps)
+        } else {
+            // En mode PerfectBalance, les pulses sont calculés par l'algorithme géométrique
+            self.sequencer_primary.pulses
+        };
+
         // D2. Tension → Rotation (géométrie rythmique à la Toussaint)
         // Plus de tension = plus de décalage rythmique (transformation Necklace → Bracelet)
-        let target_rotation = (self.current_state.tension * 8.0) as usize; // 0-8 steps de rotation
-        
-        // Régénérer pattern principal si pulses changent
-        if target_pulses != self.last_pulse_count {
+        let max_rotation = if self.sequencer_primary.mode == RhythmMode::PerfectBalance { 24 } else { 8 };
+        let target_rotation = (self.current_state.tension * max_rotation as f32) as usize;
+
+        // Régénérer pattern principal si pulses changent (mode Euclidean)
+        // ou si density/tension changent (mode PerfectBalance - régénération continue)
+        let needs_regen = if self.sequencer_primary.mode == RhythmMode::Euclidean {
+            target_pulses != self.last_pulse_count
+        } else {
+            // En PerfectBalance, on régénère si density ou tension ont significativement changé
+            (self.current_state.density - self.sequencer_primary.density).abs() > 0.05 ||
+            (self.current_state.tension - self.sequencer_primary.tension).abs() > 0.05
+        };
+
+        if needs_regen {
             self.sequencer_primary.pulses = target_pulses;
             self.sequencer_primary.regenerate_pattern();
             self.last_pulse_count = target_pulses;
-            log::info(&format!("🔄 Morphing Rhythm -> Pulses: {} | BPM: {:.1}", target_pulses, self.current_state.bpm));
+
+            if self.sequencer_primary.mode == RhythmMode::PerfectBalance {
+                log::info(&format!("🔷 Morphing Geometry -> Density: {:.2} | Tension: {:.2} | 48 Steps",
+                    self.current_state.density, self.current_state.tension));
+            } else {
+                log::info(&format!("🔄 Morphing Rhythm -> Pulses: {} | BPM: {:.1}", target_pulses, self.current_state.bpm));
+            }
         }
-        
+
         // Appliquer rotation si tension change
         if target_rotation != self.last_rotation {
             self.sequencer_primary.set_rotation(target_rotation);
             self.last_rotation = target_rotation;
             log::info(&format!("🔀 Rotation shift: {} steps (Tension: {:.2})", target_rotation, self.current_state.tension));
         }
-        
+
         // D3. Mettre à jour le séquenceur secondaire (polyrythmie 12 steps)
+        // En mode PerfectBalance, le séquenceur secondaire devient moins important
+        // car le polyrythme est déjà intégré dans les 48 steps
         let secondary_pulses = std::cmp::min((self.current_state.density * 8.0) as usize + 1, 12);
         if secondary_pulses != self.sequencer_secondary.pulses {
             self.sequencer_secondary.pulses = secondary_pulses;
             // Rotation inversée pour créer un déphasage intéressant
-            self.sequencer_secondary.set_rotation(8 - target_rotation);
+            self.sequencer_secondary.set_rotation(8 - (target_rotation % 8));
             self.sequencer_secondary.regenerate_pattern();
         }
 
-        // Mise à jour du timing (samples_per_step basé sur le BPM actuel)
-        let new_samples_per_step = (self.node.sample_rate() * 60.0 / (self.current_state.bpm as f64) / 4.0) as usize;
+        // Mise à jour du timing (samples_per_step basé sur le BPM actuel et le nombre de steps)
+        // En mode 48 steps: on divise par 12 au lieu de 4 pour garder la même durée de mesure
+        // 48 steps / 4 beats = 12 steps par beat (au lieu de 4 en mode 16 steps)
+        let steps_per_beat = (self.sequencer_primary.steps / 4) as f64;
+        let new_samples_per_step = (self.node.sample_rate() * 60.0 / (self.current_state.bpm as f64) / steps_per_beat) as usize;
         if new_samples_per_step != self.samples_per_step {
             self.samples_per_step = new_samples_per_step;
         }
