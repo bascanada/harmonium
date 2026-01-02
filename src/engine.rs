@@ -3,6 +3,8 @@ use crate::sequencer::{Sequencer, RhythmMode, StepTrigger};
 use crate::harmony::HarmonyNavigator;
 use crate::progression::{Progression, ChordStep, ChordQuality};
 use crate::log;
+use crate::events::AudioEvent;
+use crate::voice_manager::VoiceManager;
 use rust_music_theory::note::PitchSymbol;
 use rust_music_theory::scale::ScaleType;
 use rand::Rng;
@@ -166,23 +168,9 @@ pub struct HarmoniumEngine {
     sequencer_secondary: Sequencer,  // Cycle secondaire (12 steps) - déphasage de Steve Reich
     harmony: HarmonyNavigator,
     node: BlockRateAdapter,
-    // === LEAD (Mélodie/Harmonies) ===
-    frequency_lead: Shared,
-    gate_lead: Shared,
-    // === BASSE (Fondation) ===
-    frequency_bass: Shared,
-    gate_bass: Shared,
-    // === BATTERIE (Nouveau) ===
-    gate_snare: Shared,
-    gate_hat: Shared,
-    // === EFFETS GLOBAUX ===
-    cutoff: Shared,
-    resonance: Shared,
-    distortion: Shared,
-    fm_ratio: Shared,      // Ratio modulateur/carrier (1.0 = unison, 2.0 = octave)
-    fm_amount: Shared,     // Profondeur de modulation FM (0.0 = off, 1.0 = intense)
-    timbre_mix: Shared,    // 0.0 = Organique, 1.0 = FM
-    reverb_mix: Shared,    // Dry/wet reverb (0.0 = sec, 1.0 = 100% reverb)
+    
+    voice_manager: VoiceManager,
+
     sample_counter: usize,
     samples_per_step: usize,
     last_pulse_count: usize,
@@ -193,11 +181,6 @@ pub struct HarmoniumEngine {
     progression_index: usize,             // Position dans la progression actuelle
     last_valence_choice: f32,             // Hystérésis: valence qui a déclenché le dernier choix
     last_tension_choice: f32,             // Hystérésis: tension qui a déclenché le dernier choix
-    // === ARTICULATION DYNAMIQUE (Anti-Legato) ===
-    gate_timer_lead: usize,               // Compteur dégressif pour la durée de la note lead
-    gate_timer_bass: usize,               // Compteur dégressif pour la durée de la note basse
-    gate_timer_snare: usize,
-    gate_timer_hat: usize,
 }
 
 impl HarmoniumEngine {
@@ -291,6 +274,14 @@ impl HarmoniumEngine {
         
         let node = BlockRateAdapter::new(Box::new(mix), sample_rate);
 
+        let voice_manager = VoiceManager::new(
+            frequency_lead, gate_lead,
+            frequency_bass, gate_bass,
+            gate_snare, gate_hat,
+            cutoff, resonance, distortion,
+            fm_ratio, fm_amount, timbre_mix, reverb_mix,
+        );
+
         // Séquenceurs
         let sequencer_primary = Sequencer::new(steps, initial_pulses, bpm);
         let secondary_pulses = std::cmp::min((initial_params.density * 8.0) as usize + 1, 12);
@@ -319,11 +310,7 @@ impl HarmoniumEngine {
             sequencer_secondary,
             harmony,
             node,
-            frequency_lead, gate_lead,
-            frequency_bass, gate_bass,
-            gate_snare, gate_hat, // Nouveaux champs
-            cutoff, resonance, distortion,
-            fm_ratio, fm_amount, timbre_mix, reverb_mix,
+            voice_manager,
             sample_counter: 0,
             samples_per_step,
             last_pulse_count: initial_pulses,
@@ -333,10 +320,6 @@ impl HarmoniumEngine {
             progression_index: 0,
             last_valence_choice: initial_params.valence,
             last_tension_choice: initial_params.tension,
-            gate_timer_lead: 0,
-            gate_timer_bass: 0,
-            gate_timer_snare: 0,
-            gate_timer_hat: 0,
         }
     }
 
@@ -344,10 +327,7 @@ impl HarmoniumEngine {
         let target = self.target_state.lock().unwrap().clone();
         
         // === GESTION DES GATES ===
-        if self.gate_timer_lead > 0 { self.gate_timer_lead -= 1; if self.gate_timer_lead == 0 { self.gate_lead.set_value(0.0); } }
-        if self.gate_timer_bass > 0 { self.gate_timer_bass -= 1; if self.gate_timer_bass == 0 { self.gate_bass.set_value(0.0); } }
-        if self.gate_timer_snare > 0 { self.gate_timer_snare -= 1; if self.gate_timer_snare == 0 { self.gate_snare.set_value(0.0); } }
-        if self.gate_timer_hat > 0 { self.gate_timer_hat -= 1; if self.gate_timer_hat == 0 { self.gate_hat.set_value(0.0); } }
+        self.voice_manager.update_timers();
 
         // === MORPHING ===
         self.current_state.arousal += (target.arousal - self.current_state.arousal) * 0.06;
@@ -359,16 +339,16 @@ impl HarmoniumEngine {
         self.current_state.bpm += (target_bpm - self.current_state.bpm) * 0.05;
 
         // === DSP UPDATES ===
-        self.fm_ratio.set_value(1.0 + (self.current_state.tension * 4.0));
-        self.fm_amount.set_value(self.current_state.tension * 0.8);
-        self.timbre_mix.set_value(self.current_state.tension.clamp(0.0, 1.0));
-        self.cutoff.set_value(500.0 + (self.current_state.tension * 3500.0));
-        self.resonance.set_value(1.0 + (self.current_state.tension * 4.0));
+        // Map internal state to MIDI CC
+        // Tension -> CC 1 (Modulation)
+        self.voice_manager.process_event(AudioEvent::ControlChange { ctrl: 1, value: (self.current_state.tension * 127.0) as u8 }, self.samples_per_step);
         
-        // Restored missing DSP updates
-        self.distortion.set_value(self.current_state.arousal * 0.8);
-        self.reverb_mix.set_value(0.1 + (self.current_state.valence.abs() * 0.4));
+        // Arousal -> CC 11 (Expression)
+        self.voice_manager.process_event(AudioEvent::ControlChange { ctrl: 11, value: (self.current_state.arousal * 127.0) as u8 }, self.samples_per_step);
 
+        // Valence -> CC 91 (Reverb)
+        self.voice_manager.process_event(AudioEvent::ControlChange { ctrl: 91, value: (self.current_state.valence.abs() * 127.0) as u8 }, self.samples_per_step);
+        
         // === LOGIQUE SÉQUENCEUR ===
         let target_algo = target.algorithm;
         let mode_changed = self.sequencer_primary.mode != target_algo;
@@ -498,10 +478,12 @@ impl HarmoniumEngine {
             if trigger_primary.kick {
                 let root = if let Ok(s) = self.harmony_state.lock() { s.chord_root_offset } else { 0 };
                 let midi = 36 + root;
-                let freq = 440.0 * 2.0_f32.powf((midi as f32 - 69.0) / 12.0);
-                self.frequency_bass.set_value(freq);
-                self.gate_bass.set_value(trigger_primary.velocity);
-                self.gate_timer_bass = (self.samples_per_step as f32 * 0.6) as usize;
+                
+                self.voice_manager.process_event(AudioEvent::NoteOn { 
+                    note: midi as u8, 
+                    velocity: (trigger_primary.velocity * 127.0) as u8, 
+                    channel: 0 
+                }, self.samples_per_step);
                 
                 if let Ok(mut q) = self.event_queue.lock() {
                     q.push(VisualizationEvent { note_midi: midi as u8, instrument: 0, step: self.sequencer_primary.current_step, duration_samples: 2000 });
@@ -510,8 +492,12 @@ impl HarmoniumEngine {
 
             // 2. SNARE
             if trigger_primary.snare {
-                self.gate_snare.set_value(trigger_primary.velocity);
-                self.gate_timer_snare = (self.samples_per_step as f32 * 0.3) as usize;
+                self.voice_manager.process_event(AudioEvent::NoteOn { 
+                    note: 38, 
+                    velocity: (trigger_primary.velocity * 127.0) as u8, 
+                    channel: 2 
+                }, self.samples_per_step);
+
                 if let Ok(mut q) = self.event_queue.lock() {
                     q.push(VisualizationEvent { note_midi: 38, instrument: 2, step: self.sequencer_primary.current_step, duration_samples: 1000 });
                 }
@@ -520,8 +506,11 @@ impl HarmoniumEngine {
             // 3. HAT
             if trigger_primary.hat || trigger_secondary.hat {
                 let vel = if trigger_primary.hat { trigger_primary.velocity } else { 0.5 };
-                self.gate_hat.set_value(vel);
-                self.gate_timer_hat = (self.samples_per_step as f32 * 0.1) as usize;
+                self.voice_manager.process_event(AudioEvent::NoteOn { 
+                    note: 42, // Closed Hi-Hat
+                    velocity: (vel * 127.0) as u8, 
+                    channel: 3 
+                }, self.samples_per_step);
             }
 
             // 4. LEAD
@@ -529,15 +518,17 @@ impl HarmoniumEngine {
             if play_lead {
                 let is_strong = trigger_primary.kick;
                 let freq = self.harmony.next_note_hybrid(is_strong);
-                self.frequency_lead.set_value(freq);
+                let midi = (69.0 + 12.0 * (freq / 440.0).log2()).round() as u8;
                 
                 let dur_factor = if trigger_primary.kick { 0.8 } else { 0.4 };
                 let duration = (self.samples_per_step as f32 * dur_factor) as usize;
                 
-                self.gate_lead.set_value(0.8);
-                self.gate_timer_lead = duration;
+                self.voice_manager.process_event(AudioEvent::NoteOn { 
+                    note: midi, 
+                    velocity: (0.8 * 127.0) as u8, 
+                    channel: 1 
+                }, self.samples_per_step);
                 
-                let midi = (69.0 + 12.0 * (freq / 440.0).log2()).round() as u8;
                 if let Ok(mut q) = self.event_queue.lock() {
                     q.push(VisualizationEvent { note_midi: midi, instrument: 1, step: self.sequencer_primary.current_step, duration_samples: duration });
                 }
