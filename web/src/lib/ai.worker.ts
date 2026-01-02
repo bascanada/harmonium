@@ -2,6 +2,9 @@ import init, { EmotionEngine } from 'harmonium';
 
 let engine: EmotionEngine | null = null;
 
+
+const MODEL_REPO = "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main";
+
 self.onmessage = async (e: MessageEvent) => {
     const { type, id, data } = e.data;
 
@@ -11,15 +14,15 @@ self.onmessage = async (e: MessageEvent) => {
                 await init();
                 
                 const [config, weights, tokenizer] = await Promise.all([
-                    fetch('/models/config.json').then(r => {
+                    fetch(`${MODEL_REPO}/config.json`).then(r => {
                         if (!r.ok) throw new Error("Failed to load config.json");
                         return r.arrayBuffer();
                     }),
-                    fetch('/models/model.safetensors').then(r => {
+                    fetch(`${MODEL_REPO}/model.safetensors`).then(r => {
                         if (!r.ok) throw new Error("Failed to load model.safetensors");
                         return r.arrayBuffer();
                     }),
-                    fetch('/models/tokenizer.json').then(r => {
+                    fetch(`${MODEL_REPO}/tokenizer.json`).then(r => {
                         if (!r.ok) throw new Error("Failed to load tokenizer.json");
                         return r.arrayBuffer();
                     })
