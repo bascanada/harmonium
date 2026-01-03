@@ -142,12 +142,13 @@ impl EmotionEngine {
         self.anchors = anchors;
         Ok(())
     }
+}
 
-    /// Analyser un texte et retourner les paramètres émotionnels
-    pub fn predict(&self, text: &str) -> Result<JsValue, JsError> {
+impl EmotionEngine {
+    /// Analyser un texte et retourner les paramètres émotionnels (Version Native Rust)
+    pub fn predict_native(&self, text: &str) -> Result<EngineParams, String> {
         // 1. Get the embedding for the WHOLE user input at once
-        // This captures context (e.g. "Not happy" will be different from "Happy")
-        let input_embedding = self.get_embedding(text)?;
+        let input_embedding = self.get_embedding(text).map_err(|e| format!("{:?}", e))?;
 
         let mut total_score = 0.0;
         let mut accum_params = EngineParams {
@@ -169,12 +170,11 @@ impl EmotionEngine {
             let similarity = Self::cosine_similarity(&input_embedding, &anchor.embedding);
 
             // 3. Softmax-like logic or Thresholding
-            // If similarity is negative (opposite meaning), ignore it or clamp to 0
             let score = if similarity > 0.0 {
                 similarity.powi(3)
             } else {
                 0.0
-            }; // powi(3) accentuates strong matches
+            };
 
             accum_params.arousal += anchor.params.arousal * score;
             accum_params.valence += anchor.params.valence * score;
@@ -191,7 +191,7 @@ impl EmotionEngine {
             accum_params.tension /= total_score;
             accum_params.density /= total_score;
         } else {
-            // Fallback if no similarity found (return neutral/ambient)
+            // Fallback
             accum_params = EngineParams {
                 arousal: 0.3,
                 valence: 0.0,
@@ -207,9 +207,18 @@ impl EmotionEngine {
             };
         }
 
-        accum_params.smoothness = 0.5; // Constant or derived logic
+        accum_params.smoothness = 0.5;
 
-        Ok(serde_wasm_bindgen::to_value(&accum_params)?)
+        Ok(accum_params)
+    }
+}
+
+#[wasm_bindgen]
+impl EmotionEngine {
+    /// Analyser un texte et retourner les paramètres émotionnels
+    pub fn predict(&self, text: &str) -> Result<JsValue, JsError> {
+        let params = self.predict_native(text).map_err(|e| JsError::new(&e))?;
+        Ok(serde_wasm_bindgen::to_value(&params)?)
     }
 
     /// Analyser un texte et retourner son embedding (CLS token)

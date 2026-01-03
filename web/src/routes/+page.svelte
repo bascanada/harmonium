@@ -1,5 +1,17 @@
 <script lang="ts">
+    import mermaid from 'mermaid';
+    import { onMount } from 'svelte';
+
     let { data } = $props();
+
+    onMount(() => {
+        mermaid.initialize({ 
+            startOnLoad: true,
+            theme: 'dark',
+            securityLevel: 'loose',
+        });
+        mermaid.run();
+    });
 </script>
 
 <!-- Floating Action Button -->

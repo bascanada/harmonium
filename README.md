@@ -11,7 +11,7 @@ Harmonium is based on multiple layers.
 
 1. The brain        Driver of the emotion (Russel)
 2. The skeleton     Geometric rhythms (Euclidean)
-3. The body         Adaptive chord progression (Jean Guy)
+3. The body         Adaptive chord progression (Steedman, Neo-Riemannienne)
 4. The voice        Organic Melody (Fractal Noise)
 5. The lung         DSP
 
@@ -34,11 +34,11 @@ Everything starts with the state of the system (the emotion of the audience)
 
 ### The body
 
-* **Grammaire Générative (Steedman)** pour créer des phrases logiques et résolutives (Jazz/Pop).
+* **Generative Grammar (Steedman)** to create logical and resolving phrases (Jazz/Pop).
 
-* **Théorie Néo-Riemannienne (PLR)** pour des transformations géométriques et dramatiques.
+* **Neo-Riemannian Theory (PLR)** for geometric and dramatic transformations.
 
-* **Coloration Unifiée** : Toutes les notes passent par le **Lydian Chromatic Concept (George Russell)** pour garantir une cohérence harmonique ("Tonal Gravity") quelle que soit la complexité.
+* **Unified Coloration**: All notes pass through the **Lydian Chromatic Concept (George Russell)** to ensure harmonic coherence ("Tonal Gravity") regardless of complexity.
 
 * **Emotional Palettes**: The system selects a chord progression (I-IV-V, i-vii°, etc.) based on the emotional quadrant (e.g., "Sad & Tense" vs "Happy & Calm").
 
@@ -64,21 +64,109 @@ Sound is sculpted in real-time via fundsp:
 
 ### Melodic Driver
 
-Il empêche la monotonie en alternant entre **Stabilité** (règles fonctionnelles) et **Instabilité** (transformations mathématiques) selon la courbe de tension désirée.
+It prevents monotony by alternating between **Stability** (functional rules) and **Instability** (mathematical transformations) according to the desired tension curve.
 
-### Lydian Chromatic Concept (Le Filtre)
+### Lydian Chromatic Concept (The Filter)
 
-Basé sur les travaux de George Russell, ce module ne voit pas la musique comme Majeure/Mineure, mais comme un gradient de **Gravité Tonale** (Ingoing vs Outgoing).
+Based on the work of George Russell, this module does not view music as Major/Minor, but as a gradient of **Tonal Gravity** (Ingoing vs Outgoing).
 
-* **Tension Basse** : Force les notes vers l'échelle Lydienne fondamentale (Consonance).
-* **Tension Haute** : Autorise les notes des échelles Lydiennes Augmentées/Diminuées (Dissonance riche).
+* **Low Tension**: Forces notes towards the fundamental Lydian scale (Consonance).
+* **High Tension**: Allows notes from Augmented/Diminished Lydian scales (Rich Dissonance).
 
-### Steedman & PLR (Les Générateurs)
+### Steedman & PLR (The Generators)
 
-* **Steedman :** Utilise des arbres de syntaxe pour garantir que la musique "raconte une histoire" (début, milieu, fin).
-* **PLR (Neo-Riemannian) :** Utilise la topologie (le *Tonnetz*) pour connecter des accords qui n'ont rien à voir tonalement mais qui sont proches géométriquement.
+* **Steedman:** Uses syntax trees to ensure the music "tells a story" (beginning, middle, end).
+* **PLR (Neo-Riemannian):** Uses topology (the *Tonnetz*) to connect chords that are tonally unrelated but geometrically close.
+
+## ML integration
+
+To control the emotions dynamically to help to music evolve the library include ML integration
+to run a tensorflow model to transform words into parameters to control the value of our emotions.
+
+
+## Diagram
+
+```mermaid
+  graph TD
+    %% --- STYLING ---
+    classDef control fill:#f9f,stroke:#333,stroke-width:4px,color:black;
+    classDef brain fill:#e1f5fe,stroke:#0277bd,stroke-width:2px,color:black;
+    classDef theory fill:#fff9c4,stroke:#fbc02d,stroke-width:2px,color:black;
+    classDef perform fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:black;
+    classDef output fill:#212121,stroke:#000,stroke-width:2px,color:white;
+
+    %% --- 1. CONTROL LAYER ---
+    subgraph CONTROL ["1. CONTROL (Inputs)"]
+        User[("User / AI<br/>(Web Interface)")]:::control
+        Param_E[("EmotionState<br/>(Arousal, Valence, Tension)")]:::control
+        Param_D[("Density & Rhythm")]:::control
+        
+        User --> Param_E
+        User --> Param_D
+    end
+
+    %% --- 2. HARMONIC BRAIN ---
+    subgraph DRIVER ["2. HARMONIC DRIVER (The Choice)"]
+        Decision{"Tension > 0.6 ?"}:::brain
+        
+        Param_E --> Decision
+        
+        %% Strategy A: Low Tension
+        Narrative["Narrative Strategy<br/>(Steedman Grammar)<br/>Rules: V -> I"]:::theory
+        
+        %% Strategy B: High Tension
+        Morphing["Morphing Strategy<br/>(Neo-Riemannian PLR)<br/>Geometry: P, L, R"]:::theory
+        
+        Decision -- No (Stable) --> Narrative
+        Decision -- Yes (Unstable) --> Morphing
+    end
+
+    %% --- 3. COLORATION ---
+    subgraph COLOR ["3. COLORATION (Lydian Chromatic Concept)"]
+        LCC_Engine["LCC Context Manager<br/>(Tonal Gravity Calculation)"]:::brain
+        LCC_Scale["Lydian Parent Scale<br/>(ex: Lydian Augmented)"]:::theory
+        
+        Param_E -- "Valence (Mood)" --> LCC_Engine
+        Narrative --> LCC_Engine
+        Morphing --> LCC_Engine
+        
+        LCC_Engine -->|"Forces notes<br/>into scale"| LCC_Scale
+    end
+
+    %% --- 4. PERFORMANCE & TEXTURE ---
+    subgraph VOICER ["4. TEXTURE & RHYTHM (The 'Play')"]
+        Sequencer["Sequencer (Clock)"]:::perform
+        Euclid["Euclidean Generator<br/>(Rhythmic Mask)"]:::perform
+        
+        VoiceEngine{"Voicing Engine<br/>(Allocator)"}:::perform
+        
+        Param_D -- "Density" --> Euclid
+        Sequencer --> Euclid
+        Euclid -- "Trigger (1/0)" --> VoiceEngine
+        LCC_Scale -- "Note Reservoir" --> VoiceEngine
+        
+        %% Playing Styles
+        Style_Block["Style: Block Chords<br/>(Melody Harmonization)"]:::theory
+        Style_Shell["Style: Shell Voicing<br/>(Left Hand: 3rd/7th)"]:::theory
+        
+        VoiceEngine --> Style_Block
+        VoiceEngine --> Style_Shell
+    end
+
+    %% --- 5. AUDIO OUTPUT ---
+    subgraph AUDIO ["5. AUDIO RENDERING"]
+        Synth["FM / Wavetable Synthesizer"]:::output
+        Midi["MIDI / ABC Output"]:::output
+        
+        Style_Block --> Synth
+        Style_Shell --> Synth
+        Style_Block --> Midi
+    end
+```
 
 ## Usefull sources
+
+Here are the books that made this project possible
 
 ### Fondation and Geometric Music
 
@@ -99,12 +187,9 @@ Basé sur les travaux de George Russell, ce module ne voit pas la musique comme 
 
 * Hiller, Lejaren & Isaacson, Leonard (1959). Experimental Music
 
-## ML integration
-
-To control the emotions dynamically to help to music evolve the library include ML integration
-to run a tensorflow model to transform words into parameters to control the value of our emotions.
-
 ## Library used
+
+Here are the library that make this project possible
 
 Music generation:
 
@@ -118,7 +203,6 @@ Sound generation:
 Sound output:
 
 * cpal (device)
-* kira (device)
 * hound (wav)
 * midly (midi)
 

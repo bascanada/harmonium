@@ -3,9 +3,12 @@ use std::thread;
 use std::time::Duration;
 use std::env;
 use std::fs;
+use std::net::UdpSocket;
+use rosc::{OscPacket, OscType};
 use harmonium::audio;
 use harmonium::engine::EngineParams;
 use harmonium::harmony::HarmonyMode;
+use harmonium::ai::EmotionEngine;
 use harmonium::log;
 use rand::Rng;
 
@@ -19,6 +22,7 @@ fn main() {
     let mut record_wav = false;
     let mut record_midi = false;
     let mut record_abc = false;
+    let mut use_osc = false;
     let mut duration_secs = 0; // 0 = infini
     let mut harmony_mode = HarmonyMode::Driver; // Default to Driver
 
@@ -28,6 +32,7 @@ fn main() {
             "--record-wav" => record_wav = true,
             "--record-midi" => record_midi = true,
             "--record-abc" => record_abc = true,
+            "--osc" => use_osc = true,
             "--harmony-mode" | "-m" => {
                 if i + 1 < args.len() {
                     harmony_mode = match args[i+1].to_lowercase().as_str() {
@@ -57,6 +62,7 @@ fn main() {
                 println!("  --record-wav               Record to WAV file");
                 println!("  --record-midi              Record to MIDI file");
                 println!("  --record-abc               Record to ABC notation");
+                println!("  --osc                      Enable OSC control (UDP 8080)");
                 println!("  --duration <SECONDS>       Recording duration (0 = infinite)");
                 println!("  --help, -h                 Show this help");
                 println!();
@@ -111,31 +117,145 @@ fn main() {
         }
     }
 
-    // === 2. Thread Simulateur d'IA (Changements aléatoires toutes les 5 secondes) ===
-    let controller_state = target_state.clone();
-    thread::spawn(move || {
-        let mut rng = rand::thread_rng();
-        thread::sleep(Duration::from_secs(3)); // Attendre le démarrage
-        
-        log::info("Simulateur d'IA démarré (changements toutes les 5s)");
-        
-        loop {
-            thread::sleep(Duration::from_secs(5));
-            let mut params = controller_state.lock().unwrap();
+    // === 2. OSC Listener (UDP 8080) ===
+    if use_osc {
+        let osc_state = target_state.clone();
+        thread::spawn(move || {
+            let addr = "127.0.0.1:8080";
+            let socket = match UdpSocket::bind(addr) {
+                Ok(s) => {
+                    log::info(&format!("OSC Listener bound to {}", addr));
+                    s
+                },
+                Err(e) => {
+                    log::error(&format!("Failed to bind OSC socket: {}", e));
+                    return;
+                }
+            };
+
+            // Initialize AI Engine
+            let config_path = "web/static/models/config.json";
+            let weights_path = "web/static/models/model.safetensors";
+            let tokenizer_path = "web/static/models/tokenizer.json";
             
-            // Simule un changement d'action/émotio
-            params.arousal = rng.gen_range(0.15..0.95);   // Activation/Énergie
-            params.valence = rng.gen_range(-0.8..0.8);    // Positif/Négatif
-            params.density = rng.gen_range(0.15..0.95);   // Complexité rythmique
-            params.tension = rng.gen_range(0.0..1.0);     // Dissonance
+            let mut emotion_engine = None;
             
-            let bpm = params.compute_bpm();
-            log::info(&format!(
-                "EMOTION CHANGE: Arousal {:.2} (→ {:.0} BPM) | Valence {:.2} | Density {:.2} | Tension {:.2}",
-                params.arousal, bpm, params.valence, params.density, params.tension
-            ));
-        }
-    });
+            if fs::metadata(config_path).is_ok() && fs::metadata(weights_path).is_ok() && fs::metadata(tokenizer_path).is_ok() {
+                log::info("Loading AI Model for OSC...");
+                match (fs::read(config_path), fs::read(weights_path), fs::read(tokenizer_path)) {
+                    (Ok(c), Ok(w), Ok(t)) => {
+                        match EmotionEngine::new(&c, &w, &t) {
+                            Ok(engine) => {
+                                log::info("AI Model loaded successfully!");
+                                emotion_engine = Some(engine);
+                            },
+                            Err(e) => log::error(&format!("Failed to init AI engine: {:?}", e)),
+                        }
+                    },
+                    _ => log::error("Failed to read model files"),
+                }
+            } else {
+                log::warn("AI Model files not found in web/static/models. OSC will only accept raw params.");
+                log::warn("Run 'make models/download' to enable AI features.");
+            }
+
+            let mut buf = [0u8; 4096];
+            loop {
+                match socket.recv_from(&mut buf) {
+                    Ok((size, _addr)) => {
+                        if let Ok((_, packet)) = rosc::decoder::decode_udp(&buf[..size]) {
+                            match packet {
+                                OscPacket::Message(msg) => {
+                                    if msg.addr == "/harmonium/label" {
+                                         let args = msg.args;
+                                         if let Some(OscType::String(label)) = args.get(0) {
+                                            log::info(&format!("OSC LABEL RECEIVED: {}", label));
+                                            
+                                            if let Some(engine) = &emotion_engine {
+                                                match engine.predict_native(label) {
+                                                    Ok(params) => {
+                                                        if let Ok(mut state) = osc_state.lock() {
+                                                            state.arousal = params.arousal;
+                                                            state.valence = params.valence;
+                                                            state.density = params.density;
+                                                            state.tension = params.tension;
+                                                            log::info(&format!(
+                                                                "AI UPDATE: Arousal {:.2} | Valence {:.2} | Density {:.2} | Tension {:.2}",
+                                                                params.arousal, params.valence, params.density, params.tension
+                                                            ));
+                                                        }
+                                                    },
+                                                    Err(e) => log::error(&format!("AI Prediction failed: {}", e)),
+                                                }
+                                            } else {
+                                                log::warn("AI Engine not loaded. Ignoring label.");
+                                            }
+                                         }
+                                    } else if msg.addr == "/harmonium/params" {
+                                        // Fallback for manual control
+                                        let args = msg.args;
+                                        if args.len() >= 4 {
+                                            let get_float = |arg: &OscType| -> f32 {
+                                                match arg {
+                                                    OscType::Float(f) => *f,
+                                                    OscType::Double(d) => *d as f32,
+                                                    _ => 0.0,
+                                                }
+                                            };
+
+                                            let arousal = get_float(&args[0]);
+                                            let valence = get_float(&args[1]);
+                                            let density = get_float(&args[2]);
+                                            let tension = get_float(&args[3]);
+                                            
+                                            if let Ok(mut params) = osc_state.lock() {
+                                                params.arousal = arousal;
+                                                params.valence = valence;
+                                                params.density = density;
+                                                params.tension = tension;
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::error(&format!("Error receiving UDP packet: {}", e));
+                    }
+                }
+            }
+        });
+    } else {
+        log::info("OSC disabled. Use --osc to enable external control.");
+
+        // === 2b. Thread Simulateur d'IA (Changements aléatoires toutes les 5 secondes) ===
+        let controller_state = target_state.clone();
+        thread::spawn(move || {
+            let mut rng = rand::thread_rng();
+            thread::sleep(Duration::from_secs(3)); // Attendre le démarrage
+            
+            log::info("Simulateur d'IA démarré (changements toutes les 5s)");
+            
+            loop {
+                thread::sleep(Duration::from_secs(5));
+                if let Ok(mut params) = controller_state.lock() {
+                    // Simule un changement d'action/émotio
+                    params.arousal = rng.gen_range(0.15..0.95);   // Activation/Énergie
+                    params.valence = rng.gen_range(-0.8..0.8);    // Positif/Négatif
+                    params.density = rng.gen_range(0.15..0.95);   // Complexité rythmique
+                    params.tension = rng.gen_range(0.0..1.0);     // Dissonance
+                    
+                    let bpm = params.compute_bpm();
+                    log::info(&format!(
+                        "EMOTION CHANGE: Arousal {:.2} (→ {:.0} BPM) | Valence {:.2} | Density {:.2} | Tension {:.2}",
+                        params.arousal, bpm, params.valence, params.density, params.tension
+                    ));
+                }
+            }
+        });
+    }
 
     // === 3. Création du Stream Audio avec l'état partagé ===
     let (_stream, config, _harmony_state, _event_queue, _font_queue, finished_recordings) = audio::create_stream(target_state.clone(), sf2_data.as_deref())

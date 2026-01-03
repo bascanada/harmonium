@@ -1,6 +1,6 @@
 import cv2
 from PIL import Image
-from transformers import CLIPProcessor, CLIPModel
+from transformers import BlipProcessor, BlipForConditionalGeneration
 from pythonosc import udp_client
 import torch
 import time
@@ -17,23 +17,12 @@ def main():
     client = udp_client.SimpleUDPClient(args.ip, args.port)
     print(f"OSC Client sending to {args.ip}:{args.port}")
 
-    # 2. Charger le modèle AI (CLIP)
-    print("Loading CLIP model...")
-    model_id = "openai/clip-vit-base-patch32"
-    model = CLIPModel.from_pretrained(model_id)
-    processor = CLIPProcessor.from_pretrained(model_id)
+    # 2. Charger le modèle AI (BLIP Image Captioning)
+    print("Loading BLIP model (Image Captioning)...")
+    model_id = "Salesforce/blip-image-captioning-base"
+    processor = BlipProcessor.from_pretrained(model_id)
+    model = BlipForConditionalGeneration.from_pretrained(model_id)
     print("Model loaded.")
-
-    # Les "états" possibles (Glossaire)
-    # Ces labels seront envoyés à Rust qui utilisera son propre modèle (BERT) pour déduire les paramètres.
-    labels = [
-        "peaceful forest",
-        "intense combat",
-        "scary dark cave",
-        "victory celebration",
-        "sad rain",
-        "cyberpunk city"
-    ]
 
     # 3. Lire la vidéo
     cap = cv2.VideoCapture(args.video)
@@ -53,32 +42,28 @@ def main():
 
         frame_count += 1
         if frame_count % skip_frames != 0:
-            # Simulate real-time playback roughly if needed, or just process as fast as possible
-            # time.sleep(1/30) 
             continue
 
         # Convertir BGR (OpenCV) vers RGB (PIL)
         image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         pil_image = Image.fromarray(image)
 
-        # 4. Analyser l'image avec l'AI
-        inputs = processor(text=labels, images=pil_image, return_tensors="pt", padding=True)
-        outputs = model(**inputs)
-        probs = outputs.logits_per_image.softmax(dim=1)
+        # 4. Analyser l'image avec l'AI (Génération de description)
+        inputs = processor(pil_image, return_tensors="pt")
+        
+        # Générer la caption
+        out = model.generate(**inputs, max_new_tokens=20)
+        caption = processor.decode(out[0], skip_special_tokens=True)
 
-        # Trouver le label avec le plus haut score
-        best_idx = torch.argmax(probs).item()
-        best_label = labels[best_idx]
-        confidence = probs[0][best_idx].item()
-
-        print(f"Detected: {best_label} ({confidence:.2f})")
+        print(f"Generated: {caption}")
 
         # 5. Envoyer à Rust via OSC
-        # On envoie UNIQUEMENT le label. Rust fera le mapping sémantique.
-        client.send_message("/harmonium/label", best_label)
+        # On envoie la description générée. Rust fera le mapping sémantique.
+        client.send_message("/harmonium/label", caption)
 
         # Petit délai pour ne pas spammer si la vidéo est lue très vite
-        time.sleep(0.1)
+        # Augmenté à 1.0s pour éviter de surcharger le moteur audio Rust (BERT inference)
+        time.sleep(1.0)
 
     cap.release()
     print("Done.")
