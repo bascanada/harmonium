@@ -6,14 +6,18 @@ pub mod harmony;
 pub mod log;
 pub mod engine;
 pub mod audio;
-pub mod progression;
 pub mod fractal;
 pub mod ai;
 pub mod events;
 pub mod backend;
 pub mod voice_manager;
 
+// Re-exports pour compatibilité avec l'ancien code
+pub use harmony::basic as progression;
+pub use harmony::melody as harmony_melody;
+
 pub use sequencer::RhythmMode;
+pub use harmony::HarmonyMode;
 
 #[wasm_bindgen]
 pub struct RecordedData {
@@ -127,6 +131,27 @@ impl Handle {
             RhythmMode::Euclidean => 0,
             RhythmMode::PerfectBalance => 1,
         }).unwrap_or(0)
+    }
+
+    /// Définir le mode d'harmonie (0 = Basic, 1 = Driver)
+    /// Basic: Russell Circumplex quadrants (I-IV-vi-V progressions)
+    /// Driver: Steedman Grammar + Neo-Riemannian PLR + LCC
+    pub fn set_harmony_mode(&mut self, mode: u8) {
+        if let Ok(mut state) = self.target_state.lock() {
+            state.harmony_mode = match mode {
+                0 => HarmonyMode::Basic,
+                1 => HarmonyMode::Driver,
+                _ => HarmonyMode::Driver, // Fallback
+            };
+        }
+    }
+
+    /// Obtenir le mode d'harmonie actuel depuis l'état du moteur (0 = Basic, 1 = Driver)
+    pub fn get_harmony_mode(&self) -> u8 {
+        self.harmony_state.lock().map(|s| match s.harmony_mode {
+            HarmonyMode::Basic => 0,
+            HarmonyMode::Driver => 1,
+        }).unwrap_or(1)
     }
 
     // === Getters pour l'état actuel ===

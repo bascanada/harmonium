@@ -20,6 +20,9 @@
     // Algorithme rythmique (0 = Euclidean 16 steps, 1 = PerfectBalance 48 steps)
     let algorithm = 0;
 
+    // Mode d'harmonie (0 = Basic, 1 = Driver)
+    let harmonyMode = 1; // Default to Driver
+
     // BPM calculé (lecture seule)
     $: bpm = 70 + (arousal * 110);
 
@@ -236,6 +239,9 @@
         currentCycle = handle.get_current_cycle();
         isMinorChord = handle.is_current_chord_minor();
         progressionName = handle.get_progression_name();
+
+        // Sync harmony mode from backend
+        harmonyMode = handle.get_harmony_mode();
         
         const newLength = handle.get_progression_length();
         if (newLength !== progressionLength) {
@@ -314,6 +320,7 @@
             handle.set_density(density);
             handle.set_tension(tension);
             handle.set_algorithm(algorithm);
+            handle.set_harmony_mode(harmonyMode);
 
             const key = handle.get_key();
             const scale = handle.get_scale();
@@ -401,6 +408,42 @@
                     <div>
                         <span class="font-semibold {algorithm === 1 ? 'text-purple-400' : 'text-neutral-300'}">PerfectBalance</span>
                         <p class="text-xs text-neutral-500">48 steps - Perfect 4:3 polyrhythms</p>
+                    </div>
+                </label>
+            </div>
+        </div>
+
+        <!-- Harmony Mode Selection (only when stopped) -->
+        <div class="mb-6 p-4 bg-neutral-800 rounded-xl border border-neutral-700 w-80">
+            <h3 class="text-sm font-semibold text-neutral-400 mb-3 text-center">Harmony Engine</h3>
+            <div class="flex flex-col gap-2">
+                <label class="flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors
+                    {harmonyMode === 0 ? 'bg-green-500/20 border border-green-500' : 'bg-neutral-700/50 border border-transparent hover:bg-neutral-700'}">
+                    <input
+                        type="radio"
+                        name="harmonyMode"
+                        value={0}
+                        bind:group={harmonyMode}
+                        class="w-4 h-4 accent-green-500"
+                    />
+                    <div>
+                        <span class="font-semibold {harmonyMode === 0 ? 'text-green-400' : 'text-neutral-300'}">Basic</span>
+                        <p class="text-xs text-neutral-500">Russell Circumplex (I-IV-vi-V)</p>
+                    </div>
+                </label>
+
+                <label class="flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors
+                    {harmonyMode === 1 ? 'bg-cyan-500/20 border border-cyan-500' : 'bg-neutral-700/50 border border-transparent hover:bg-neutral-700'}">
+                    <input
+                        type="radio"
+                        name="harmonyMode"
+                        value={1}
+                        bind:group={harmonyMode}
+                        class="w-4 h-4 accent-cyan-500"
+                    />
+                    <div>
+                        <span class="font-semibold {harmonyMode === 1 ? 'text-cyan-400' : 'text-neutral-300'}">Driver</span>
+                        <p class="text-xs text-neutral-500">Steedman + Neo-Riemannian + LCC</p>
                     </div>
                 </label>
             </div>
@@ -519,6 +562,11 @@
                     <!-- 2. PROGRESSION HARMONIQUE -->
                     <div class="bg-neutral-800 rounded-xl p-6 shadow-xl border border-neutral-700">
                         <h2 class="text-xl font-bold mb-2 text-center text-purple-300">Harmonic Context</h2>
+                        <div class="flex justify-center gap-2 mb-2">
+                            <span class="text-xs px-2 py-1 rounded {harmonyMode === 0 ? 'bg-green-500/30 text-green-300' : 'bg-cyan-500/30 text-cyan-300'}">
+                                {harmonyMode === 0 ? 'Basic' : 'Driver'}
+                            </span>
+                        </div>
                         <p class="text-xs text-neutral-400 text-center mb-4">{progressionName}</p>
                         
                         <div class="flex justify-center items-center gap-3 flex-wrap mb-4">
@@ -622,13 +670,26 @@
                     <!-- Algorithm: Current mode indicator -->
                     <div class="mb-6 p-4 bg-neutral-900 rounded-lg border-l-4 {algorithm === 0 ? 'border-orange-500' : 'border-purple-500'}">
                         <div class="flex justify-between items-center">
-                            <span class="text-lg font-semibold">Algorithm</span>
+                            <span class="text-lg font-semibold">Rhythm</span>
                             <span class="text-xl font-mono {algorithm === 0 ? 'text-orange-400' : 'text-purple-400'}">
                                 {algorithm === 0 ? 'Euclidean' : 'PerfectBalance'}
                             </span>
                         </div>
                         <p class="text-xs text-neutral-500 mt-1">
                             {algorithm === 0 ? '16 steps - Classic Bjorklund' : '48 steps - Geometric polygons 4:3'}
+                        </p>
+                    </div>
+
+                    <!-- Harmony Mode: Current mode indicator -->
+                    <div class="mb-6 p-4 bg-neutral-900 rounded-lg border-l-4 {harmonyMode === 0 ? 'border-green-500' : 'border-cyan-500'}">
+                        <div class="flex justify-between items-center">
+                            <span class="text-lg font-semibold">Harmony</span>
+                            <span class="text-xl font-mono {harmonyMode === 0 ? 'text-green-400' : 'text-cyan-400'}">
+                                {harmonyMode === 0 ? 'Basic' : 'Driver'}
+                            </span>
+                        </div>
+                        <p class="text-xs text-neutral-500 mt-1">
+                            {harmonyMode === 0 ? 'Russell Circumplex quadrants' : 'Steedman + Neo-Riemannian + LCC'}
                         </p>
                     </div>
 

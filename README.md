@@ -34,11 +34,15 @@ Everything starts with the state of the system (the emotion of the audience)
 
 ### The body
 
-* Emotional Palettes: The system selects a chord progression (I-IV-V, i-vii°, etc.) based on the emotional quadrant (e.g., "Sad & Tense" vs "Happy & Calm").
+* **Grammaire Générative (Steedman)** pour créer des phrases logiques et résolutives (Jazz/Pop).
 
-* Inertia (Hysteresis): To prevent the music from changing "style" chaotically, the system waits for a significant emotional change before switching progressions.
+* **Théorie Néo-Riemannienne (PLR)** pour des transformations géométriques et dramatiques.
 
-* Local Context: At any moment, the system knows the current chord (e.g., C Major) and its constituent notes (C, E, G).
+* **Coloration Unifiée** : Toutes les notes passent par le **Lydian Chromatic Concept (George Russell)** pour garantir une cohérence harmonique ("Tonal Gravity") quelle que soit la complexité.
+
+* **Emotional Palettes**: The system selects a chord progression (I-IV-V, i-vii°, etc.) based on the emotional quadrant (e.g., "Sad & Tense" vs "Happy & Calm").
+
+* **Inertia (Hysteresis)**: To prevent the music from changing "style" chaotically, the system waits for a significant emotional change before switching progressions.
 
 ### The voice
 
@@ -58,13 +62,32 @@ Sound is sculpted in real-time via fundsp:
 
 * Possibility to manually configure SoundFont sample on each sound channel (Will be reworked with something more procedural in the choice of sample based on the emotion)
 
+### Melodic Driver
+
+Il empêche la monotonie en alternant entre **Stabilité** (règles fonctionnelles) et **Instabilité** (transformations mathématiques) selon la courbe de tension désirée.
+
+### Lydian Chromatic Concept (Le Filtre)
+
+Basé sur les travaux de George Russell, ce module ne voit pas la musique comme Majeure/Mineure, mais comme un gradient de **Gravité Tonale** (Ingoing vs Outgoing).
+
+* **Tension Basse** : Force les notes vers l'échelle Lydienne fondamentale (Consonance).
+* **Tension Haute** : Autorise les notes des échelles Lydiennes Augmentées/Diminuées (Dissonance riche).
+
+### Steedman & PLR (Les Générateurs)
+
+* **Steedman :** Utilise des arbres de syntaxe pour garantir que la musique "raconte une histoire" (début, milieu, fin).
+* **PLR (Neo-Riemannian) :** Utilise la topologie (le *Tonnetz*) pour connecter des accords qui n'ont rien à voir tonalement mais qui sont proches géométriquement.
+
 ## Usefull sources
 
 ### Fondation and Geometric Music
 
-* Loy, Gareth (2006). Musimathics: The Mathematical Foundations of Music.
-* Toussaint, Godfried (2013). The Geometry of Musical Rhythm
-* Van Heerden, Derrick Scott (2018). Music, Geometry and Mathematics
+* Loy, Gareth (2006). *Musimathics: The Mathematical Foundations of Music*.
+* Toussaint, Godfried (2013). *The Geometry of Musical Rhythm*.
+* Van Heerden, Derrick Scott (2018). *Music, Geometry and Mathematics*.
+* Russell, G. (2001). *The Lydian Chromatic Concept of Tonal Organization*.
+* Steedman, M. J. (1984). *A Generative Grammar for Jazz Chord Sequences*.
+* Cohn, R. (1998) & Lewin, D. (1987). *Generalized Musical Intervals and Transformations*.
 
 ### Algorithmes Rythmiques
 

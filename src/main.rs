@@ -5,6 +5,7 @@ use std::env;
 use std::fs;
 use harmonium::audio;
 use harmonium::engine::EngineParams;
+use harmonium::harmony::HarmonyMode;
 use harmonium::log;
 use rand::Rng;
 
@@ -19,6 +20,7 @@ fn main() {
     let mut record_midi = false;
     let mut record_abc = false;
     let mut duration_secs = 0; // 0 = infini
+    let mut harmony_mode = HarmonyMode::Driver; // Default to Driver
 
     let mut i = 1;
     while i < args.len() {
@@ -26,6 +28,19 @@ fn main() {
             "--record-wav" => record_wav = true,
             "--record-midi" => record_midi = true,
             "--record-abc" => record_abc = true,
+            "--harmony-mode" | "-m" => {
+                if i + 1 < args.len() {
+                    harmony_mode = match args[i+1].to_lowercase().as_str() {
+                        "basic" => HarmonyMode::Basic,
+                        "driver" => HarmonyMode::Driver,
+                        _ => {
+                            log::warn(&format!("Unknown harmony mode '{}', using Driver", args[i+1]));
+                            HarmonyMode::Driver
+                        }
+                    };
+                    i += 1;
+                }
+            }
             "--duration" => {
                 if i + 1 < args.len() {
                     if let Ok(d) = args[i+1].parse::<u64>() {
@@ -33,6 +48,22 @@ fn main() {
                         i += 1;
                     }
                 }
+            }
+            "--help" | "-h" => {
+                println!("Usage: harmonium [OPTIONS] [SOUNDFONT.sf2]");
+                println!();
+                println!("Options:");
+                println!("  --harmony-mode, -m <MODE>  Harmony engine: 'basic' or 'driver' (default: driver)");
+                println!("  --record-wav               Record to WAV file");
+                println!("  --record-midi              Record to MIDI file");
+                println!("  --record-abc               Record to ABC notation");
+                println!("  --duration <SECONDS>       Recording duration (0 = infinite)");
+                println!("  --help, -h                 Show this help");
+                println!();
+                println!("Harmony Modes:");
+                println!("  basic   - Russell Circumplex quadrants (I-IV-vi-V progressions)");
+                println!("  driver  - Steedman Grammar + Neo-Riemannian PLR + LCC");
+                return;
             }
             arg => {
                 if !arg.starts_with("-") && sf2_path.is_none() {
@@ -42,6 +73,8 @@ fn main() {
         }
         i += 1;
     }
+
+    log::info(&format!("🎹 Harmony Mode: {:?}", harmony_mode));
 
     let sf2_data = if let Some(path) = sf2_path {
         log::info(&format!("📂 Loading SoundFont: {}", path));
@@ -62,13 +95,18 @@ fn main() {
 
     // === 1. État Partagé (Thread-safe) ===
     let target_state = Arc::new(Mutex::new(EngineParams::default()));
-    
+
+    // Appliquer le mode d'harmonie choisi
+    if let Ok(mut params) = target_state.lock() {
+        params.harmony_mode = harmony_mode;
+    }
+
     // Si on a un SoundFont, on active le routing Oxisynth par défaut pour tester
     if sf2_data.is_some() {
         if let Ok(mut params) = target_state.lock() {
             // Tout sur Oxisynth (Bank 0) sauf peut-être la batterie ?
             // Mettons tout sur Oxisynth pour l'instant pour tester le fichier
-            params.channel_routing = vec![0; 16]; 
+            params.channel_routing = vec![0; 16];
             log::info("Routing set to Oxisynth (Bank 0) for all channels");
         }
     }

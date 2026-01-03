@@ -1,6 +1,5 @@
 use crate::sequencer::{Sequencer, RhythmMode, StepTrigger};
-use crate::harmony::HarmonyNavigator;
-use crate::progression::{Progression, ChordStep, ChordQuality};
+use crate::harmony::{HarmonyNavigator, Progression, ChordStep, ChordQuality, HarmonyMode, HarmonicDriver};
 use crate::log;
 use crate::events::AudioEvent;
 use crate::backend::AudioRenderer;
@@ -31,6 +30,7 @@ pub struct HarmonyState {
     pub current_step: usize,         // Step dans la mesure (0-15 ou 0-47)
     pub progression_name: String,    // Nom de la progression active ("Pop Energetic", etc.)
     pub progression_length: usize,   // Longueur de la progression (2-4 accords)
+    pub harmony_mode: HarmonyMode,   // Mode harmonique actuel (Basic ou Driver)
     // Visualisation Rythmique
     pub primary_steps: usize,        // Nombre de steps (16 ou 48)
     pub primary_pulses: usize,
@@ -55,6 +55,7 @@ impl Default for HarmonyState {
             current_step: 0,
             progression_name: "Folk Peaceful (I-IV-I-V)".to_string(),
             progression_length: 4,
+            harmony_mode: HarmonyMode::Driver,
             primary_steps: 16,
             primary_pulses: 4,
             secondary_steps: 12,
@@ -80,7 +81,9 @@ pub struct EngineParams {
     pub algorithm: RhythmMode, // Euclidean (16 steps) ou PerfectBalance (48 steps)
     #[serde(default)]
     pub channel_routing: Vec<i32>, // -1 = FundSP, >=0 = Oxisynth Bank ID
-    
+    #[serde(default)]
+    pub harmony_mode: HarmonyMode, // Basic (quadrants) ou Driver (Steedman/NeoRiemannian/LCC)
+
     // Recording Control
     #[serde(default)]
     pub record_wav: bool,
@@ -100,6 +103,7 @@ impl Default for EngineParams {
             smoothness: 0.7, // Mélodie assez lisse par défaut
             algorithm: RhythmMode::Euclidean, // Mode classique par défaut
             channel_routing: vec![-1; 16], // Tout en FundSP par défaut
+            harmony_mode: HarmonyMode::Driver, // Système BasicHarmony par défaut
             record_wav: false,
             record_midi: false,
             record_abc: false,
@@ -174,7 +178,11 @@ pub struct HarmoniumEngine {
     progression_index: usize,             // Position dans la progression actuelle
     last_valence_choice: f32,             // Hystérésis: valence qui a déclenché le dernier choix
     last_tension_choice: f32,             // Hystérésis: tension qui a déclenché le dernier choix
-    
+
+    // === HARMONIC DRIVER (Mode avancé) ===
+    harmonic_driver: Option<HarmonicDriver>,
+    harmony_mode: HarmonyMode,
+
     // Optimization
     cached_target: EngineParams,
     
@@ -224,11 +232,35 @@ impl HarmoniumEngine {
         // Progression initiale
         let current_progression = Progression::get_palette(initial_params.valence, initial_params.tension);
         let progression_name = Progression::get_progression_name(initial_params.valence, initial_params.tension);
-        
+
+        // HarmonicDriver (toujours créé pour permettre le switch dynamique)
+        let harmony_mode = initial_params.harmony_mode;
+        let key_pc = match random_key {
+            PitchSymbol::C => 0,
+            PitchSymbol::D => 2,
+            PitchSymbol::E => 4,
+            PitchSymbol::F => 5,
+            PitchSymbol::G => 7,
+            PitchSymbol::A => 9,
+            PitchSymbol::B => 11,
+            _ => 0,
+        };
+        let harmonic_driver = Some(HarmonicDriver::new(key_pc));
+
         {
             let mut state = harmony_state.lock().unwrap();
-            state.progression_name = progression_name.to_string();
-            state.progression_length = current_progression.len();
+            state.harmony_mode = harmony_mode;
+            match harmony_mode {
+                HarmonyMode::Basic => {
+                    state.progression_name = progression_name.to_string();
+                    state.progression_length = current_progression.len();
+                }
+                HarmonyMode::Driver => {
+                    // Le Driver utilise Steedman Grammar par défaut (tension < 0.5)
+                    state.progression_name = "Driver: Steedman Grammar".to_string();
+                    state.progression_length = 4; // Progression dynamique
+                }
+            }
         }
 
         Self {
@@ -252,6 +284,8 @@ impl HarmoniumEngine {
             progression_index: 0,
             last_valence_choice: initial_params.valence,
             last_tension_choice: initial_params.tension,
+            harmonic_driver,
+            harmony_mode,
             cached_target: initial_params,
             is_recording_wav: false,
             is_recording_midi: false,
@@ -316,15 +350,21 @@ impl HarmoniumEngine {
             }
         }
 
+        // === SYNC HARMONY MODE ===
+        if self.harmony_mode != target.harmony_mode {
+            self.harmony_mode = target.harmony_mode;
+            log::info(&format!("🎹 Harmony mode switched to: {:?}", self.harmony_mode));
+        }
+
         // === MORPHING ===
         // Increased morphing speed for better responsiveness (was 0.001)
-        self.current_state.arousal += (target.arousal - self.current_state.arousal) * 0.05;
-        self.current_state.valence += (target.valence - self.current_state.valence) * 0.05;
-        self.current_state.density += (target.density - self.current_state.density) * 0.05;
-        self.current_state.tension += (target.tension - self.current_state.tension) * 0.05;
-        self.current_state.smoothness += (target.smoothness - self.current_state.smoothness) * 0.05;
+        self.current_state.arousal += (target.arousal - self.current_state.arousal) * 0.03;
+        self.current_state.valence += (target.valence - self.current_state.valence) * 0.03;
+        self.current_state.density += (target.density - self.current_state.density) * 0.03;
+        self.current_state.tension += (target.tension - self.current_state.tension) * 0.03;
+        self.current_state.smoothness += (target.smoothness - self.current_state.smoothness) * 0.03;
         let target_bpm = target.compute_bpm();
-        self.current_state.bpm += (target_bpm - self.current_state.bpm) * 0.05;
+        self.current_state.bpm += (target_bpm - self.current_state.bpm) * 0.03;
 
         // === RECORDING CONTROL ===
         if target.record_wav != self.is_recording_wav {
@@ -429,41 +469,99 @@ impl HarmoniumEngine {
         // === HARMONY & PROGRESSION ===
         if self.sequencer_primary.current_step == 0 {
             self.measure_counter += 1;
-            
-            // Palette Selection (Hysteresis)
-            if self.measure_counter % 4 == 0 {
-                let valence_delta = (self.current_state.valence - self.last_valence_choice).abs();
-                let tension_delta = (self.current_state.tension - self.last_tension_choice).abs();
-                
-                if valence_delta > 0.4 || tension_delta > 0.4 {
-                    self.current_progression = Progression::get_palette(self.current_state.valence, self.current_state.tension);
-                    self.progression_index = 0;
-                    self.last_valence_choice = self.current_state.valence;
-                    self.last_tension_choice = self.current_state.tension;
-                    
-                    let prog_name = Progression::get_progression_name(self.current_state.valence, self.current_state.tension);
-                    if let Ok(mut state) = self.harmony_state.lock() {
-                        state.progression_name = prog_name.to_string();
-                        state.progression_length = self.current_progression.len();
+
+            match self.harmony_mode {
+                HarmonyMode::Basic => {
+                    // === MODE BASIC: Progressions par quadrants émotionnels ===
+                    // Palette Selection (Hysteresis)
+                    if self.measure_counter % 4 == 0 {
+                        let valence_delta = (self.current_state.valence - self.last_valence_choice).abs();
+                        let tension_delta = (self.current_state.tension - self.last_tension_choice).abs();
+
+                        if valence_delta > 0.4 || tension_delta > 0.4 {
+                            self.current_progression = Progression::get_palette(self.current_state.valence, self.current_state.tension);
+                            self.progression_index = 0;
+                            self.last_valence_choice = self.current_state.valence;
+                            self.last_tension_choice = self.current_state.tension;
+
+                            let prog_name = Progression::get_progression_name(self.current_state.valence, self.current_state.tension);
+                            if let Ok(mut state) = self.harmony_state.lock() {
+                                state.progression_name = prog_name.to_string();
+                                state.progression_length = self.current_progression.len();
+                            }
+                        }
+                    }
+
+                    // Chord Progression
+                    let measures_per_chord = if self.current_state.tension > 0.6 { 1 } else { 2 };
+                    if self.measure_counter % measures_per_chord == 0 {
+                        self.progression_index = (self.progression_index + 1) % self.current_progression.len();
+                        let chord = &self.current_progression[self.progression_index];
+
+                        self.harmony.set_chord_context(chord.root_offset, chord.quality);
+                        let chord_name = self.format_chord_name(chord.root_offset, chord.quality);
+
+                        if let Ok(mut state) = self.harmony_state.lock() {
+                            state.current_chord_index = self.progression_index;
+                            state.chord_root_offset = chord.root_offset;
+                            state.chord_is_minor = matches!(chord.quality, ChordQuality::Minor);
+                            state.chord_name = chord_name;
+                            state.measure_number = self.measure_counter;
+                        }
                     }
                 }
-            }
-            
-            // Chord Progression
-            let measures_per_chord = if self.current_state.tension > 0.6 { 1 } else { 2 };
-            if self.measure_counter % measures_per_chord == 0 {
-                self.progression_index = (self.progression_index + 1) % self.current_progression.len();
-                let chord = &self.current_progression[self.progression_index];
-                
-                self.harmony.set_chord_context(chord.root_offset, chord.quality);
-                let chord_name = self.format_chord_name(chord.root_offset, chord.quality);
-                
-                if let Ok(mut state) = self.harmony_state.lock() {
-                    state.current_chord_index = self.progression_index;
-                    state.chord_root_offset = chord.root_offset;
-                    state.chord_is_minor = matches!(chord.quality, ChordQuality::Minor);
-                    state.chord_name = chord_name;
-                    state.measure_number = self.measure_counter;
+
+                HarmonyMode::Driver => {
+                    // === MODE DRIVER: Steedman Grammar + Neo-Riemannian + LCC ===
+                    let measures_per_chord = if self.current_state.tension > 0.6 { 1 } else { 2 };
+                    if self.measure_counter % measures_per_chord == 0 {
+                        if let Some(ref mut driver) = self.harmonic_driver {
+                            let mut rng = rand::thread_rng();
+                            let decision = driver.next_chord(
+                                self.current_state.tension,
+                                self.current_state.valence,
+                                &mut rng,
+                            );
+
+                            // === LOGGING HARMONIQUE ===
+                            let strategy = driver.current_strategy_name();
+                            let scale_notes: Vec<String> = decision.suggested_scale
+                                .iter()
+                                .map(|pc| crate::harmony::chord::NoteName::from_pitch_class(*pc).to_string())
+                                .collect();
+
+                            log::info(&format!(
+                                "🎵 [Driver] {} → {} | Strategy: {} | T:{:.2} V:{:.2} | Scale: [{}]",
+                                driver.current_chord().name(),
+                                decision.next_chord.name(),
+                                strategy,
+                                self.current_state.tension,
+                                self.current_state.valence,
+                                scale_notes.join(" ")
+                            ));
+
+                            // Convertir vers le format compatible avec HarmonyNavigator
+                            let root_offset = driver.root_offset();
+                            let quality = driver.to_basic_quality();
+                            self.harmony.set_chord_context(root_offset, quality);
+
+                            let chord_name = format!(
+                                "{} ({})",
+                                decision.next_chord.name(),
+                                decision.transition_type.name()
+                            );
+
+                            if let Ok(mut state) = self.harmony_state.lock() {
+                                state.current_chord_index = self.progression_index;
+                                state.chord_root_offset = root_offset;
+                                state.chord_is_minor = driver.is_minor();
+                                state.chord_name = chord_name.clone();
+                                state.measure_number = self.measure_counter;
+                                state.progression_name = format!("Driver: {}", strategy);
+                                state.progression_length = 0; // Driver n'a pas de longueur fixe
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -480,6 +578,7 @@ impl HarmoniumEngine {
             state.secondary_pulses = self.sequencer_secondary.pulses;
             state.secondary_rotation = self.sequencer_secondary.rotation;
             state.secondary_pattern = self.sequencer_secondary.pattern.iter().map(|t| t.is_any()).collect();
+            state.harmony_mode = self.harmony_mode;
         }
 
         // === GENERATE EVENTS ===

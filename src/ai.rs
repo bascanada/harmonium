@@ -135,6 +135,7 @@ impl EmotionEngine {
                     record_wav: false,
                     record_midi: false,
                     record_abc: false,
+                    harmony_mode: crate::harmony::HarmonyMode::Driver,
                 },
             });
         }
@@ -160,6 +161,7 @@ impl EmotionEngine {
             record_wav: false,
             record_midi: false,
             record_abc: false,
+            harmony_mode: crate::harmony::HarmonyMode::Driver,
         };
 
         // 2. Compare the input vector to each Anchor vector
@@ -201,6 +203,7 @@ impl EmotionEngine {
                 record_wav: false,
                 record_midi: false,
                 record_abc: false,
+                harmony_mode: crate::harmony::HarmonyMode::Driver,
             };
         }
 

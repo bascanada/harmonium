@@ -1,6 +1,9 @@
-/// Module de gestion des progressions harmoniques adaptatives
-/// Mapping émotionnel (Russell's Circumplex) → Palettes harmoniques
+//! Module BasicHarmony - Progressions harmoniques basées sur le modèle Circumplex de Russell
+//!
+//! Système de sélection de progressions d'accords basé sur les quadrants émotionnels:
+//! - Valence (positif/négatif) × Tension (calme/tendu)
 
+/// Qualité d'accord (pour compatibilité avec l'ancien système)
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ChordQuality {
     Major,
@@ -10,12 +13,14 @@ pub enum ChordQuality {
     Sus2,  // Pour neutralité/ambiance
 }
 
+/// Étape d'accord dans une progression
 #[derive(Clone, Copy, Debug)]
 pub struct ChordStep {
     pub root_offset: i32,    // Décalage en demi-tons depuis tonique (0=I, 7=V, etc.)
     pub quality: ChordQuality,
 }
 
+/// Progression d'accords avec nom
 pub struct Progression {
     pub steps: Vec<ChordStep>,
     pub name: &'static str,
