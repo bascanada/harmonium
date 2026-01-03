@@ -1,5 +1,8 @@
 use crate::sequencer::{Sequencer, RhythmMode, StepTrigger};
 use crate::harmony::{HarmonyNavigator, Progression, ChordStep, ChordQuality, HarmonyMode, HarmonicDriver};
+use crate::harmony::chord::ChordType;
+use crate::harmony::lydian_chromatic::LydianChromaticConcept;
+use crate::voicing::{Voicer, BlockChordVoicer, VoicerContext};
 use crate::log;
 use crate::events::AudioEvent;
 use crate::backend::AudioRenderer;
@@ -183,6 +186,12 @@ pub struct HarmoniumEngine {
     harmonic_driver: Option<HarmonicDriver>,
     harmony_mode: HarmonyMode,
 
+    // === VOICING ENGINE ===
+    voicer: Box<dyn Voicer>,
+    lcc: LydianChromaticConcept,
+    current_chord_type: ChordType,
+    active_lead_notes: Vec<u8>,  // Notes actuellement jouées sur le channel Lead
+
     // Optimization
     cached_target: EngineParams,
     
@@ -286,11 +295,26 @@ impl HarmoniumEngine {
             last_tension_choice: initial_params.tension,
             harmonic_driver,
             harmony_mode,
+            // Voicing Engine
+            voicer: Box::new(BlockChordVoicer::new(4)),
+            lcc: LydianChromaticConcept::new(),
+            current_chord_type: ChordType::Major,
+            active_lead_notes: Vec::new(),
             cached_target: initial_params,
             is_recording_wav: false,
             is_recording_midi: false,
             is_recording_abc: false,
         }
+    }
+
+    /// Change le voicer dynamiquement
+    pub fn set_voicer(&mut self, voicer: Box<dyn Voicer>) {
+        self.voicer = voicer;
+    }
+
+    /// Retourne le nom du voicer actuel
+    pub fn current_voicer_name(&self) -> &'static str {
+        self.voicer.name()
     }
 
 
@@ -394,10 +418,10 @@ impl HarmoniumEngine {
             }
         }
 
-        // === DSP UPDATES ===
-        self.renderer.handle_event(AudioEvent::ControlChange { ctrl: 1, value: (self.current_state.tension * 127.0) as u8 });
-        self.renderer.handle_event(AudioEvent::ControlChange { ctrl: 11, value: (self.current_state.arousal * 127.0) as u8 });
-        self.renderer.handle_event(AudioEvent::ControlChange { ctrl: 91, value: (self.current_state.valence.abs() * 127.0) as u8 });
+        // === DSP UPDATES (effets globaux sur channel 0) ===
+        self.renderer.handle_event(AudioEvent::ControlChange { ctrl: 1, value: (self.current_state.tension * 127.0) as u8, channel: 0 });
+        self.renderer.handle_event(AudioEvent::ControlChange { ctrl: 11, value: (self.current_state.arousal * 127.0) as u8, channel: 0 });
+        self.renderer.handle_event(AudioEvent::ControlChange { ctrl: 91, value: (self.current_state.valence.abs() * 127.0) as u8, channel: 0 });
         
         // === LOGIQUE SÉQUENCEUR ===
         let target_algo = target.algorithm;
@@ -501,6 +525,15 @@ impl HarmoniumEngine {
                         self.harmony.set_chord_context(chord.root_offset, chord.quality);
                         let chord_name = self.format_chord_name(chord.root_offset, chord.quality);
 
+                        // Mettre à jour le type d'accord pour le voicer
+                        self.current_chord_type = match chord.quality {
+                            ChordQuality::Major => ChordType::Major7,
+                            ChordQuality::Minor => ChordType::Minor7,
+                            ChordQuality::Dominant7 => ChordType::Dominant7,
+                            ChordQuality::Diminished => ChordType::Diminished7,
+                            ChordQuality::Sus2 => ChordType::Sus2,
+                        };
+
                         if let Ok(mut state) = self.harmony_state.lock() {
                             state.current_chord_index = self.progression_index;
                             state.chord_root_offset = chord.root_offset;
@@ -544,6 +577,9 @@ impl HarmoniumEngine {
                             let root_offset = driver.root_offset();
                             let quality = driver.to_basic_quality();
                             self.harmony.set_chord_context(root_offset, quality);
+
+                            // Mettre à jour le type d'accord pour le voicer
+                            self.current_chord_type = decision.next_chord.chord_type;
 
                             let chord_name = format!(
                                 "{} ({})",
@@ -592,14 +628,70 @@ impl HarmoniumEngine {
             events.push(AudioEvent::NoteOn { note: midi as u8, velocity: vel, channel: 0 });
         }
         
-        // Lead
+        // Lead (avec Voicing)
         let play_lead = trigger_primary.kick || trigger_primary.snare || trigger_secondary.kick || trigger_secondary.snare || trigger_secondary.hat;
         if play_lead {
             let is_strong = trigger_primary.kick;
             let freq = self.harmony.next_note_hybrid(is_strong);
-            let midi = (69.0 + 12.0 * (freq / 440.0).log2()).round() as u8;
-            let vel = 90 + (self.current_state.arousal * 30.0) as u8;
-            events.push(AudioEvent::NoteOn { note: midi, velocity: vel, channel: 1 });
+            let melody_midi = (69.0 + 12.0 * (freq / 440.0).log2()).round() as u8;
+            let base_vel = 90 + (self.current_state.arousal * 30.0) as u8;
+
+            // Récupérer les infos harmoniques pour le voicer
+            let (chord_root, chord_root_offset) = if let Ok(s) = self.harmony_state.lock() {
+                (36 + s.chord_root_offset as u8, s.chord_root_offset)
+            } else {
+                (60, 0)
+            };
+
+            // Calculer la gamme LCC courante
+            let chord = crate::harmony::chord::Chord::new(
+                (chord_root_offset as u8) % 12,
+                self.current_chord_type
+            );
+            let lcc_level = self.lcc.level_for_tension(self.current_state.tension);
+            let parent = self.lcc.parent_lydian(&chord);
+            let lcc_scale = self.lcc.get_scale(parent, lcc_level);
+
+            // Créer le contexte pour le voicer
+            let ctx = VoicerContext {
+                chord_root_midi: chord_root,
+                chord_type: self.current_chord_type,
+                lcc_scale,
+                tension: self.current_state.tension,
+                density: self.current_state.density,
+                current_step: self.sequencer_primary.current_step,
+                total_steps: self.sequencer_primary.steps,
+            };
+
+            // D'abord: couper toutes les notes précédentes sur le channel Lead
+            // Utilise AllNotesOff pour aussi couper le sustain des samples
+            if !self.active_lead_notes.is_empty() {
+                events.push(AudioEvent::AllNotesOff { channel: 1 });
+                self.active_lead_notes.clear();
+            }
+
+            // Utiliser le voicer pour décider du style
+            if self.voicer.should_voice(&ctx) {
+                // Beat fort: jouer l'accord complet
+                let voiced_notes = self.voicer.process_note(melody_midi, base_vel, &ctx);
+                for vn in voiced_notes {
+                    events.push(AudioEvent::NoteOn {
+                        note: vn.midi,
+                        velocity: vn.velocity,
+                        channel: 1,
+                    });
+                    self.active_lead_notes.push(vn.midi);
+                }
+            } else {
+                // Beat faible: jouer la mélodie seule (plus légère)
+                let solo_vel = (base_vel as f32 * 0.7) as u8; // Vélocité réduite
+                events.push(AudioEvent::NoteOn {
+                    note: melody_midi,
+                    velocity: solo_vel,
+                    channel: 1,
+                });
+                self.active_lead_notes.push(melody_midi);
+            }
         }
         
         // Snare

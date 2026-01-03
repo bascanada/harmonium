@@ -58,69 +58,75 @@ impl AbcBackend {
                 3 => ("Hat", "clef=perc"),
                 _ => ("Unknown", "clef=treble"),
             };
-            
+
             abc.push_str(&format!("V:{} {} name=\"{}\"\n", voice_id, clef, channel_name));
-            
+
             let chan_events = channels.get(&channel).unwrap();
-            let mut last_time = 0;
-            
-            // Simple monophonic conversion for now
-            // We assume NoteOn starts a note, and the next NoteOn or NoteOff ends it.
-            // We need to fill gaps with rests.
-            
-            for (time, _event) in chan_events {
-                let delta_samples = time - last_time;
-                let delta_steps = (delta_samples as f64 / self.samples_per_step as f64).round() as u64;
-                
-                if delta_steps > 0 {
-                    // If we were "playing" a note, this delta is the note duration.
-                    // If we were "silent", this delta is a rest.
-                    // But we need to know the STATE.
-                    // This simple loop is insufficient without state tracking.
-                }
-                last_time = *time;
-            }
-            
-            // Better approach: Reconstruct the timeline
-            // 1. Create a timeline of "events" (NoteOn/NoteOff)
-            // 2. Iterate through time, emitting notes/rests
-            
-            let mut current_note: Option<u8> = None;
-            let mut last_event_time = 0;
-            
+
+            // Group events by timestamp to detect simultaneous notes (chords)
+            let mut events_by_time: HashMap<u64, Vec<AudioEvent>> = HashMap::new();
             for (time, event) in chan_events {
+                events_by_time.entry(*time).or_default().push(event.clone());
+            }
+
+            // Sort timestamps
+            let mut timestamps: Vec<u64> = events_by_time.keys().cloned().collect();
+            timestamps.sort();
+
+            // Process events in order, handling chords (multiple notes at same time)
+            let mut current_notes: Vec<u8> = Vec::new();
+            let mut last_event_time = 0u64;
+
+            for time in timestamps {
                 let duration_samples = time - last_event_time;
                 let duration_steps = (duration_samples as f64 / self.samples_per_step as f64).round() as usize;
-                
+
+                // Emit previous state (notes or rest)
                 if duration_steps > 0 {
-                    if let Some(note) = current_note {
-                        // Emit note
-                        let note_str = midi_to_abc(note);
-                        abc.push_str(&format!("{}{}", note_str, duration_steps));
-                    } else {
+                    if current_notes.is_empty() {
                         // Emit rest
                         abc.push_str(&format!("z{}", duration_steps));
+                    } else if current_notes.len() == 1 {
+                        // Single note
+                        let note_str = midi_to_abc(current_notes[0]);
+                        abc.push_str(&format!("{}{}", note_str, duration_steps));
+                    } else {
+                        // Chord: [CEG]4
+                        let mut chord_notes: Vec<String> = current_notes.iter()
+                            .map(|&n| midi_to_abc(n))
+                            .collect();
+                        chord_notes.sort(); // Sort for consistent output
+                        abc.push_str(&format!("[{}]{}", chord_notes.join(""), duration_steps));
                     }
                     abc.push(' '); // Spacer
                 }
-                
-                match event {
-                    AudioEvent::NoteOn { note, velocity, .. } => {
-                        if *velocity > 0 {
-                            current_note = Some(*note);
-                        } else {
-                            current_note = None;
+
+                // Process events at this timestamp
+                if let Some(events_at_time) = events_by_time.get(&time) {
+                    for event in events_at_time {
+                        match event {
+                            AudioEvent::NoteOn { note, velocity, .. } => {
+                                if *velocity > 0 {
+                                    // Add note to current chord
+                                    if !current_notes.contains(note) {
+                                        current_notes.push(*note);
+                                    }
+                                } else {
+                                    // Velocity 0 = NoteOff
+                                    current_notes.retain(|&n| n != *note);
+                                }
+                            },
+                            AudioEvent::NoteOff { note, .. } => {
+                                current_notes.retain(|&n| n != *note);
+                            },
+                            _ => {}
                         }
-                    },
-                    AudioEvent::NoteOff { .. } => {
-                        current_note = None;
-                    },
-                    _ => {}
+                    }
                 }
-                
-                last_event_time = *time;
+
+                last_event_time = time;
             }
-            
+
             abc.push_str("\n");
             voice_id += 1;
         }

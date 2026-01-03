@@ -34,3 +34,12 @@ models/download-emotion: models/clear
 	mkdir -p web/static/models
 	# ~260MB - Specialized Emotion Detection (DistilBERT) - REQUIRES CODE CHANGE to DistilBertModel
 	$(HF_CLI) download bhadresh-savani/distilbert-base-uncased-emotion config.json model.safetensors tokenizer.json --local-dir web/static/models
+
+python/venv:
+	python3 -m venv .venv
+
+python/install: python/venv
+	. .venv/bin/activate && pip install -r scripts/requirements.txt
+
+python/run:
+	. .venv/bin/activate && python3 scripts/video_to_osc.py --video "$(VIDEO)"

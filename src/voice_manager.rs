@@ -181,12 +181,34 @@ impl VoiceManager {
                     _ => {}
                 }
             },
-            AudioEvent::ControlChange { ctrl, value } => {
-                // Send global CCs to Oxisynth on channel 0 (or broadcast if needed)
-                let _ = self.synth.send_event(oxisynth::MidiEvent::ControlChange { 
-                    channel: 0, 
-                    ctrl: ctrl, 
-                    value: value 
+            AudioEvent::AllNotesOff { channel } => {
+                // Envoyer All Notes Off (CC 123) + Sustain Off (CC 64) pour vraiment couper
+                let _ = self.synth.send_event(oxisynth::MidiEvent::ControlChange {
+                    channel,
+                    ctrl: 64,  // Sustain pedal off
+                    value: 0,
+                });
+                let _ = self.synth.send_event(oxisynth::MidiEvent::ControlChange {
+                    channel,
+                    ctrl: 123, // All Notes Off
+                    value: 0,
+                });
+
+                // Pour FundSP, couper les gates
+                match channel {
+                    0 => self.gate_bass.set_value(0.0),
+                    1 => self.gate_lead.set_value(0.0),
+                    2 => self.gate_snare.set_value(0.0),
+                    3 => self.gate_hat.set_value(0.0),
+                    _ => {}
+                }
+            },
+            AudioEvent::ControlChange { ctrl, value, channel } => {
+                // Send CC to specific channel
+                let _ = self.synth.send_event(oxisynth::MidiEvent::ControlChange {
+                    channel,
+                    ctrl,
+                    value
                 });
 
                 let val_norm = value as f32 / 127.0;

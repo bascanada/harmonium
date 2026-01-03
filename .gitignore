@@ -1,1 +1,8 @@
 /target
+/test
+
+/.claude
+
+*.abc
+
+*.venv

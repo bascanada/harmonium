@@ -977,6 +977,7 @@ dependencies = [
  "midly",
  "oxisynth",
  "rand 0.8.5",
+ "rosc",
  "rust-music-theory",
  "serde",
  "serde-wasm-bindgen 0.6.5",
@@ -1751,6 +1752,16 @@ name = "regex-syntax"
 version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
+
+[[package]]
+name = "rosc"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2e63d9e6b0d090be1485cf159b1e04c3973d2d3e1614963544ea2ff47a4a981"
+dependencies = [
+ "byteorder",
+ "nom",
+]
 
 [[package]]
 name = "rust-music-theory"

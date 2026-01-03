@@ -11,6 +11,7 @@ pub mod ai;
 pub mod events;
 pub mod backend;
 pub mod voice_manager;
+pub mod voicing;
 
 // Re-exports pour compatibilité avec l'ancien code
 pub use harmony::basic as progression;
