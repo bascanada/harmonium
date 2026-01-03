@@ -34,6 +34,9 @@ jobs:
       - name: Install Hugging Face CLI
         run: pip install -U "huggingface_hub[cli]"
 
+      - name: Run Tests
+        run: make test
+
       - name: Build WASM
         run: make wasm/build
 

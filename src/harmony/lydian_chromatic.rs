@@ -136,16 +136,18 @@ impl LydianChromaticConcept {
     pub fn parent_lydian(&self, chord: &Chord) -> PitchClass {
         match chord.chord_type {
             // Accords majeurs: la fondamentale EST la tonique Lydienne
-            ChordType::Major | ChordType::Major7 => chord.root,
+            ChordType::Major | ChordType::Major7 | ChordType::Major6 | ChordType::Add9 => chord.root,
 
             // Dominant 7: la fondamentale est aussi la tonique Lydienne
             // (c'est le degré Mixolydien #4 de son propre Lydien)
-            ChordType::Dominant7 => chord.root,
+            ChordType::Dominant7 | ChordType::Dominant7Sus4 => chord.root,
 
             // Accords mineurs: la tonique Lydienne est une tierce majeure EN DESSOUS
             // (Cm est construit sur le degré III de Ab Lydien)
             // root - 3 demi-tons = root + 9 mod 12
-            ChordType::Minor | ChordType::Minor7 => (chord.root + 9) % 12,
+            ChordType::Minor | ChordType::Minor7 | ChordType::MinorMajor7 | ChordType::Minor6 => {
+                (chord.root + 9) % 12
+            }
 
             // Demi-diminué: la tonique est une tierce majeure au-dessus
             // (Cm7b5 peut être vu comme le VII de Db Lydien)
@@ -156,7 +158,7 @@ impl LydianChromaticConcept {
             ChordType::Diminished | ChordType::Diminished7 => (chord.root + 1) % 12,
 
             // Augmenté: symétrique, on garde la fondamentale
-            ChordType::Augmented => chord.root,
+            ChordType::Augmented | ChordType::Augmented7 => chord.root,
 
             // Sus: traité comme majeur (neutre)
             ChordType::Sus2 | ChordType::Sus4 => chord.root,

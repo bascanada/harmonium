@@ -79,7 +79,7 @@ impl std::fmt::Display for NoteName {
 }
 
 /// Types d'accords étendus
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ChordType {
     /// Accord majeur (1-3-5)
     Major,
@@ -103,6 +103,19 @@ pub enum ChordType {
     Sus2,
     /// Accord sus4 (1-4-5) - neutre, utile pour pivots
     Sus4,
+    // === NOUVEAUX TYPES (V2) ===
+    /// Accord mineur majeur 7 (1-b3-5-7) - ex: CmMaj7
+    MinorMajor7,
+    /// Accord augmenté 7 (1-3-#5-b7) - ex: C7#5
+    Augmented7,
+    /// Accord majeur 6 (1-3-5-6) - ex: C6
+    Major6,
+    /// Accord mineur 6 (1-b3-5-6) - ex: Cm6
+    Minor6,
+    /// Accord dominant 7 sus4 (1-4-5-b7) - ex: C7sus4
+    Dominant7Sus4,
+    /// Accord add9 (1-3-5-9) - ex: Cadd9
+    Add9,
 }
 
 impl ChordType {
@@ -120,7 +133,29 @@ impl ChordType {
             ChordType::Diminished7 => vec![0, 3, 6, 9],
             ChordType::Sus2 => vec![0, 2, 7],
             ChordType::Sus4 => vec![0, 5, 7],
+            // Nouveaux types V2
+            ChordType::MinorMajor7 => vec![0, 3, 7, 11],
+            ChordType::Augmented7 => vec![0, 4, 8, 10],
+            ChordType::Major6 => vec![0, 4, 7, 9],
+            ChordType::Minor6 => vec![0, 3, 7, 9],
+            ChordType::Dominant7Sus4 => vec![0, 5, 7, 10],
+            ChordType::Add9 => vec![0, 2, 4, 7],
         }
+    }
+
+    /// Retourne le nombre de notes dans l'accord (cardinalité)
+    pub fn cardinality(&self) -> usize {
+        self.intervals().len()
+    }
+
+    /// Vérifie si c'est une triade (3 notes)
+    pub fn is_triad(&self) -> bool {
+        self.cardinality() == 3
+    }
+
+    /// Vérifie si c'est un tétracorde (4 notes)
+    pub fn is_tetrad(&self) -> bool {
+        self.cardinality() == 4
     }
 
     /// Nom court pour affichage
@@ -137,17 +172,32 @@ impl ChordType {
             ChordType::Diminished7 => "dim7",
             ChordType::Sus2 => "sus2",
             ChordType::Sus4 => "sus4",
+            // Nouveaux types V2
+            ChordType::MinorMajor7 => "mMaj7",
+            ChordType::Augmented7 => "7#5",
+            ChordType::Major6 => "6",
+            ChordType::Minor6 => "m6",
+            ChordType::Dominant7Sus4 => "7sus4",
+            ChordType::Add9 => "add9",
         }
     }
 
-    /// Vérifie si c'est un accord majeur (inclut Maj7, Dom7)
+    /// Vérifie si c'est un accord majeur (inclut Maj7, Dom7, 6)
     pub fn is_major(&self) -> bool {
-        matches!(self, ChordType::Major | ChordType::Major7 | ChordType::Dominant7 | ChordType::Augmented)
+        matches!(self,
+            ChordType::Major | ChordType::Major7 | ChordType::Dominant7 |
+            ChordType::Augmented | ChordType::Major6 | ChordType::Augmented7 |
+            ChordType::Add9
+        )
     }
 
-    /// Vérifie si c'est un accord mineur (inclut Min7, HalfDim)
+    /// Vérifie si c'est un accord mineur (inclut Min7, HalfDim, mMaj7)
     pub fn is_minor(&self) -> bool {
-        matches!(self, ChordType::Minor | ChordType::Minor7 | ChordType::HalfDiminished | ChordType::Diminished | ChordType::Diminished7)
+        matches!(self,
+            ChordType::Minor | ChordType::Minor7 | ChordType::HalfDiminished |
+            ChordType::Diminished | ChordType::Diminished7 | ChordType::MinorMajor7 |
+            ChordType::Minor6
+        )
     }
 
     /// Vérifie si c'est un accord symétrique (utile pour pivots Neo-Riemannian)
@@ -157,7 +207,10 @@ impl ChordType {
 
     /// Vérifie si c'est un accord ambigu (sans tierce claire)
     pub fn is_ambiguous(&self) -> bool {
-        matches!(self, ChordType::Sus2 | ChordType::Sus4 | ChordType::Augmented | ChordType::Diminished7)
+        matches!(self,
+            ChordType::Sus2 | ChordType::Sus4 | ChordType::Augmented |
+            ChordType::Diminished7 | ChordType::Dominant7Sus4
+        )
     }
 }
 
@@ -297,12 +350,84 @@ impl Chord {
     /// Convertit vers le ChordQuality de l'ancien système (pour compatibilité)
     pub fn to_basic_quality(&self) -> super::basic::ChordQuality {
         match self.chord_type {
-            ChordType::Major | ChordType::Major7 | ChordType::Augmented => super::basic::ChordQuality::Major,
-            ChordType::Minor | ChordType::Minor7 | ChordType::HalfDiminished => super::basic::ChordQuality::Minor,
+            ChordType::Major | ChordType::Major7 | ChordType::Augmented |
+            ChordType::Major6 | ChordType::Augmented7 | ChordType::Add9 => super::basic::ChordQuality::Major,
+            ChordType::Minor | ChordType::Minor7 | ChordType::HalfDiminished |
+            ChordType::MinorMajor7 | ChordType::Minor6 => super::basic::ChordQuality::Minor,
             ChordType::Diminished | ChordType::Diminished7 => super::basic::ChordQuality::Diminished,
-            ChordType::Dominant7 => super::basic::ChordQuality::Dominant7,
+            ChordType::Dominant7 | ChordType::Dominant7Sus4 => super::basic::ChordQuality::Dominant7,
             ChordType::Sus2 | ChordType::Sus4 => super::basic::ChordQuality::Sus2,
         }
+    }
+
+    /// Identifie un accord à partir d'un ensemble de pitch classes.
+    /// Retourne None si aucun type d'accord valide ne correspond.
+    ///
+    /// Cette méthode est utilisée par le ParsimoniousDriver pour valider
+    /// les accords candidats générés par les mouvements de voix.
+    pub fn identify(pitch_classes: &[PitchClass]) -> Option<Chord> {
+        if pitch_classes.is_empty() {
+            return None;
+        }
+
+        // Normaliser et trier les pitch classes
+        let mut pcs: Vec<PitchClass> = pitch_classes.iter()
+            .map(|&pc| pc % 12)
+            .collect();
+        pcs.sort();
+        pcs.dedup();
+
+        // Essayer chaque note comme potentielle fondamentale
+        for &potential_root in &pcs {
+            // Calculer les intervalles depuis cette fondamentale
+            let mut intervals: Vec<u8> = pcs.iter()
+                .map(|&pc| (pc + 12 - potential_root) % 12)
+                .collect();
+            intervals.sort();
+
+            // Essayer de matcher contre les types d'accords connus
+            if let Some(chord_type) = Self::match_intervals(&intervals) {
+                return Some(Chord::new(potential_root, chord_type));
+            }
+        }
+
+        None
+    }
+
+    /// Matche un ensemble d'intervalles à un ChordType
+    fn match_intervals(intervals: &[u8]) -> Option<ChordType> {
+        // Définir tous les patterns d'accords (ensembles d'intervalles)
+        // Ordre important: plus spécifiques d'abord pour éviter les faux positifs
+        let patterns: &[(& [u8], ChordType)] = &[
+            // Triades
+            (&[0, 4, 7], ChordType::Major),
+            (&[0, 3, 7], ChordType::Minor),
+            (&[0, 4, 8], ChordType::Augmented),
+            (&[0, 3, 6], ChordType::Diminished),
+            (&[0, 2, 7], ChordType::Sus2),
+            (&[0, 5, 7], ChordType::Sus4),
+
+            // Tétracordes (7èmes et 6èmes)
+            (&[0, 4, 7, 10], ChordType::Dominant7),
+            (&[0, 4, 7, 11], ChordType::Major7),
+            (&[0, 3, 7, 10], ChordType::Minor7),
+            (&[0, 3, 6, 10], ChordType::HalfDiminished),
+            (&[0, 3, 6, 9], ChordType::Diminished7),
+            (&[0, 3, 7, 11], ChordType::MinorMajor7),
+            (&[0, 4, 8, 10], ChordType::Augmented7),
+            (&[0, 4, 7, 9], ChordType::Major6),
+            (&[0, 3, 7, 9], ChordType::Minor6),
+            (&[0, 5, 7, 10], ChordType::Dominant7Sus4),
+            (&[0, 2, 4, 7], ChordType::Add9),
+        ];
+
+        for (pattern, chord_type) in patterns {
+            if intervals == *pattern {
+                return Some(*chord_type);
+            }
+        }
+
+        None
     }
 }
 

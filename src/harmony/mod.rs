@@ -5,7 +5,8 @@
 //! - `melody`: HarmonyNavigator (génération mélodique Markov+Fractal)
 //! - `chord`: Représentation enrichie des accords
 //! - `lydian_chromatic`: Lydian Chromatic Concept (12 niveaux)
-//! - `neo_riemannian`: Transformations P, L, R
+//! - `neo_riemannian`: Transformations P, L, R (triades uniquement)
+//! - `parsimonious`: Voice-leading parsimonieux (tous types d'accords)
 //! - `steedman_grammar`: Grammaire générative de progressions
 //! - `pivot`: Système de transition entre stratégies
 //! - `voice_leading`: Optimisation du voice-leading
@@ -16,6 +17,7 @@ pub mod basic;
 pub mod chord;
 pub mod lydian_chromatic;
 pub mod neo_riemannian;
+pub mod parsimonious;
 pub mod steedman_grammar;
 pub mod pivot;
 pub mod voice_leading;
@@ -26,6 +28,7 @@ pub use melody::HarmonyNavigator;
 pub use basic::{Progression, ChordStep, ChordQuality};
 pub use chord::{Chord, ChordType, PitchClass};
 pub use driver::HarmonicDriver;
+pub use parsimonious::{ParsimoniousDriver, TRQ, Neighbor, ParsimoniousTransform};
 
 use rand::Rng;
 

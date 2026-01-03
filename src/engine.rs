@@ -550,6 +550,10 @@ impl HarmoniumEngine {
                     if self.measure_counter % measures_per_chord == 0 {
                         if let Some(ref mut driver) = self.harmonic_driver {
                             let mut rng = rand::thread_rng();
+
+                            // Capturer le nom de l'accord AVANT la transition
+                            let old_chord_name = driver.current_chord().name();
+
                             let decision = driver.next_chord(
                                 self.current_state.tension,
                                 self.current_state.valence,
@@ -565,7 +569,7 @@ impl HarmoniumEngine {
 
                             log::info(&format!(
                                 "🎵 [Driver] {} → {} | Strategy: {} | T:{:.2} V:{:.2} | Scale: [{}]",
-                                driver.current_chord().name(),
+                                old_chord_name,
                                 decision.next_chord.name(),
                                 strategy,
                                 self.current_state.tension,
