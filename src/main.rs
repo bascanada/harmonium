@@ -25,6 +25,7 @@ fn main() {
     let mut use_osc = false;
     let mut duration_secs = 0; // 0 = infini
     let mut harmony_mode = HarmonyMode::Driver; // Default to Driver
+    let mut poly_steps: usize = 48; // Default polyrythm steps
 
     let mut i = 1;
     while i < args.len() {
@@ -54,6 +55,19 @@ fn main() {
                     }
                 }
             }
+            "--poly-steps" | "-p" => {
+                if i + 1 < args.len() {
+                    if let Ok(s) = args[i+1].parse::<usize>() {
+                        // Valider: multiple de 4, entre 16 et 384
+                        let valid = (s / 4) * 4;
+                        poly_steps = valid.clamp(16, 384);
+                        if valid != s {
+                            log::warn(&format!("Poly steps adjusted to {} (must be multiple of 4)", poly_steps));
+                        }
+                        i += 1;
+                    }
+                }
+            }
             "--help" | "-h" => {
                 println!("Usage: harmonium [OPTIONS] [SOUNDFONT.sf2]");
                 println!();
@@ -64,6 +78,7 @@ fn main() {
                 println!("  --record-abc               Record to ABC notation");
                 println!("  --osc                      Enable OSC control (UDP 8080)");
                 println!("  --duration <SECONDS>       Recording duration (0 = infinite)");
+                println!("  --poly-steps, -p <STEPS>   Polyrythm resolution: 48, 96, 192... (default: 48)");
                 println!("  --help, -h                 Show this help");
                 println!();
                 println!("Harmony Modes:");
@@ -102,10 +117,13 @@ fn main() {
     // === 1. État Partagé (Thread-safe) ===
     let target_state = Arc::new(Mutex::new(EngineParams::default()));
 
-    // Appliquer le mode d'harmonie choisi
+    // Appliquer le mode d'harmonie et poly_steps choisis
     if let Ok(mut params) = target_state.lock() {
         params.harmony_mode = harmony_mode;
+        params.poly_steps = poly_steps;
     }
+
+    log::info(&format!("🎵 Poly Steps: {}", poly_steps));
 
     // Si on a un SoundFont, on active le routing Oxisynth par défaut pour tester
     if sf2_data.is_some() {

@@ -144,6 +144,7 @@ impl EmotionEngine {
                     gain_hat: 0.4,
                     vel_base_bass: 85,
                     vel_base_snare: 70,
+                    poly_steps: 48,
                 },
             });
         }
@@ -179,6 +180,7 @@ impl EmotionEngine {
             gain_hat: 0.0,
             vel_base_bass: 0,
             vel_base_snare: 0,
+            poly_steps: 48,
         };
 
         // 2. Compare the input vector to each Anchor vector
@@ -228,6 +230,7 @@ impl EmotionEngine {
                 gain_hat: 0.4,
                 vel_base_bass: 85,
                 vel_base_snare: 70,
+                poly_steps: 48,
             };
         }
 

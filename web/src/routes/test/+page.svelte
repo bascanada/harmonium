@@ -20,6 +20,9 @@
     // Algorithme rythmique (0 = Euclidean 16 steps, 1 = PerfectBalance 48 steps)
     let algorithm = 0;
 
+    // Poly steps for PerfectBalance mode (48, 96, 192...)
+    let polySteps = 48;
+
     // Mode d'harmonie (0 = Basic, 1 = Driver)
     let harmonyMode = 1; // Default to Driver
 
@@ -341,6 +344,7 @@
             handle.set_tension(tension);
             handle.set_algorithm(algorithm);
             handle.set_harmony_mode(harmonyMode);
+            handle.set_poly_steps(polySteps);
 
             const key = handle.get_key();
             const scale = handle.get_scale();
@@ -427,9 +431,37 @@
                     />
                     <div>
                         <span class="font-semibold {algorithm === 1 ? 'text-purple-400' : 'text-neutral-300'}">PerfectBalance</span>
-                        <p class="text-xs text-neutral-500">48 steps - Perfect 4:3 polyrhythms</p>
+                        <p class="text-xs text-neutral-500">Geometric polygons - Perfect polyrhythms</p>
                     </div>
                 </label>
+
+                {#if algorithm === 1}
+                    <div class="mt-3 p-3 bg-purple-900/20 rounded-lg border border-purple-500/30">
+                        <label class="block text-xs text-purple-300 mb-2">Resolution (steps per measure)</label>
+                        <div class="flex gap-2">
+                            {#each [48, 96, 192] as steps}
+                                <button
+                                    class="flex-1 py-2 px-3 rounded font-mono text-sm transition-colors
+                                        {polySteps === steps
+                                            ? 'bg-purple-600 text-white'
+                                            : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}"
+                                    onclick={() => polySteps = steps}
+                                >
+                                    {steps}
+                                </button>
+                            {/each}
+                        </div>
+                        <p class="text-xs text-neutral-500 mt-2">
+                            {#if polySteps === 48}
+                                Standard - Good for most polyrhythms
+                            {:else if polySteps === 96}
+                                High - Finer subdivisions (32nd notes)
+                            {:else}
+                                Ultra - Maximum precision (64th notes)
+                            {/if}
+                        </p>
+                    </div>
+                {/if}
             </div>
         </div>
 
@@ -543,7 +575,7 @@
                     <!-- 1. CERCLES EUCLIDIENS (Polyrythmie) -->
                     <div class="bg-neutral-800 rounded-xl p-6 shadow-xl border border-neutral-700">
                         <h2 class="text-xl font-bold mb-4 text-center text-purple-300">
-                            {algorithm === 0 ? 'Euclidean Circles' : 'Polygon Circles (48 steps)'}
+                            {algorithm === 0 ? 'Euclidean Circles' : `Polygon Circles (${polySteps} steps)`}
                         </h2>
                         <div class="flex flex-wrap justify-center items-center gap-4">
                             <EuclideanCircle
@@ -574,7 +606,7 @@
                             {#if algorithm === 0}
                                 Observe how the two rings rotate against each other based on Tension.
                             {:else}
-                                48-step circle enables perfect 4:3 polyrhythms (Square + Triangle).
+                                {polySteps}-step circle enables perfect polyrhythms with finer subdivisions.
                             {/if}
                         </p>
                     </div>
@@ -723,7 +755,7 @@
                             </span>
                         </div>
                         <p class="text-xs text-neutral-500 mt-1">
-                            {algorithm === 0 ? '16 steps - Classic Bjorklund' : '48 steps - Geometric polygons 4:3'}
+                            {algorithm === 0 ? '16 steps - Classic Bjorklund' : `${polySteps} steps - Geometric polygons`}
                         </p>
                     </div>
 

@@ -112,6 +112,10 @@ pub struct EngineParams {
     pub vel_base_bass: u8,
     #[serde(default = "default_vel_snare")]
     pub vel_base_snare: u8,
+
+    // Polyrythm Steps (48, 96, 192...)
+    #[serde(default = "default_poly_steps")]
+    pub poly_steps: usize,
 }
 
 fn default_gain_lead() -> f32 { 1.0 }
@@ -120,6 +124,7 @@ fn default_gain_snare() -> f32 { 0.5 }
 fn default_gain_hat() -> f32 { 0.4 }
 fn default_vel_bass() -> u8 { 85 }
 fn default_vel_snare() -> u8 { 70 }
+fn default_poly_steps() -> usize { 48 }
 
 impl Default for EngineParams {
     fn default() -> Self {
@@ -143,6 +148,7 @@ impl Default for EngineParams {
             gain_hat: default_gain_hat(),
             vel_base_bass: default_vel_bass(),
             vel_base_snare: default_vel_snare(),
+            poly_steps: default_poly_steps(),
         }
     }
 }
@@ -486,12 +492,21 @@ impl HarmoniumEngine {
         if mode_changed {
             self.sequencer_primary.mode = target_algo;
             if target_algo == RhythmMode::PerfectBalance {
-                self.sequencer_primary.upgrade_to_48_steps();
+                self.sequencer_primary.upgrade_to_steps(target.poly_steps);
             }
         }
 
-        // Rotation Logic
-        let max_rotation = if self.sequencer_primary.mode == RhythmMode::PerfectBalance { 24 } else { 8 };
+        // Update poly_steps if changed while in PerfectBalance mode
+        if target_algo == RhythmMode::PerfectBalance && self.sequencer_primary.steps != target.poly_steps {
+            self.sequencer_primary.upgrade_to_steps(target.poly_steps);
+        }
+
+        // Rotation Logic (proportional to steps)
+        let max_rotation = if self.sequencer_primary.mode == RhythmMode::PerfectBalance {
+            self.sequencer_primary.steps / 2
+        } else {
+            8
+        };
         let target_rotation = (self.current_state.tension * max_rotation as f32) as usize;
 
         // Regeneration Logic

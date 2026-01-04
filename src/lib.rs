@@ -388,6 +388,20 @@ impl Handle {
         self.target_state.lock().map(|s| s.vel_base_snare).unwrap_or(70)
     }
 
+    /// Set polyrythm steps (48, 96, 192...) - must be multiple of 4
+    pub fn set_poly_steps(&mut self, steps: usize) {
+        if let Ok(mut state) = self.target_state.lock() {
+            // Ensure it's a multiple of 4 and reasonable range
+            let valid_steps = (steps / 4) * 4;
+            state.poly_steps = valid_steps.clamp(16, 384);
+        }
+    }
+
+    /// Get current polyrythm steps
+    pub fn get_poly_steps(&self) -> usize {
+        self.target_state.lock().map(|s| s.poly_steps).unwrap_or(48)
+    }
+
     /// Ajouter une SoundFont à un bank spécifique
     pub fn add_soundfont(&self, bank_id: u32, sf2_bytes: Box<[u8]>) {
         if let Ok(mut queue) = self.font_queue.lock() {
