@@ -6,7 +6,6 @@
     import abcjs from 'abcjs';
 
     let handle: any = null;
-    let status = "Ready to play";
     let isPlaying = false;
     let error = "";
     let sessionInfo = "";
@@ -60,13 +59,10 @@
 
     // Mode rythmique actuel (réactif au mode de contrôle)
     $: currentRhythmMode = isEmotionMode ? algorithm : directRhythmMode;
-    $: currentRhythmSteps = isEmotionMode ? (algorithm === 1 ? polySteps : 16) : directRhythmSteps;
 
     // État harmonique (progression)
     let currentChord = "I";
     let currentMeasure = 1;
-    let currentCycle = 1;
-    let currentStep = 0;
     // Continuous step counter for polyrhythmic visualization
     let totalSteps = 0;
     let lastEngineStep = -1;
@@ -245,15 +241,7 @@
         return font ? font.name : "Unknown";
     }
 
-    // Helper MIDI -> Note Name
-    function midiToNoteName(midi: number): string {
-        const notes = ["c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b"];
-        const octave = Math.floor(midi / 12) - 1;
-        const note = notes[midi % 12];
-        return `${note}/${octave}`;
-    }
-
-    // Animation Loop (remplace setInterval)
+    // Animation Loop
     function animate() {
         if (!handle || !isPlaying) return;
 
@@ -275,7 +263,6 @@
             }
             lastEngineStep = rawStep;
         }
-        currentStep = rawStep;
 
         primarySteps = handle.get_primary_steps();
         primaryPulses = handle.get_primary_pulses();
@@ -292,7 +279,6 @@
         
         currentChord = handle.get_current_chord_name();
         currentMeasure = handle.get_current_measure();
-        currentCycle = handle.get_current_cycle();
         isMinorChord = handle.is_current_chord_minor();
         progressionName = handle.get_progression_name();
 
@@ -311,20 +297,9 @@
             progressionChords = [...progressionChords];
         }
 
-        // 2. Poll Events (Notes)
-        const events = handle.get_events(); // Uint32Array [note, instr, step, dur, ...]
-        if (events.length > 0) {
-            for (let i = 0; i < events.length; i += 4) {
-                const midi = events[i];
-                const instr = events[i+1]; // 0=Bass, 1=Lead
-                // const step = events[i+2];
-                // const dur = events[i+3];
-                
-                const key = midiToNoteName(midi);
-                const type = instr === 0 ? 'bass' : 'lead';
-            }
-        }
-        
+        // Clear event queue (events are generated but we don't visualize them currently)
+        handle.get_events();
+
         requestAnimationFrame(animate);
     }
 
@@ -407,7 +382,6 @@
                 handle = null;
             }
             isPlaying = false;
-            status = "Stopped";
             sessionInfo = "";
             return;
         }
@@ -450,7 +424,6 @@
             lastEngineStep = -1;
 
             isPlaying = true;
-            status = "Playing - Tweak the sliders!";
             error = "";
             
             // Démarrer la boucle d'animation
@@ -458,7 +431,6 @@
         } catch (e) {
             console.error(e);
             error = String(e);
-            status = "Error occurred";
         }
     }
 
@@ -531,7 +503,7 @@
 
                 {#if algorithm === 1}
                     <div class="mt-3 p-3 bg-purple-900/20 rounded-lg border border-purple-500/30">
-                        <label class="block text-xs text-purple-300 mb-2">Resolution (steps per measure)</label>
+                        <span class="block text-xs text-purple-300 mb-2">Resolution (steps per measure)</span>
                         <div class="flex gap-2">
                             {#each [48, 96, 192] as steps}
                                 <button
@@ -819,7 +791,7 @@
                         
                         <!-- SoundFont Loader -->
                         <div class="mb-4">
-                            <label class="block text-xs text-neutral-400 mb-1">SoundFonts (.sf2)</label>
+                            <span class="block text-xs text-neutral-400 mb-1">SoundFonts (.sf2)</span>
                             <div class="flex flex-col gap-2">
                                 <label class="cursor-pointer bg-neutral-900 border border-neutral-600 rounded px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800 transition-colors flex justify-center items-center">
                                     <span>+ Add SoundFont</span>
@@ -984,7 +956,7 @@
                         <!-- BPM Direct -->
                         <div class="mb-6">
                             <div class="flex justify-between mb-2">
-                                <label class="text-lg font-semibold">BPM</label>
+                                <span class="text-lg font-semibold">BPM</span>
                                 <span class="text-cyan-400 font-mono">{directBpm}</span>
                             </div>
                             <input
@@ -1029,7 +1001,7 @@
                                     <div class="text-xs text-orange-300 font-semibold mb-2">Primary (Kick)</div>
                                     <div class="grid grid-cols-3 gap-3">
                                         <div>
-                                            <label class="text-xs text-neutral-400">Steps: {directRhythmSteps}</label>
+                                            <span class="text-xs text-neutral-400">Steps: {directRhythmSteps}</span>
                                             <input
                                                 type="range" min="4" max="32" step="1"
                                                 bind:value={directRhythmSteps} oninput={updateDirectParams}
@@ -1037,7 +1009,7 @@
                                             />
                                         </div>
                                         <div>
-                                            <label class="text-xs text-neutral-400">Pulses: {directRhythmPulses}</label>
+                                            <span class="text-xs text-neutral-400">Pulses: {directRhythmPulses}</span>
                                             <input
                                                 type="range" min="1" max={directRhythmSteps} step="1"
                                                 bind:value={directRhythmPulses} oninput={updateDirectParams}
@@ -1045,7 +1017,7 @@
                                             />
                                         </div>
                                         <div>
-                                            <label class="text-xs text-neutral-400">Rotation: {directRhythmRotation}</label>
+                                            <span class="text-xs text-neutral-400">Rotation: {directRhythmRotation}</span>
                                             <input
                                                 type="range" min="0" max={directRhythmSteps - 1} step="1"
                                                 bind:value={directRhythmRotation} oninput={updateDirectParams}
@@ -1060,7 +1032,7 @@
                                     <div class="text-xs text-green-300 font-semibold mb-2">Secondary (Snare) - Polyrhythm</div>
                                     <div class="grid grid-cols-3 gap-3">
                                         <div>
-                                            <label class="text-xs text-neutral-400">Steps: {directSecondarySteps}</label>
+                                            <span class="text-xs text-neutral-400">Steps: {directSecondarySteps}</span>
                                             <input
                                                 type="range" min="4" max="32" step="1"
                                                 bind:value={directSecondarySteps} oninput={updateDirectParams}
@@ -1068,7 +1040,7 @@
                                             />
                                         </div>
                                         <div>
-                                            <label class="text-xs text-neutral-400">Pulses: {directSecondaryPulses}</label>
+                                            <span class="text-xs text-neutral-400">Pulses: {directSecondaryPulses}</span>
                                             <input
                                                 type="range" min="1" max={directSecondarySteps} step="1"
                                                 bind:value={directSecondaryPulses} oninput={updateDirectParams}
@@ -1076,7 +1048,7 @@
                                             />
                                         </div>
                                         <div>
-                                            <label class="text-xs text-neutral-400">Rotation: {directSecondaryRotation}</label>
+                                            <span class="text-xs text-neutral-400">Rotation: {directSecondaryRotation}</span>
                                             <input
                                                 type="range" min="0" max={directSecondarySteps - 1} step="1"
                                                 bind:value={directSecondaryRotation} oninput={updateDirectParams}
@@ -1095,7 +1067,7 @@
 
                                 <!-- Poly Steps Selection -->
                                 <div class="mb-4">
-                                    <label class="text-xs text-neutral-400 mb-2 block">Resolution (steps per measure)</label>
+                                    <span class="text-xs text-neutral-400 mb-2 block">Resolution (steps per measure)</span>
                                     <div class="flex gap-2">
                                         {#each [48, 96, 192] as s}
                                             <button
@@ -1123,7 +1095,7 @@
                                 <!-- Density & Tension -->
                                 <div class="grid grid-cols-2 gap-4">
                                     <div>
-                                        <label class="text-xs text-neutral-400">Density: {directRhythmDensity.toFixed(2)}</label>
+                                        <span class="text-xs text-neutral-400">Density: {directRhythmDensity.toFixed(2)}</span>
                                         <input
                                             type="range" min="0" max="1" step="0.01"
                                             bind:value={directRhythmDensity} oninput={updateDirectParams}
@@ -1135,7 +1107,7 @@
                                         </div>
                                     </div>
                                     <div>
-                                        <label class="text-xs text-neutral-400">Tension: {directRhythmTension.toFixed(2)}</label>
+                                        <span class="text-xs text-neutral-400">Tension: {directRhythmTension.toFixed(2)}</span>
                                         <input
                                             type="range" min="0" max="1" step="0.01"
                                             bind:value={directRhythmTension} oninput={updateDirectParams}
@@ -1156,7 +1128,7 @@
 
                             <div class="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label class="text-xs text-neutral-400">Valence: {directHarmonyValence.toFixed(2)}</label>
+                                    <span class="text-xs text-neutral-400">Valence: {directHarmonyValence.toFixed(2)}</span>
                                     <input
                                         type="range" min="-1" max="1" step="0.01"
                                         bind:value={directHarmonyValence} oninput={updateDirectParams}
@@ -1168,7 +1140,7 @@
                                     </div>
                                 </div>
                                 <div>
-                                    <label class="text-xs text-neutral-400">Tension: {directHarmonyTension.toFixed(2)}</label>
+                                    <span class="text-xs text-neutral-400">Tension: {directHarmonyTension.toFixed(2)}</span>
                                     <input
                                         type="range" min="0" max="1" step="0.01"
                                         bind:value={directHarmonyTension} oninput={updateDirectParams}
@@ -1188,7 +1160,7 @@
 
                             <div class="grid grid-cols-3 gap-4">
                                 <div>
-                                    <label class="text-xs text-neutral-400">Smoothness: {directMelodySmoothness.toFixed(2)}</label>
+                                    <span class="text-xs text-neutral-400">Smoothness: {directMelodySmoothness.toFixed(2)}</span>
                                     <input
                                         type="range" min="0" max="1" step="0.01"
                                         bind:value={directMelodySmoothness} oninput={updateDirectParams}
@@ -1200,7 +1172,7 @@
                                     </div>
                                 </div>
                                 <div>
-                                    <label class="text-xs text-neutral-400">Density: {directVoicingDensity.toFixed(2)}</label>
+                                    <span class="text-xs text-neutral-400">Density: {directVoicingDensity.toFixed(2)}</span>
                                     <input
                                         type="range" min="0" max="1" step="0.01"
                                         bind:value={directVoicingDensity} oninput={updateDirectParams}
@@ -1212,7 +1184,7 @@
                                     </div>
                                 </div>
                                 <div>
-                                    <label class="text-xs text-neutral-400">Filter: {directVoicingTension.toFixed(2)}</label>
+                                    <span class="text-xs text-neutral-400">Filter: {directVoicingTension.toFixed(2)}</span>
                                     <input
                                         type="range" min="0" max="1" step="0.01"
                                         bind:value={directVoicingTension} oninput={updateDirectParams}
