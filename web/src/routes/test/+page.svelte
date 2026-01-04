@@ -11,11 +11,40 @@
     let error = "";
     let sessionInfo = "";
 
+    // === MODE DE CONTRÔLE ===
+    // true = Emotional (arousal/valence/density/tension)
+    // false = Technical (direct musical params)
+    let isEmotionMode = true;
+
     // Paramètres émotionnels (modèle dimensionnel)
     let arousal = 0.5;  // Activation/Énergie → BPM
     let valence = 0.3;  // Positif/Négatif → Harmonie
     let density = 0.5;  // Complexité rythmique (< 0.3 = Carré, > 0.3 = Hexagone)
     let tension = 0.3;  // Dissonance harmonique (> 0.3 active le Triangle → polyrythme 4:3)
+
+    // Paramètres techniques directs
+    let directBpm = 120;
+    let directEnableRhythm = true;
+    let directEnableHarmony = true;
+    let directEnableMelody = true;
+    let directRhythmSteps = 16;
+    let directRhythmPulses = 4;
+    let directRhythmRotation = 0;
+    let directRhythmDensity = 0.5;
+    let directRhythmTension = 0.3;
+    let directHarmonyTension = 0.3;
+    let directHarmonyValence = 0.3;
+    let directMelodySmoothness = 0.7;
+    let directVoicingDensity = 0.5;
+    let directVoicingTension = 0.3;
+
+    // Mode rythmique direct (0 = Euclidean, 1 = PerfectBalance)
+    let directRhythmMode = 0;
+
+    // Paramètres du séquenceur secondaire (pour Euclidean)
+    let directSecondarySteps = 12;
+    let directSecondaryPulses = 3;
+    let directSecondaryRotation = 0;
 
     // Algorithme rythmique (0 = Euclidean 16 steps, 1 = PerfectBalance 48 steps)
     let algorithm = 0;
@@ -28,6 +57,10 @@
 
     // BPM calculé (lecture seule)
     $: bpm = 70 + (arousal * 110);
+
+    // Mode rythmique actuel (réactif au mode de contrôle)
+    $: currentRhythmMode = isEmotionMode ? algorithm : directRhythmMode;
+    $: currentRhythmSteps = isEmotionMode ? (algorithm === 1 ? polySteps : 16) : directRhythmSteps;
 
     // État harmonique (progression)
     let currentChord = "I";
@@ -295,13 +328,74 @@
         requestAnimationFrame(animate);
     }
 
-    // Mise à jour en temps réel lors du drag du slider
+    // Mise à jour en temps réel lors du drag du slider (mode émotionnel)
     function updateParams() {
-        if (handle && isPlaying) {
+        if (handle && isPlaying && isEmotionMode) {
             handle.set_arousal(arousal);
             handle.set_valence(valence);
             handle.set_density(density);
             handle.set_tension(tension);
+        }
+    }
+
+    // Mise à jour des paramètres techniques (mode direct)
+    function updateDirectParams() {
+        if (handle && isPlaying && !isEmotionMode) {
+            handle.set_direct_bpm(directBpm);
+            handle.set_direct_enable_rhythm(directEnableRhythm);
+            handle.set_direct_enable_harmony(directEnableHarmony);
+            handle.set_direct_enable_melody(directEnableMelody);
+            handle.set_direct_rhythm_mode(directRhythmMode);
+            handle.set_direct_rhythm_steps(directRhythmSteps);
+            handle.set_direct_rhythm_pulses(directRhythmPulses);
+            handle.set_direct_rhythm_rotation(directRhythmRotation);
+            handle.set_direct_rhythm_density(directRhythmDensity);
+            handle.set_direct_rhythm_tension(directRhythmTension);
+            // Secondary sequencer (Euclidean mode only)
+            handle.set_direct_secondary_steps(directSecondarySteps);
+            handle.set_direct_secondary_pulses(directSecondaryPulses);
+            handle.set_direct_secondary_rotation(directSecondaryRotation);
+            // Harmony
+            handle.set_direct_harmony_tension(directHarmonyTension);
+            handle.set_direct_harmony_valence(directHarmonyValence);
+            // Melody/Voicing
+            handle.set_direct_melody_smoothness(directMelodySmoothness);
+            handle.set_direct_voicing_density(directVoicingDensity);
+            handle.set_direct_voicing_tension(directVoicingTension);
+        }
+    }
+
+    // Basculer entre mode émotionnel et technique
+    function toggleControlMode() {
+        isEmotionMode = !isEmotionMode;
+        if (handle) {
+            if (isEmotionMode) {
+                handle.use_emotion_mode();
+                updateParams();
+            } else {
+                handle.use_direct_mode();
+                // Sync UI with current direct params from engine
+                directBpm = handle.get_direct_bpm();
+                directEnableRhythm = handle.get_direct_enable_rhythm();
+                directEnableHarmony = handle.get_direct_enable_harmony();
+                directEnableMelody = handle.get_direct_enable_melody();
+                directRhythmMode = handle.get_direct_rhythm_mode();
+                directRhythmSteps = handle.get_direct_rhythm_steps();
+                directRhythmPulses = handle.get_direct_rhythm_pulses();
+                directRhythmRotation = handle.get_direct_rhythm_rotation();
+                directRhythmDensity = handle.get_direct_rhythm_density();
+                directRhythmTension = handle.get_direct_rhythm_tension();
+                // Secondary sequencer
+                directSecondarySteps = handle.get_direct_secondary_steps();
+                directSecondaryPulses = handle.get_direct_secondary_pulses();
+                directSecondaryRotation = handle.get_direct_secondary_rotation();
+                // Harmony
+                directHarmonyTension = handle.get_direct_harmony_tension();
+                directHarmonyValence = handle.get_direct_harmony_valence();
+                directMelodySmoothness = handle.get_direct_melody_smoothness();
+                directVoicingDensity = handle.get_direct_voicing_density();
+                directVoicingTension = handle.get_direct_voicing_tension();
+            }
         }
     }
 
@@ -572,24 +666,34 @@
                 <!-- COLONNE GAUCHE : VISUALISATION (Cercles + Harmonie) -->
                 <div class="flex flex-col gap-6">
                     
-                    <!-- 1. CERCLES EUCLIDIENS (Polyrythmie) -->
+                    <!-- 1. CERCLES RYTHMIQUES -->
                     <div class="bg-neutral-800 rounded-xl p-6 shadow-xl border border-neutral-700">
-                        <h2 class="text-xl font-bold mb-4 text-center text-purple-300">
-                            {algorithm === 0 ? 'Euclidean Circles' : `Polygon Circles (${polySteps} steps)`}
-                        </h2>
+                        <!-- Header avec mode actuel -->
+                        <div class="flex items-center justify-center gap-3 mb-4">
+                            <span class="px-3 py-1 rounded-full text-sm font-semibold
+                                {currentRhythmMode === 0
+                                    ? 'bg-orange-500/20 text-orange-400 border border-orange-500/50'
+                                    : 'bg-purple-500/20 text-purple-400 border border-purple-500/50'}">
+                                {currentRhythmMode === 0 ? 'Euclidean' : 'PerfectBalance'}
+                            </span>
+                            <span class="text-neutral-500 text-sm font-mono">
+                                {primarySteps} steps
+                            </span>
+                        </div>
+
                         <div class="flex flex-wrap justify-center items-center gap-4">
                             <EuclideanCircle
                                 steps={primarySteps}
                                 pulses={primaryPulses}
                                 rotation={primaryRotation}
                                 externalPattern={primaryPattern.length > 0 ? primaryPattern : null}
-                                color="#ff3e00"
-                                label={algorithm === 0 ? "PRIMARY" : "POLYRHYTHM"}
+                                color={currentRhythmMode === 0 ? "#ff3e00" : "#a855f7"}
+                                label={currentRhythmMode === 0 ? "PRIMARY" : "GROOVE"}
                                 currentStep={totalSteps}
-                                radius={algorithm === 0 ? 120 : 150}
+                                radius={currentRhythmMode === 0 ? 120 : 150}
                             />
-                            {#if algorithm === 0}
-                                <!-- Euclidean mode: 2 cercles indépendants (polyrythme 16:12) -->
+                            {#if currentRhythmMode === 0}
+                                <!-- Euclidean mode: 2 cercles indépendants (polyrythme) -->
                                 <EuclideanCircle
                                     steps={secondarySteps}
                                     pulses={secondaryPulses}
@@ -602,13 +706,19 @@
                                 />
                             {/if}
                         </div>
-                        <p class="text-xs text-center text-neutral-500 mt-4">
-                            {#if algorithm === 0}
-                                Observe how the two rings rotate against each other based on Tension.
+
+                        <!-- Info contextuelle -->
+                        <div class="mt-4 text-center">
+                            {#if currentRhythmMode === 0}
+                                <p class="text-xs text-neutral-500">
+                                    {primarySteps}:{secondarySteps} polyrhythm ({primaryPulses}/{primarySteps} vs {secondaryPulses}/{secondarySteps})
+                                </p>
                             {:else}
-                                {polySteps}-step circle enables perfect polyrhythms with finer subdivisions.
+                                <p class="text-xs text-neutral-500">
+                                    Density: {(directRhythmDensity * 100).toFixed(0)}% | Tension: {(directRhythmTension * 100).toFixed(0)}%
+                                </p>
                             {/if}
-                        </p>
+                        </div>
                     </div>
 
                     <!-- 2. PROGRESSION HARMONIQUE -->
@@ -647,35 +757,61 @@
 
                 <!-- COLONNE DROITE : CONTROLES -->
                 <div class="bg-neutral-800 rounded-xl p-8 shadow-xl h-fit sticky top-8">
-                    <h2 class="text-2xl font-bold mb-2 text-center">Emotional Controls</h2>
-                    <p class="text-sm text-neutral-400 text-center mb-6">Russell's Circumplex Model</p>
-                    
-                    <!-- AI Control -->
-                    <div class="mb-6 p-4 bg-neutral-800 rounded-lg border border-neutral-700">
-                        <h3 class="text-lg font-semibold mb-2">AI Director</h3>
-                        <div class="flex gap-2">
-                            <input 
-                                type="text" 
-                                bind:value={aiInputText} 
-                                placeholder="Enter a list of words to describe emotions (e.g. 'battle fire danger')"
-                                class="flex-1 bg-neutral-900 border border-neutral-600 rounded px-3 py-2 text-white"
-                                onkeydown={(e) => e.key === 'Enter' && analyzeText()}
-                            />
-                            <button 
-                                onclick={analyzeText}
-                                disabled={$aiStatus === 'loading'}
-                                class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded disabled:opacity-50"
+                    <!-- MODE TOGGLE -->
+                    <div class="mb-6">
+                        <div class="flex rounded-lg bg-neutral-900 p-1">
+                            <button
+                                onclick={() => { if (!isEmotionMode) toggleControlMode(); }}
+                                class="flex-1 py-2 px-4 rounded-md text-sm font-semibold transition-all duration-200
+                                    {isEmotionMode
+                                        ? 'bg-purple-600 text-white shadow-lg'
+                                        : 'text-neutral-400 hover:text-neutral-200'}"
                             >
-                                {$aiStatus === 'loading' ? '...' : 'Set'}
+                                Emotional
+                            </button>
+                            <button
+                                onclick={() => { if (isEmotionMode) toggleControlMode(); }}
+                                class="flex-1 py-2 px-4 rounded-md text-sm font-semibold transition-all duration-200
+                                    {!isEmotionMode
+                                        ? 'bg-cyan-600 text-white shadow-lg'
+                                        : 'text-neutral-400 hover:text-neutral-200'}"
+                            >
+                                Technical
                             </button>
                         </div>
-                        {#if $aiError}
-                            <div class="text-red-400 text-xs mt-2">{$aiError}</div>
-                        {/if}
-                        {#if $aiStatus === 'ready' && !aiInputText}
-                            <div class="text-green-400 text-xs mt-2">AI Engine Ready</div>
-                        {/if}
+                        <p class="text-xs text-neutral-500 text-center mt-2">
+                            {isEmotionMode ? 'Russell\'s Circumplex Model' : 'Direct Musical Parameters'}
+                        </p>
                     </div>
+                    
+                    <!-- AI Control (only in Emotion mode) -->
+                    {#if isEmotionMode}
+                        <div class="mb-6 p-4 bg-neutral-800 rounded-lg border border-neutral-700">
+                            <h3 class="text-lg font-semibold mb-2">AI Director</h3>
+                            <div class="flex gap-2">
+                                <input
+                                    type="text"
+                                    bind:value={aiInputText}
+                                    placeholder="Enter words to describe emotions (e.g. 'battle fire danger')"
+                                    class="flex-1 bg-neutral-900 border border-neutral-600 rounded px-3 py-2 text-white"
+                                    onkeydown={(e) => e.key === 'Enter' && analyzeText()}
+                                />
+                                <button
+                                    onclick={analyzeText}
+                                    disabled={$aiStatus === 'loading'}
+                                    class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded disabled:opacity-50"
+                                >
+                                    {$aiStatus === 'loading' ? '...' : 'Set'}
+                                </button>
+                            </div>
+                            {#if $aiError}
+                                <div class="text-red-400 text-xs mt-2">{$aiError}</div>
+                            {/if}
+                            {#if $aiStatus === 'ready' && !aiInputText}
+                                <div class="text-green-400 text-xs mt-2">AI Engine Ready</div>
+                            {/if}
+                        </div>
+                    {/if}
 
                     <!-- Sound Engine Control -->
                     <div class="mb-6 p-4 bg-neutral-800 rounded-lg border border-neutral-700">
@@ -746,95 +882,350 @@
                         </div>
                     </div>
 
-                    <!-- Algorithm: Current mode indicator -->
-                    <div class="mb-6 p-4 bg-neutral-900 rounded-lg border-l-4 {algorithm === 0 ? 'border-orange-500' : 'border-purple-500'}">
-                        <div class="flex justify-between items-center">
-                            <span class="text-lg font-semibold">Rhythm</span>
-                            <span class="text-xl font-mono {algorithm === 0 ? 'text-orange-400' : 'text-purple-400'}">
-                                {algorithm === 0 ? 'Euclidean' : 'PerfectBalance'}
-                            </span>
+                    {#if isEmotionMode}
+                        <!-- BPM Display (calculated from Arousal) -->
+                        <div class="mb-6 p-4 bg-neutral-900 rounded-lg border-l-4 border-purple-600">
+                            <div class="flex justify-between items-center">
+                                <span class="text-lg font-semibold">BPM</span>
+                                <span class="text-3xl font-mono text-purple-400">
+                                    {bpm.toFixed(0)}
+                                </span>
+                            </div>
+                            <p class="text-xs text-neutral-500 mt-1">Calculated from Arousal</p>
                         </div>
-                        <p class="text-xs text-neutral-500 mt-1">
-                            {algorithm === 0 ? '16 steps - Classic Bjorklund' : `${polySteps} steps - Geometric polygons`}
-                        </p>
-                    </div>
 
-                    <!-- Harmony Mode: Current mode indicator -->
-                    <div class="mb-6 p-4 bg-neutral-900 rounded-lg border-l-4 {harmonyMode === 0 ? 'border-green-500' : 'border-cyan-500'}">
-                        <div class="flex justify-between items-center">
-                            <span class="text-lg font-semibold">Harmony</span>
-                            <span class="text-xl font-mono {harmonyMode === 0 ? 'text-green-400' : 'text-cyan-400'}">
-                                {harmonyMode === 0 ? 'Basic' : 'Driver'}
-                            </span>
+                        <!-- === EMOTIONAL CONTROLS === -->
+                        <!-- Arousal -->
+                        <div class="mb-6">
+                            <div class="flex justify-between mb-2">
+                                <label for="arousal" class="text-lg font-semibold">Arousal</label>
+                                <span class="text-purple-400 font-mono">{arousal.toFixed(2)}</span>
+                            </div>
+                            <input
+                                id="arousal" type="range" min="0" max="1" step="0.01"
+                                bind:value={arousal} oninput={updateParams}
+                                class="w-full h-3 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-red-600"
+                            />
+                            <div class="text-xs text-neutral-500 mt-1 text-right">Energy / Tempo</div>
                         </div>
-                        <p class="text-xs text-neutral-500 mt-1">
-                            {harmonyMode === 0 ? 'Russell Circumplex quadrants' : 'Steedman + Neo-Riemannian + LCC'}
-                        </p>
-                    </div>
 
-                    <!-- BPM Display -->
-                    <div class="mb-6 p-4 bg-neutral-900 rounded-lg border-l-4 border-purple-600">
-                        <div class="flex justify-between items-center">
-                            <span class="text-lg font-semibold">BPM</span>
-                            <span class="text-3xl font-mono text-purple-400">{bpm.toFixed(0)}</span>
+                        <!-- Valence -->
+                        <div class="mb-6">
+                            <div class="flex justify-between mb-2">
+                                <label for="valence" class="text-lg font-semibold">Valence</label>
+                                <span class="text-purple-400 font-mono">{valence.toFixed(2)}</span>
+                            </div>
+                            <input
+                                id="valence" type="range" min="-1" max="1" step="0.01"
+                                bind:value={valence} oninput={updateParams}
+                                class="w-full h-3 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-green-600"
+                            />
+                            <div class="text-xs text-neutral-500 mt-1 text-right">Emotion / Harmony</div>
                         </div>
-                    </div>
 
-                    <!-- Arousal -->
-                    <div class="mb-6">
-                        <div class="flex justify-between mb-2">
-                            <label for="arousal" class="text-lg font-semibold">Arousal</label>
-                            <span class="text-purple-400 font-mono">{arousal.toFixed(2)}</span>
+                        <!-- Density -->
+                        <div class="mb-6">
+                            <div class="flex justify-between mb-2">
+                                <label for="density" class="text-lg font-semibold">Density</label>
+                                <span class="text-purple-400 font-mono">{density.toFixed(2)}</span>
+                            </div>
+                            <input
+                                id="density" type="range" min="0" max="1" step="0.01"
+                                bind:value={density} oninput={updateParams}
+                                class="w-full h-3 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                            />
+                            <div class="text-xs text-neutral-500 mt-1 text-right">Rhythm Complexity</div>
                         </div>
-                        <input 
-                            id="arousal" type="range" min="0" max="1" step="0.01" 
-                            bind:value={arousal} oninput={updateParams}
-                            class="w-full h-3 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-red-600"
-                        />
-                        <div class="text-xs text-neutral-500 mt-1 text-right">Energy / Tempo</div>
-                    </div>
 
-                    <!-- Valence -->
-                    <div class="mb-6">
-                        <div class="flex justify-between mb-2">
-                            <label for="valence" class="text-lg font-semibold">Valence</label>
-                            <span class="text-purple-400 font-mono">{valence.toFixed(2)}</span>
+                        <!-- Tension -->
+                        <div class="mb-6">
+                            <div class="flex justify-between mb-2">
+                                <label for="tension" class="text-lg font-semibold">Tension</label>
+                                <span class="text-purple-400 font-mono">{tension.toFixed(2)}</span>
+                            </div>
+                            <input
+                                id="tension" type="range" min="0" max="1" step="0.01"
+                                bind:value={tension} oninput={updateParams}
+                                class="w-full h-3 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-yellow-600"
+                            />
+                            <div class="text-xs text-neutral-500 mt-1 text-right">Dissonance / Rotation</div>
                         </div>
-                        <input 
-                            id="valence" type="range" min="-1" max="1" step="0.01" 
-                            bind:value={valence} oninput={updateParams}
-                            class="w-full h-3 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-green-600"
-                        />
-                        <div class="text-xs text-neutral-500 mt-1 text-right">Emotion / Harmony</div>
-                    </div>
+                    {:else}
+                        <!-- === TECHNICAL CONTROLS === -->
 
-                    <!-- Density -->
-                    <div class="mb-6">
-                        <div class="flex justify-between mb-2">
-                            <label for="density" class="text-lg font-semibold">Density</label>
-                            <span class="text-purple-400 font-mono">{density.toFixed(2)}</span>
+                        <!-- Module Toggles -->
+                        <div class="mb-6 p-4 bg-neutral-900 rounded-lg">
+                            <h3 class="text-sm font-semibold text-neutral-400 mb-3">Modules</h3>
+                            <div class="flex gap-2">
+                                <button
+                                    onclick={() => { directEnableRhythm = !directEnableRhythm; updateDirectParams(); }}
+                                    class="flex-1 py-2 px-3 rounded text-sm font-medium transition-colors
+                                        {directEnableRhythm ? 'bg-orange-600 text-white' : 'bg-neutral-700 text-neutral-400'}"
+                                >
+                                    Rhythm
+                                </button>
+                                <button
+                                    onclick={() => { directEnableHarmony = !directEnableHarmony; updateDirectParams(); }}
+                                    class="flex-1 py-2 px-3 rounded text-sm font-medium transition-colors
+                                        {directEnableHarmony ? 'bg-green-600 text-white' : 'bg-neutral-700 text-neutral-400'}"
+                                >
+                                    Harmony
+                                </button>
+                                <button
+                                    onclick={() => { directEnableMelody = !directEnableMelody; updateDirectParams(); }}
+                                    class="flex-1 py-2 px-3 rounded text-sm font-medium transition-colors
+                                        {directEnableMelody ? 'bg-blue-600 text-white' : 'bg-neutral-700 text-neutral-400'}"
+                                >
+                                    Melody
+                                </button>
+                            </div>
                         </div>
-                        <input 
-                            id="density" type="range" min="0" max="1" step="0.01" 
-                            bind:value={density} oninput={updateParams}
-                            class="w-full h-3 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                        />
-                        <div class="text-xs text-neutral-500 mt-1 text-right">Rhythm Complexity</div>
-                    </div>
 
-                    <!-- Tension -->
-                    <div class="mb-6">
-                        <div class="flex justify-between mb-2">
-                            <label for="tension" class="text-lg font-semibold">Tension</label>
-                            <span class="text-purple-400 font-mono">{tension.toFixed(2)}</span>
+                        <!-- BPM Direct -->
+                        <div class="mb-6">
+                            <div class="flex justify-between mb-2">
+                                <label class="text-lg font-semibold">BPM</label>
+                                <span class="text-cyan-400 font-mono">{directBpm}</span>
+                            </div>
+                            <input
+                                type="range" min="30" max="200" step="1"
+                                bind:value={directBpm} oninput={updateDirectParams}
+                                class="w-full h-3 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-cyan-600"
+                            />
                         </div>
-                        <input 
-                            id="tension" type="range" min="0" max="1" step="0.01" 
-                            bind:value={tension} oninput={updateParams}
-                            class="w-full h-3 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-yellow-600"
-                        />
-                        <div class="text-xs text-neutral-500 mt-1 text-right">Dissonance / Rotation</div>
-                    </div>
+
+                        <!-- Rhythm Section -->
+                        <div class="mb-6 p-4 bg-neutral-900/50 rounded-lg border-l-4 border-orange-500">
+                            <h3 class="text-sm font-semibold text-orange-400 mb-3">Rhythm</h3>
+
+                            <!-- Mode Toggle -->
+                            <div class="flex rounded-lg bg-neutral-800 p-1 mb-4">
+                                <button
+                                    onclick={() => { directRhythmMode = 0; directRhythmSteps = 16; updateDirectParams(); }}
+                                    class="flex-1 py-2 px-3 rounded-md text-xs font-semibold transition-all duration-200
+                                        {directRhythmMode === 0
+                                            ? 'bg-orange-600 text-white shadow-lg'
+                                            : 'text-neutral-400 hover:text-neutral-200'}"
+                                >
+                                    Euclidean
+                                </button>
+                                <button
+                                    onclick={() => { directRhythmMode = 1; directRhythmSteps = 48; updateDirectParams(); }}
+                                    class="flex-1 py-2 px-3 rounded-md text-xs font-semibold transition-all duration-200
+                                        {directRhythmMode === 1
+                                            ? 'bg-purple-600 text-white shadow-lg'
+                                            : 'text-neutral-400 hover:text-neutral-200'}"
+                                >
+                                    PerfectBalance
+                                </button>
+                            </div>
+
+                            {#if directRhythmMode === 0}
+                                <!-- === EUCLIDEAN MODE === -->
+                                <p class="text-xs text-neutral-500 mb-4">Bjorklund algorithm - Classic polyrhythms</p>
+
+                                <!-- Primary Sequencer -->
+                                <div class="mb-4 p-3 bg-neutral-800/50 rounded-lg">
+                                    <div class="text-xs text-orange-300 font-semibold mb-2">Primary (Kick)</div>
+                                    <div class="grid grid-cols-3 gap-3">
+                                        <div>
+                                            <label class="text-xs text-neutral-400">Steps: {directRhythmSteps}</label>
+                                            <input
+                                                type="range" min="4" max="32" step="1"
+                                                bind:value={directRhythmSteps} oninput={updateDirectParams}
+                                                class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label class="text-xs text-neutral-400">Pulses: {directRhythmPulses}</label>
+                                            <input
+                                                type="range" min="1" max={directRhythmSteps} step="1"
+                                                bind:value={directRhythmPulses} oninput={updateDirectParams}
+                                                class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label class="text-xs text-neutral-400">Rotation: {directRhythmRotation}</label>
+                                            <input
+                                                type="range" min="0" max={directRhythmSteps - 1} step="1"
+                                                bind:value={directRhythmRotation} oninput={updateDirectParams}
+                                                class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Secondary Sequencer (for polyrhythm) -->
+                                <div class="p-3 bg-neutral-800/50 rounded-lg border border-green-500/30">
+                                    <div class="text-xs text-green-300 font-semibold mb-2">Secondary (Snare) - Polyrhythm</div>
+                                    <div class="grid grid-cols-3 gap-3">
+                                        <div>
+                                            <label class="text-xs text-neutral-400">Steps: {directSecondarySteps}</label>
+                                            <input
+                                                type="range" min="4" max="32" step="1"
+                                                bind:value={directSecondarySteps} oninput={updateDirectParams}
+                                                class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-green-500"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label class="text-xs text-neutral-400">Pulses: {directSecondaryPulses}</label>
+                                            <input
+                                                type="range" min="1" max={directSecondarySteps} step="1"
+                                                bind:value={directSecondaryPulses} oninput={updateDirectParams}
+                                                class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-green-500"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label class="text-xs text-neutral-400">Rotation: {directSecondaryRotation}</label>
+                                            <input
+                                                type="range" min="0" max={directSecondarySteps - 1} step="1"
+                                                bind:value={directSecondaryRotation} oninput={updateDirectParams}
+                                                class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-green-500"
+                                            />
+                                        </div>
+                                    </div>
+                                    <p class="text-xs text-neutral-600 mt-2">
+                                        {directRhythmSteps}:{directSecondarySteps} polyrhythm
+                                    </p>
+                                </div>
+
+                            {:else}
+                                <!-- === PERFECTBALANCE MODE === -->
+                                <p class="text-xs text-neutral-500 mb-4">Real drum grooves - Density controls complexity</p>
+
+                                <!-- Poly Steps Selection -->
+                                <div class="mb-4">
+                                    <label class="text-xs text-neutral-400 mb-2 block">Resolution (steps per measure)</label>
+                                    <div class="flex gap-2">
+                                        {#each [48, 96, 192] as s}
+                                            <button
+                                                onclick={() => { directRhythmSteps = s; updateDirectParams(); }}
+                                                class="flex-1 py-2 px-3 rounded font-mono text-sm transition-colors
+                                                    {directRhythmSteps === s
+                                                        ? 'bg-purple-600 text-white'
+                                                        : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}"
+                                            >
+                                                {s}
+                                            </button>
+                                        {/each}
+                                    </div>
+                                    <p class="text-xs text-neutral-600 mt-2">
+                                        {#if directRhythmSteps === 48}
+                                            Standard - 16th notes, good for most grooves
+                                        {:else if directRhythmSteps === 96}
+                                            High - 32nd notes, finer subdivisions
+                                        {:else}
+                                            Ultra - 64th notes, maximum precision
+                                        {/if}
+                                    </p>
+                                </div>
+
+                                <!-- Density & Tension -->
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="text-xs text-neutral-400">Density: {directRhythmDensity.toFixed(2)}</label>
+                                        <input
+                                            type="range" min="0" max="1" step="0.01"
+                                            bind:value={directRhythmDensity} oninput={updateDirectParams}
+                                            class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                                        />
+                                        <div class="flex justify-between text-xs text-neutral-600 mt-1">
+                                            <span>Half-time</span>
+                                            <span>Breakbeat</span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="text-xs text-neutral-400">Tension: {directRhythmTension.toFixed(2)}</label>
+                                        <input
+                                            type="range" min="0" max="1" step="0.01"
+                                            bind:value={directRhythmTension} oninput={updateDirectParams}
+                                            class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                                        />
+                                        <div class="flex justify-between text-xs text-neutral-600 mt-1">
+                                            <span>Clean</span>
+                                            <span>Ghost notes</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            {/if}
+                        </div>
+
+                        <!-- Harmony Section -->
+                        <div class="mb-6 p-4 bg-neutral-900/50 rounded-lg border-l-4 border-green-500">
+                            <h3 class="text-sm font-semibold text-green-400 mb-3">Harmony</h3>
+
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="text-xs text-neutral-400">Valence: {directHarmonyValence.toFixed(2)}</label>
+                                    <input
+                                        type="range" min="-1" max="1" step="0.01"
+                                        bind:value={directHarmonyValence} oninput={updateDirectParams}
+                                        class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-green-500"
+                                    />
+                                    <div class="flex justify-between text-xs text-neutral-600 mt-1">
+                                        <span>Minor</span>
+                                        <span>Major</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="text-xs text-neutral-400">Tension: {directHarmonyTension.toFixed(2)}</label>
+                                    <input
+                                        type="range" min="0" max="1" step="0.01"
+                                        bind:value={directHarmonyTension} oninput={updateDirectParams}
+                                        class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-green-500"
+                                    />
+                                    <div class="flex justify-between text-xs text-neutral-600 mt-1">
+                                        <span>Consonant</span>
+                                        <span>Dissonant</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Melody/Voicing Section -->
+                        <div class="mb-6 p-4 bg-neutral-900/50 rounded-lg border-l-4 border-blue-500">
+                            <h3 class="text-sm font-semibold text-blue-400 mb-3">Melody & Voicing</h3>
+
+                            <div class="grid grid-cols-3 gap-4">
+                                <div>
+                                    <label class="text-xs text-neutral-400">Smoothness: {directMelodySmoothness.toFixed(2)}</label>
+                                    <input
+                                        type="range" min="0" max="1" step="0.01"
+                                        bind:value={directMelodySmoothness} oninput={updateDirectParams}
+                                        class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                                    />
+                                    <div class="flex justify-between text-xs text-neutral-600 mt-1">
+                                        <span>Erratic</span>
+                                        <span>Smooth</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="text-xs text-neutral-400">Density: {directVoicingDensity.toFixed(2)}</label>
+                                    <input
+                                        type="range" min="0" max="1" step="0.01"
+                                        bind:value={directVoicingDensity} oninput={updateDirectParams}
+                                        class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                                    />
+                                    <div class="flex justify-between text-xs text-neutral-600 mt-1">
+                                        <span>Sparse</span>
+                                        <span>Dense</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="text-xs text-neutral-400">Filter: {directVoicingTension.toFixed(2)}</label>
+                                    <input
+                                        type="range" min="0" max="1" step="0.01"
+                                        bind:value={directVoicingTension} oninput={updateDirectParams}
+                                        class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                                    />
+                                    <div class="flex justify-between text-xs text-neutral-600 mt-1">
+                                        <span>Muffled</span>
+                                        <span>Bright</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    {/if}
 
                 </div>
             </div>

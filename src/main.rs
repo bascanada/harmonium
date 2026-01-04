@@ -276,8 +276,10 @@ fn main() {
     }
 
     // === 3. Création du Stream Audio avec l'état partagé ===
-    let (_stream, config, _harmony_state, _event_queue, _font_queue, finished_recordings) = audio::create_stream(target_state.clone(), sf2_data.as_deref())
-        .expect("Failed to create audio stream");
+    let control_mode = std::sync::Arc::new(std::sync::Mutex::new(audio::ControlMode::default()));
+    let (_stream, config, _harmony_state, _event_queue, _font_queue, finished_recordings) =
+        audio::create_stream(target_state.clone(), control_mode, sf2_data.as_deref())
+            .expect("Failed to create audio stream");
 
     // Démarrage de l'enregistrement si demandé
     if record_wav || record_midi || record_abc {

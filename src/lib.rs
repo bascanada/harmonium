@@ -12,6 +12,8 @@ pub mod events;
 pub mod backend;
 pub mod voice_manager;
 pub mod voicing;
+pub mod params;
+pub mod mapper;
 
 // Re-exports pour compatibilité avec l'ancien code
 pub use harmony::basic as progression;
@@ -19,6 +21,10 @@ pub use harmony::melody as harmony_melody;
 
 pub use sequencer::RhythmMode;
 pub use harmony::HarmonyMode;
+
+// Re-exports pour la nouvelle architecture découplée
+pub use params::{MusicalParams, HarmonyStrategy};
+pub use mapper::{EmotionMapper, MapperConfig};
 
 #[wasm_bindgen]
 pub struct RecordedData {
@@ -43,8 +49,10 @@ impl RecordedData {
 pub struct Handle {
     #[allow(dead_code)]
     stream: cpal::Stream,
-    /// État partagé pour contrôler le moteur en temps réel
+    /// État partagé pour contrôler le moteur en temps réel (mode émotion)
     target_state: Arc<Mutex<engine::EngineParams>>,
+    /// État partagé pour le mode de contrôle (émotion vs direct)
+    control_mode: Arc<Mutex<audio::ControlMode>>,
     /// État harmonique en lecture seule pour l'UI
     harmony_state: Arc<Mutex<engine::HarmonyState>>,
     /// Queue d'événements pour l'UI
@@ -474,21 +482,296 @@ impl Handle {
         }
         None
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // MODE DE CONTRÔLE: Émotion vs Direct
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Active le mode émotionnel (sliders arousal/valence/density/tension)
+    /// C'est le mode par défaut
+    pub fn use_emotion_mode(&self) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            mode.use_emotion_mode = true;
+        }
+    }
+
+    /// Active le mode technique direct (contrôle précis des paramètres musicaux)
+    pub fn use_direct_mode(&self) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            mode.use_emotion_mode = false;
+        }
+    }
+
+    /// Retourne true si le moteur est en mode émotionnel
+    pub fn is_emotion_mode(&self) -> bool {
+        self.control_mode.lock().map(|m| m.use_emotion_mode).unwrap_or(true)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // PARAMÈTRES DIRECTS (Mode Technique)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Définit le BPM directement (mode direct uniquement)
+    pub fn set_direct_bpm(&self, bpm: f32) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            mode.direct_params.bpm = bpm.clamp(30.0, 300.0);
+        }
+    }
+
+    /// Obtient le BPM actuel en mode direct
+    pub fn get_direct_bpm(&self) -> f32 {
+        self.control_mode.lock().map(|m| m.direct_params.bpm).unwrap_or(120.0)
+    }
+
+    /// Active/désactive le module rythmique
+    pub fn set_direct_enable_rhythm(&self, enabled: bool) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            mode.direct_params.enable_rhythm = enabled;
+        }
+    }
+
+    /// Active/désactive le module harmonique
+    pub fn set_direct_enable_harmony(&self, enabled: bool) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            mode.direct_params.enable_harmony = enabled;
+        }
+    }
+
+    /// Active/désactive le module mélodique
+    pub fn set_direct_enable_melody(&self, enabled: bool) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            mode.direct_params.enable_melody = enabled;
+        }
+    }
+
+    /// Définit le mode rythmique (0 = Euclidean, 1 = PerfectBalance)
+    pub fn set_direct_rhythm_mode(&self, mode: u8) {
+        if let Ok(mut m) = self.control_mode.lock() {
+            m.direct_params.rhythm_mode = match mode {
+                0 => RhythmMode::Euclidean,
+                1 => RhythmMode::PerfectBalance,
+                _ => RhythmMode::Euclidean,
+            };
+        }
+    }
+
+    /// Définit le nombre de steps (16, 48, 96, 192)
+    pub fn set_direct_rhythm_steps(&self, steps: usize) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            let valid_steps = (steps / 4) * 4;
+            mode.direct_params.rhythm_steps = valid_steps.clamp(16, 384);
+        }
+    }
+
+    /// Définit le nombre de pulses
+    pub fn set_direct_rhythm_pulses(&self, pulses: usize) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            mode.direct_params.rhythm_pulses = pulses.clamp(1, 32);
+        }
+    }
+
+    /// Définit la rotation du pattern
+    pub fn set_direct_rhythm_rotation(&self, rotation: usize) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            mode.direct_params.rhythm_rotation = rotation;
+        }
+    }
+
+    /// Définit la densité rythmique (0.0-1.0)
+    pub fn set_direct_rhythm_density(&self, density: f32) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            mode.direct_params.rhythm_density = density.clamp(0.0, 1.0);
+        }
+    }
+
+    /// Définit la tension rythmique (0.0-1.0) - ghost notes, syncopation
+    pub fn set_direct_rhythm_tension(&self, tension: f32) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            mode.direct_params.rhythm_tension = tension.clamp(0.0, 1.0);
+        }
+    }
+
+    /// Définit les steps du séquenceur secondaire (Euclidean mode)
+    pub fn set_direct_secondary_steps(&self, steps: usize) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            mode.direct_params.rhythm_secondary_steps = steps.clamp(4, 32);
+        }
+    }
+
+    /// Définit les pulses du séquenceur secondaire (Euclidean mode)
+    pub fn set_direct_secondary_pulses(&self, pulses: usize) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            mode.direct_params.rhythm_secondary_pulses = pulses.clamp(1, 32);
+        }
+    }
+
+    /// Définit la rotation du séquenceur secondaire (Euclidean mode)
+    pub fn set_direct_secondary_rotation(&self, rotation: usize) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            mode.direct_params.rhythm_secondary_rotation = rotation;
+        }
+    }
+
+    /// Définit le mode harmonique (0 = Basic, 1 = Driver)
+    pub fn set_direct_harmony_mode(&self, mode: u8) {
+        if let Ok(mut m) = self.control_mode.lock() {
+            m.direct_params.harmony_mode = match mode {
+                0 => HarmonyMode::Basic,
+                1 => HarmonyMode::Driver,
+                _ => HarmonyMode::Driver,
+            };
+        }
+    }
+
+    /// Définit la tension harmonique (0.0-1.0)
+    pub fn set_direct_harmony_tension(&self, tension: f32) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            mode.direct_params.harmony_tension = tension.clamp(0.0, 1.0);
+        }
+    }
+
+    /// Définit la valence harmonique (-1.0 à 1.0)
+    pub fn set_direct_harmony_valence(&self, valence: f32) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            mode.direct_params.harmony_valence = valence.clamp(-1.0, 1.0);
+        }
+    }
+
+    /// Définit le lissage mélodique (0.0-1.0)
+    pub fn set_direct_melody_smoothness(&self, smoothness: f32) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            mode.direct_params.melody_smoothness = smoothness.clamp(0.0, 1.0);
+        }
+    }
+
+    /// Définit la densité de voicing (0.0-1.0)
+    pub fn set_direct_voicing_density(&self, density: f32) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            mode.direct_params.voicing_density = density.clamp(0.0, 1.0);
+        }
+    }
+
+    /// Définit la tension de voicing (0.0-1.0) - contrôle le filtre/timbre
+    pub fn set_direct_voicing_tension(&self, tension: f32) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            mode.direct_params.voicing_tension = tension.clamp(0.0, 1.0);
+        }
+    }
+
+    /// Obtient l'état actuel du mode et des paramètres directs (JSON)
+    pub fn get_direct_params_json(&self) -> String {
+        if let Ok(mode) = self.control_mode.lock() {
+            serde_json::to_string(&mode.direct_params).unwrap_or_else(|_| "{}".to_string())
+        } else {
+            "{}".to_string()
+        }
+    }
+
+    /// Définit tous les paramètres directs depuis un JSON
+    pub fn set_direct_params_json(&self, json: &str) {
+        if let Ok(params) = serde_json::from_str::<MusicalParams>(json) {
+            if let Ok(mut mode) = self.control_mode.lock() {
+                mode.direct_params = params;
+            }
+        }
+    }
+
+    // === Getters pour l'UI en mode direct ===
+
+    pub fn get_direct_enable_rhythm(&self) -> bool {
+        self.control_mode.lock().map(|m| m.direct_params.enable_rhythm).unwrap_or(true)
+    }
+
+    pub fn get_direct_enable_harmony(&self) -> bool {
+        self.control_mode.lock().map(|m| m.direct_params.enable_harmony).unwrap_or(true)
+    }
+
+    pub fn get_direct_enable_melody(&self) -> bool {
+        self.control_mode.lock().map(|m| m.direct_params.enable_melody).unwrap_or(true)
+    }
+
+    /// Retourne le mode rythmique (0 = Euclidean, 1 = PerfectBalance)
+    pub fn get_direct_rhythm_mode(&self) -> u8 {
+        self.control_mode.lock().map(|m| {
+            match m.direct_params.rhythm_mode {
+                RhythmMode::Euclidean => 0,
+                RhythmMode::PerfectBalance => 1,
+            }
+        }).unwrap_or(0)
+    }
+
+    pub fn get_direct_rhythm_steps(&self) -> usize {
+        self.control_mode.lock().map(|m| m.direct_params.rhythm_steps).unwrap_or(16)
+    }
+
+    pub fn get_direct_rhythm_pulses(&self) -> usize {
+        self.control_mode.lock().map(|m| m.direct_params.rhythm_pulses).unwrap_or(4)
+    }
+
+    pub fn get_direct_rhythm_rotation(&self) -> usize {
+        self.control_mode.lock().map(|m| m.direct_params.rhythm_rotation).unwrap_or(0)
+    }
+
+    pub fn get_direct_rhythm_density(&self) -> f32 {
+        self.control_mode.lock().map(|m| m.direct_params.rhythm_density).unwrap_or(0.5)
+    }
+
+    pub fn get_direct_rhythm_tension(&self) -> f32 {
+        self.control_mode.lock().map(|m| m.direct_params.rhythm_tension).unwrap_or(0.3)
+    }
+
+    pub fn get_direct_secondary_steps(&self) -> usize {
+        self.control_mode.lock().map(|m| m.direct_params.rhythm_secondary_steps).unwrap_or(12)
+    }
+
+    pub fn get_direct_secondary_pulses(&self) -> usize {
+        self.control_mode.lock().map(|m| m.direct_params.rhythm_secondary_pulses).unwrap_or(3)
+    }
+
+    pub fn get_direct_secondary_rotation(&self) -> usize {
+        self.control_mode.lock().map(|m| m.direct_params.rhythm_secondary_rotation).unwrap_or(0)
+    }
+
+    pub fn get_direct_harmony_tension(&self) -> f32 {
+        self.control_mode.lock().map(|m| m.direct_params.harmony_tension).unwrap_or(0.3)
+    }
+
+    pub fn get_direct_harmony_valence(&self) -> f32 {
+        self.control_mode.lock().map(|m| m.direct_params.harmony_valence).unwrap_or(0.3)
+    }
+
+    pub fn get_direct_melody_smoothness(&self) -> f32 {
+        self.control_mode.lock().map(|m| m.direct_params.melody_smoothness).unwrap_or(0.7)
+    }
+
+    pub fn get_direct_voicing_density(&self) -> f32 {
+        self.control_mode.lock().map(|m| m.direct_params.voicing_density).unwrap_or(0.5)
+    }
+
+    pub fn get_direct_voicing_tension(&self) -> f32 {
+        self.control_mode.lock().map(|m| m.direct_params.voicing_tension).unwrap_or(0.3)
+    }
 }
 
 #[wasm_bindgen]
 pub fn start(sf2_bytes: Option<Box<[u8]>>) -> Result<Handle, JsValue> {
     console_error_panic_hook::set_once();
 
-    // Créer l'état partagé pour WASM (contrôlé par l'UI, pas d'IA)
+    // Créer les états partagés pour WASM
     let target_state = Arc::new(Mutex::new(engine::EngineParams::default()));
-    let target_state_clone = target_state.clone();
-    
-    let (stream, config, harmony_state, event_queue, font_queue, finished_recordings) = audio::create_stream(target_state, sf2_bytes.as_deref()).map_err(|e| JsValue::from_str(&e))?;
+    let control_mode = Arc::new(Mutex::new(audio::ControlMode::default()));
 
-    Ok(Handle { 
+    let target_state_clone = target_state.clone();
+    let control_mode_clone = control_mode.clone();
+
+    let (stream, config, harmony_state, event_queue, font_queue, finished_recordings) =
+        audio::create_stream(target_state, control_mode, sf2_bytes.as_deref())
+            .map_err(|e| JsValue::from_str(&e))?;
+
+    Ok(Handle {
         stream,
         target_state: target_state_clone,
+        control_mode: control_mode_clone,
         harmony_state,
         event_queue,
         font_queue,

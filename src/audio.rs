@@ -3,10 +3,34 @@ use crate::engine::{HarmoniumEngine, SessionConfig, EngineParams, HarmonyState, 
 use crate::backend::synth_backend::SynthBackend;
 use crate::backend::recorder::RecorderBackend;
 use crate::events::RecordFormat;
+use crate::params::MusicalParams;
 use crate::log;
 use std::sync::{Arc, Mutex};
 
-pub fn create_stream(target_state: Arc<Mutex<EngineParams>>, sf2_bytes: Option<&[u8]>) -> Result<(cpal::Stream, SessionConfig, Arc<Mutex<HarmonyState>>, Arc<Mutex<Vec<VisualizationEvent>>>, Arc<Mutex<Vec<(u32, Vec<u8>)>>>, Arc<Mutex<Vec<(RecordFormat, Vec<u8>)>>>), String> {
+/// État du mode de contrôle (émotion vs direct)
+#[derive(Clone, Debug)]
+pub struct ControlMode {
+    /// true = mode émotion (EngineParams → EmotionMapper → MusicalParams)
+    /// false = mode direct (MusicalParams directement)
+    pub use_emotion_mode: bool,
+    /// Paramètres musicaux directs (utilisés quand use_emotion_mode = false)
+    pub direct_params: MusicalParams,
+}
+
+impl Default for ControlMode {
+    fn default() -> Self {
+        Self {
+            use_emotion_mode: true,
+            direct_params: MusicalParams::default(),
+        }
+    }
+}
+
+pub fn create_stream(
+    target_state: Arc<Mutex<EngineParams>>,
+    control_mode: Arc<Mutex<ControlMode>>,
+    sf2_bytes: Option<&[u8]>,
+) -> Result<(cpal::Stream, SessionConfig, Arc<Mutex<HarmonyState>>, Arc<Mutex<Vec<VisualizationEvent>>>, Arc<Mutex<Vec<(u32, Vec<u8>)>>>, Arc<Mutex<Vec<(RecordFormat, Vec<u8>)>>>), String> {
     // 1. Setup CPAL
     let host = cpal::default_host();
 
@@ -36,11 +60,11 @@ pub fn create_stream(target_state: Arc<Mutex<EngineParams>>, sf2_bytes: Option<&
 
     let initial_routing = target_state.lock().unwrap().channel_routing.clone();
     let synth_backend = Box::new(SynthBackend::new(sample_rate, sf2_bytes, &initial_routing));
-    
+
     let finished_recordings = Arc::new(Mutex::new(Vec::new()));
     let recorder_backend = Box::new(RecorderBackend::new(synth_backend, finished_recordings.clone(), sample_rate as u32));
-    
-    let mut engine = HarmoniumEngine::new(sample_rate, target_state, recorder_backend);
+
+    let mut engine = HarmoniumEngine::new(sample_rate, target_state, control_mode, recorder_backend);
     let session_config = engine.config.clone();
     let harmony_state = engine.harmony_state.clone(); // Cloner l'Arc pour le retourner
     let event_queue = engine.event_queue.clone(); // Cloner l'Arc pour le retourner
