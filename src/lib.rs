@@ -314,6 +314,80 @@ impl Handle {
         }
     }
 
+    // === Mixer Controls ===
+
+    /// Set gain for lead instrument (0.0-1.0, default 1.0)
+    pub fn set_gain_lead(&mut self, gain: f32) {
+        if let Ok(mut state) = self.target_state.lock() {
+            state.gain_lead = gain.clamp(0.0, 1.0);
+        }
+    }
+
+    /// Set gain for bass instrument (0.0-1.0, default 0.6)
+    pub fn set_gain_bass(&mut self, gain: f32) {
+        if let Ok(mut state) = self.target_state.lock() {
+            state.gain_bass = gain.clamp(0.0, 1.0);
+        }
+    }
+
+    /// Set gain for snare (0.0-1.0, default 0.5)
+    pub fn set_gain_snare(&mut self, gain: f32) {
+        if let Ok(mut state) = self.target_state.lock() {
+            state.gain_snare = gain.clamp(0.0, 1.0);
+        }
+    }
+
+    /// Set gain for hi-hat (0.0-1.0, default 0.4)
+    pub fn set_gain_hat(&mut self, gain: f32) {
+        if let Ok(mut state) = self.target_state.lock() {
+            state.gain_hat = gain.clamp(0.0, 1.0);
+        }
+    }
+
+    /// Set base velocity for bass (0-127, default 85)
+    pub fn set_vel_base_bass(&mut self, vel: u8) {
+        if let Ok(mut state) = self.target_state.lock() {
+            state.vel_base_bass = vel.min(127);
+        }
+    }
+
+    /// Set base velocity for snare (0-127, default 70)
+    pub fn set_vel_base_snare(&mut self, vel: u8) {
+        if let Ok(mut state) = self.target_state.lock() {
+            state.vel_base_snare = vel.min(127);
+        }
+    }
+
+    /// Get current gain for lead
+    pub fn get_gain_lead(&self) -> f32 {
+        self.target_state.lock().map(|s| s.gain_lead).unwrap_or(1.0)
+    }
+
+    /// Get current gain for bass
+    pub fn get_gain_bass(&self) -> f32 {
+        self.target_state.lock().map(|s| s.gain_bass).unwrap_or(0.6)
+    }
+
+    /// Get current gain for snare
+    pub fn get_gain_snare(&self) -> f32 {
+        self.target_state.lock().map(|s| s.gain_snare).unwrap_or(0.5)
+    }
+
+    /// Get current gain for hi-hat
+    pub fn get_gain_hat(&self) -> f32 {
+        self.target_state.lock().map(|s| s.gain_hat).unwrap_or(0.4)
+    }
+
+    /// Get base velocity for bass
+    pub fn get_vel_base_bass(&self) -> u8 {
+        self.target_state.lock().map(|s| s.vel_base_bass).unwrap_or(85)
+    }
+
+    /// Get base velocity for snare
+    pub fn get_vel_base_snare(&self) -> u8 {
+        self.target_state.lock().map(|s| s.vel_base_snare).unwrap_or(70)
+    }
+
     /// Ajouter une SoundFont à un bank spécifique
     pub fn add_soundfont(&self, bank_id: u32, sf2_bytes: Box<[u8]>) {
         if let Ok(mut queue) = self.font_queue.lock() {

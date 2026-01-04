@@ -96,7 +96,30 @@ pub struct EngineParams {
     pub record_midi: bool,
     #[serde(default)]
     pub record_abc: bool,
+
+    // Mixer Gains (0.0 - 1.0)
+    #[serde(default = "default_gain_lead")]
+    pub gain_lead: f32,
+    #[serde(default = "default_gain_bass")]
+    pub gain_bass: f32,
+    #[serde(default = "default_gain_snare")]
+    pub gain_snare: f32,
+    #[serde(default = "default_gain_hat")]
+    pub gain_hat: f32,
+
+    // Velocity Base (MIDI 0-127)
+    #[serde(default = "default_vel_bass")]
+    pub vel_base_bass: u8,
+    #[serde(default = "default_vel_snare")]
+    pub vel_base_snare: u8,
 }
+
+fn default_gain_lead() -> f32 { 1.0 }
+fn default_gain_bass() -> f32 { 0.6 }
+fn default_gain_snare() -> f32 { 0.5 }
+fn default_gain_hat() -> f32 { 0.4 }
+fn default_vel_bass() -> u8 { 85 }
+fn default_vel_snare() -> u8 { 70 }
 
 impl Default for EngineParams {
     fn default() -> Self {
@@ -113,6 +136,13 @@ impl Default for EngineParams {
             record_wav: false,
             record_midi: false,
             record_abc: false,
+            // Mixer defaults
+            gain_lead: default_gain_lead(),
+            gain_bass: default_gain_bass(),
+            gain_snare: default_gain_snare(),
+            gain_hat: default_gain_hat(),
+            vel_base_bass: default_vel_bass(),
+            vel_base_snare: default_vel_snare(),
         }
     }
 }
@@ -408,6 +438,14 @@ impl HarmoniumEngine {
         let target_bpm = target.compute_bpm();
         self.current_state.bpm += (target_bpm - self.current_state.bpm) * 0.03;
 
+        // === MIXER GAINS ===
+        self.renderer.handle_event(AudioEvent::SetMixerGains {
+            lead: target.gain_lead,
+            bass: target.gain_bass,
+            snare: target.gain_snare,
+            hat: target.gain_hat,
+        });
+
         // === RECORDING CONTROL ===
         if target.record_wav != self.is_recording_wav {
             self.is_recording_wav = target.record_wav;
@@ -646,7 +684,7 @@ impl HarmoniumEngine {
         if trigger_primary.kick && !self.cached_target.muted_channels.get(0).copied().unwrap_or(false) {
             let root = if let Ok(s) = self.harmony_state.lock() { s.chord_root_offset } else { 0 };
             let midi = 36 + root;
-            let vel = 100 + (self.current_state.arousal * 27.0) as u8;
+            let vel = self.cached_target.vel_base_bass + (self.current_state.arousal * 25.0) as u8;
             events.push(AudioEvent::NoteOn { note: midi as u8, velocity: vel, channel: 0 });
         }
         
@@ -719,7 +757,7 @@ impl HarmoniumEngine {
         
         // Snare
         if trigger_primary.snare && !self.cached_target.muted_channels.get(2).copied().unwrap_or(false) {
-             let vel = 80 + (self.current_state.arousal * 40.0) as u8;
+             let vel = self.cached_target.vel_base_snare + (self.current_state.arousal * 30.0) as u8;
              events.push(AudioEvent::NoteOn { note: 38, velocity: vel, channel: 2 });
         }
         

@@ -133,11 +133,17 @@ impl EmotionEngine {
                     algorithm: crate::sequencer::RhythmMode::default(),
                     channel_routing: vec![0; 16],
                     muted_channels: vec![false; 16],
-        
+
                     record_wav: false,
                     record_midi: false,
                     record_abc: false,
                     harmony_mode: crate::harmony::HarmonyMode::Driver,
+                    gain_lead: 1.0,
+                    gain_bass: 0.6,
+                    gain_snare: 0.5,
+                    gain_hat: 0.4,
+                    vel_base_bass: 85,
+                    vel_base_snare: 70,
                 },
             });
         }
@@ -167,6 +173,12 @@ impl EmotionEngine {
             record_midi: false,
             record_abc: false,
             harmony_mode: crate::harmony::HarmonyMode::Driver,
+            gain_lead: 0.0,
+            gain_bass: 0.0,
+            gain_snare: 0.0,
+            gain_hat: 0.0,
+            vel_base_bass: 0,
+            vel_base_snare: 0,
         };
 
         // 2. Compare the input vector to each Anchor vector
@@ -205,11 +217,17 @@ impl EmotionEngine {
                 algorithm: crate::sequencer::RhythmMode::default(),
                 channel_routing: vec![0; 16],
                 muted_channels: vec![false; 16],
-    
+
                 record_wav: false,
                 record_midi: false,
                 record_abc: false,
                 harmony_mode: crate::harmony::HarmonyMode::Driver,
+                gain_lead: 1.0,
+                gain_bass: 0.6,
+                gain_snare: 0.5,
+                gain_hat: 0.4,
+                vel_base_bass: 85,
+                vel_base_snare: 70,
             };
         }
 

@@ -39,6 +39,12 @@ pub struct VoiceManager {
     pub fm_amount: Shared,
     pub timbre_mix: Shared,
     pub reverb_mix: Shared,
+
+    // === MIXER GAINS ===
+    pub gain_lead: Shared,
+    pub gain_bass: Shared,
+    pub gain_snare: Shared,
+    pub gain_hat: Shared,
 }
 
 impl VoiceManager {
@@ -50,6 +56,7 @@ impl VoiceManager {
         gate_snare: Shared, gate_hat: Shared,
         cutoff: Shared, resonance: Shared, distortion: Shared,
         fm_ratio: Shared, fm_amount: Shared, timbre_mix: Shared, reverb_mix: Shared,
+        gain_lead: Shared, gain_bass: Shared, gain_snare: Shared, gain_hat: Shared,
     ) -> Self {
         let mut synth = oxisynth::Synth::default();
         synth.set_sample_rate(sample_rate);
@@ -75,6 +82,7 @@ impl VoiceManager {
             gate_hat, gate_timer_hat: 0,
             cutoff, resonance, distortion,
             fm_ratio, fm_amount, timbre_mix, reverb_mix,
+            gain_lead, gain_bass, gain_snare, gain_hat,
         };
 
         if let Some(bytes) = sf2_bytes {
@@ -269,7 +277,7 @@ impl VoiceManager {
                     _ => {}
                 }
             }
-            AudioEvent::TimingUpdate { .. } | AudioEvent::LoadFont { .. } | AudioEvent::SetChannelRoute { .. } | AudioEvent::StartRecording { .. } | AudioEvent::StopRecording { .. } => {},
+            AudioEvent::TimingUpdate { .. } | AudioEvent::LoadFont { .. } | AudioEvent::SetChannelRoute { .. } | AudioEvent::StartRecording { .. } | AudioEvent::StopRecording { .. } | AudioEvent::SetMixerGains { .. } => {},
         }
     }
 
@@ -293,8 +301,15 @@ impl VoiceManager {
     }
 
     pub fn process_audio(&mut self) -> (f32, f32) {
-        let mut buffer = [0.0; 2]; 
+        let mut buffer = [0.0; 2];
         self.synth.write(&mut buffer[..]);
         (buffer[0], buffer[1])
+    }
+
+    pub fn set_gains(&mut self, lead: f32, bass: f32, snare: f32, hat: f32) {
+        self.gain_lead.set_value(lead);
+        self.gain_bass.set_value(bass);
+        self.gain_snare.set_value(snare);
+        self.gain_hat.set_value(hat);
     }
 }

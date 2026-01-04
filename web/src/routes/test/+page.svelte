@@ -60,8 +60,9 @@
     
     // Channels: 0=Bass, 1=Lead, 2=Snare, 3=Hat
     // -1 = FM, >=0 = Bank ID
-    let channelRouting = [-1, -1, -1, -1]; 
+    let channelRouting = [-1, -1, -1, -1];
     let mutedChannels = [false, false, false, false];
+    let channelGains = [0.6, 1.0, 0.5, 0.4]; // Bass, Lead, Snare, Hat (default gains)
     const channelNames = ["Bass", "Lead", "Snare", "Hat"];
 
     // Recording State
@@ -190,7 +191,18 @@
             handle.set_channel_muted(channel, mutedChannels[channel]);
         }
     }
-    
+
+    function updateGain(channel: number, value: number) {
+        channelGains[channel] = value;
+        if (handle) {
+            // 0=Bass, 1=Lead, 2=Snare, 3=Hat
+            if (channel === 0) handle.set_gain_bass(value);
+            else if (channel === 1) handle.set_gain_lead(value);
+            else if (channel === 2) handle.set_gain_snare(value);
+            else if (channel === 3) handle.set_gain_hat(value);
+        }
+    }
+
     function getEngineName(routingValue: number): string {
         if (routingValue === -1) return "FM";
         const font = loadedFonts.find(f => f.id === routingValue);
@@ -658,33 +670,45 @@
                             </div>
                         </div>
 
-                        <!-- Channel Routing -->
-                        <div class="grid grid-cols-2 gap-2">
+                        <!-- Channel Mixer -->
+                        <div class="grid grid-cols-2 gap-3">
                             {#each channelNames as name, i}
-                                <div class="flex gap-1">
-                                    <button 
-                                        class="flex-1 px-3 py-2 rounded-l text-sm font-medium transition-colors border {channelRouting[i] !== -1 ? 'bg-blue-900/50 border-blue-500 text-blue-200' : 'bg-neutral-900 border-neutral-700 text-neutral-400'}"
-                                        onclick={() => cycleChannelEngine(i)}
-                                        title="Cycle Engine"
-                                    >
-                                        <div class="flex justify-between items-center">
-                                            <span>{name}</span>
-                                            <span class="text-xs opacity-75 truncate max-w-[80px]">{getEngineName(channelRouting[i])}</span>
-                                        </div>
-                                    </button>
-                                    <button
-                                        class="w-10 rounded-r border border-l-0 flex items-center justify-center transition-colors {mutedChannels[i] ? 'bg-red-500/20 border-red-500 text-red-400' : 'bg-neutral-900 border-neutral-700 text-neutral-500 hover:text-neutral-300'}"
-                                        onclick={() => toggleMute(i)}
-                                        title={mutedChannels[i] ? "Unmute" : "Mute"}
-                                    >
-                                        {#if mutedChannels[i]}
-                                            <!-- Muted Icon -->
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
-                                        {:else}
-                                            <!-- Unmuted Icon -->
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/></svg>
-                                        {/if}
-                                    </button>
+                                <div class="p-3 bg-neutral-900 rounded-lg border border-neutral-700">
+                                    <!-- Header: Name + Engine + Mute -->
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <button
+                                            class="flex-1 px-2 py-1 rounded text-sm font-medium transition-colors {channelRouting[i] !== -1 ? 'bg-blue-900/50 text-blue-200' : 'bg-neutral-800 text-neutral-400'}"
+                                            onclick={() => cycleChannelEngine(i)}
+                                            title="Cycle Engine"
+                                        >
+                                            <div class="flex justify-between items-center">
+                                                <span>{name}</span>
+                                                <span class="text-xs opacity-75">{getEngineName(channelRouting[i])}</span>
+                                            </div>
+                                        </button>
+                                        <button
+                                            class="w-8 h-8 rounded flex items-center justify-center transition-colors {mutedChannels[i] ? 'bg-red-500/20 text-red-400' : 'bg-neutral-800 text-neutral-500 hover:text-neutral-300'}"
+                                            onclick={() => toggleMute(i)}
+                                            title={mutedChannels[i] ? "Unmute" : "Mute"}
+                                        >
+                                            {#if mutedChannels[i]}
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+                                            {:else}
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/></svg>
+                                            {/if}
+                                        </button>
+                                    </div>
+                                    <!-- Volume Slider -->
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max="1"
+                                        step="0.01"
+                                        value={channelGains[i]}
+                                        oninput={(e) => updateGain(i, parseFloat(e.currentTarget.value))}
+                                        class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                                        disabled={mutedChannels[i]}
+                                    />
                                 </div>
                             {/each}
                         </div>

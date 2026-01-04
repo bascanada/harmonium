@@ -11,6 +11,8 @@ pub enum AudioEvent {
     TimingUpdate { samples_per_step: usize },
     StartRecording { format: RecordFormat },
     StopRecording { format: RecordFormat },
+    /// Set mixer gains for each instrument (0.0-1.0)
+    SetMixerGains { lead: f32, bass: f32, snare: f32, hat: f32 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
