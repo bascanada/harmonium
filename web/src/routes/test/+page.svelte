@@ -61,6 +61,7 @@
     // Channels: 0=Bass, 1=Lead, 2=Snare, 3=Hat
     // -1 = FM, >=0 = Bank ID
     let channelRouting = [-1, -1, -1, -1]; 
+    let mutedChannels = [false, false, false, false];
     const channelNames = ["Bass", "Lead", "Snare", "Hat"];
 
     // Recording State
@@ -180,6 +181,13 @@
         channelRouting[channel] = nextValue;
         if (handle) {
             handle.set_channel_routing(channel, nextValue);
+        }
+    }
+
+    function toggleMute(channel: number) {
+        mutedChannels[channel] = !mutedChannels[channel];
+        if (handle) {
+            handle.set_channel_muted(channel, mutedChannels[channel]);
         }
     }
     
@@ -653,16 +661,31 @@
                         <!-- Channel Routing -->
                         <div class="grid grid-cols-2 gap-2">
                             {#each channelNames as name, i}
-                                <button 
-                                    class="px-3 py-2 rounded text-sm font-medium transition-colors border {channelRouting[i] !== -1 ? 'bg-blue-900/50 border-blue-500 text-blue-200' : 'bg-neutral-900 border-neutral-700 text-neutral-400'}"
-                                    onclick={() => cycleChannelEngine(i)}
-                                    title="Cycle Engine"
-                                >
-                                    <div class="flex justify-between items-center">
-                                        <span>{name}</span>
-                                        <span class="text-xs opacity-75 truncate max-w-[80px]">{getEngineName(channelRouting[i])}</span>
-                                    </div>
-                                </button>
+                                <div class="flex gap-1">
+                                    <button 
+                                        class="flex-1 px-3 py-2 rounded-l text-sm font-medium transition-colors border {channelRouting[i] !== -1 ? 'bg-blue-900/50 border-blue-500 text-blue-200' : 'bg-neutral-900 border-neutral-700 text-neutral-400'}"
+                                        onclick={() => cycleChannelEngine(i)}
+                                        title="Cycle Engine"
+                                    >
+                                        <div class="flex justify-between items-center">
+                                            <span>{name}</span>
+                                            <span class="text-xs opacity-75 truncate max-w-[80px]">{getEngineName(channelRouting[i])}</span>
+                                        </div>
+                                    </button>
+                                    <button
+                                        class="w-10 rounded-r border border-l-0 flex items-center justify-center transition-colors {mutedChannels[i] ? 'bg-red-500/20 border-red-500 text-red-400' : 'bg-neutral-900 border-neutral-700 text-neutral-500 hover:text-neutral-300'}"
+                                        onclick={() => toggleMute(i)}
+                                        title={mutedChannels[i] ? "Unmute" : "Mute"}
+                                    >
+                                        {#if mutedChannels[i]}
+                                            <!-- Muted Icon -->
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+                                        {:else}
+                                            <!-- Unmuted Icon -->
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/></svg>
+                                        {/if}
+                                    </button>
+                                </div>
                             {/each}
                         </div>
                     </div>

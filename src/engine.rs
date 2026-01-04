@@ -85,6 +85,8 @@ pub struct EngineParams {
     #[serde(default)]
     pub channel_routing: Vec<i32>, // -1 = FundSP, >=0 = Oxisynth Bank ID
     #[serde(default)]
+    pub muted_channels: Vec<bool>, // true = Muted
+    #[serde(default)]
     pub harmony_mode: HarmonyMode, // Basic (quadrants) ou Driver (Steedman/NeoRiemannian/LCC)
 
     // Recording Control
@@ -106,6 +108,7 @@ impl Default for EngineParams {
             smoothness: 0.7, // Mélodie assez lisse par défaut
             algorithm: RhythmMode::Euclidean, // Mode classique par défaut
             channel_routing: vec![-1; 16], // Tout en FundSP par défaut
+            muted_channels: vec![false; 16], // Tout activé par défaut
             harmony_mode: HarmonyMode::Driver, // Système BasicHarmony par défaut
             record_wav: false,
             record_midi: false,
@@ -199,6 +202,9 @@ pub struct HarmoniumEngine {
     is_recording_wav: bool,
     is_recording_midi: bool,
     is_recording_abc: bool,
+
+    // Mute State Tracking
+    last_muted_channels: Vec<bool>,
 }
 
 impl HarmoniumEngine {
@@ -304,6 +310,7 @@ impl HarmoniumEngine {
             is_recording_wav: false,
             is_recording_midi: false,
             is_recording_abc: false,
+            last_muted_channels: vec![false; 16],
         }
     }
 
@@ -372,6 +379,17 @@ impl HarmoniumEngine {
             if i < 16 {
                     self.renderer.handle_event(AudioEvent::SetChannelRoute { channel: i as u8, bank: mode });
             }
+        }
+
+        // === MUTE CONTROL ===
+        for (i, &is_muted) in target.muted_channels.iter().enumerate() {
+             if i < 16 && i < self.last_muted_channels.len() {
+                 if is_muted && !self.last_muted_channels[i] {
+                     // Changed from Unmuted to Muted -> Kill sound
+                     self.renderer.handle_event(AudioEvent::AllNotesOff { channel: i as u8 });
+                 }
+                 self.last_muted_channels[i] = is_muted;
+             }
         }
 
         // === SYNC HARMONY MODE ===
@@ -625,7 +643,7 @@ impl HarmoniumEngine {
         let mut events = Vec::new();
         
         // Bass (Kick)
-        if trigger_primary.kick {
+        if trigger_primary.kick && !self.cached_target.muted_channels.get(0).copied().unwrap_or(false) {
             let root = if let Ok(s) = self.harmony_state.lock() { s.chord_root_offset } else { 0 };
             let midi = 36 + root;
             let vel = 100 + (self.current_state.arousal * 27.0) as u8;
@@ -633,7 +651,8 @@ impl HarmoniumEngine {
         }
         
         // Lead (avec Voicing)
-        let play_lead = trigger_primary.kick || trigger_primary.snare || trigger_secondary.kick || trigger_secondary.snare || trigger_secondary.hat;
+        let play_lead = (trigger_primary.kick || trigger_primary.snare || trigger_secondary.kick || trigger_secondary.snare || trigger_secondary.hat)
+                        && !self.cached_target.muted_channels.get(1).copied().unwrap_or(false);
         if play_lead {
             let is_strong = trigger_primary.kick;
             let freq = self.harmony.next_note_hybrid(is_strong);
@@ -699,13 +718,13 @@ impl HarmoniumEngine {
         }
         
         // Snare
-        if trigger_primary.snare {
+        if trigger_primary.snare && !self.cached_target.muted_channels.get(2).copied().unwrap_or(false) {
              let vel = 80 + (self.current_state.arousal * 40.0) as u8;
              events.push(AudioEvent::NoteOn { note: 38, velocity: vel, channel: 2 });
         }
         
         // Hat
-        if trigger_primary.hat || trigger_secondary.hat {
+        if (trigger_primary.hat || trigger_secondary.hat) && !self.cached_target.muted_channels.get(3).copied().unwrap_or(false) {
              let vel = 70 + (self.current_state.arousal * 30.0) as u8;
              events.push(AudioEvent::NoteOn { note: 42, velocity: vel, channel: 3 });
         }

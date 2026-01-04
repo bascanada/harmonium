@@ -132,6 +132,8 @@ impl EmotionEngine {
                     smoothness: 0.5,
                     algorithm: crate::sequencer::RhythmMode::default(),
                     channel_routing: vec![0; 16],
+                    muted_channels: vec![false; 16],
+        
                     record_wav: false,
                     record_midi: false,
                     record_abc: false,
@@ -159,6 +161,8 @@ impl EmotionEngine {
             smoothness: 0.0,
             algorithm: crate::sequencer::RhythmMode::default(),
             channel_routing: vec![0; 16],
+            muted_channels: vec![false; 16],
+
             record_wav: false,
             record_midi: false,
             record_abc: false,
@@ -200,6 +204,8 @@ impl EmotionEngine {
                 smoothness: 0.5,
                 algorithm: crate::sequencer::RhythmMode::default(),
                 channel_routing: vec![0; 16],
+                muted_channels: vec![false; 16],
+    
                 record_wav: false,
                 record_midi: false,
                 record_abc: false,

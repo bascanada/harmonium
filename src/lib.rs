@@ -302,6 +302,18 @@ impl Handle {
         }
     }
 
+    /// Définir le mute d'un canal (true = Muted)
+    pub fn set_channel_muted(&mut self, channel: usize, is_muted: bool) {
+        if let Ok(mut state) = self.target_state.lock() {
+            if channel < 16 {
+                if state.muted_channels.len() <= channel {
+                    state.muted_channels.resize(16, false);
+                }
+                state.muted_channels[channel] = is_muted;
+            }
+        }
+    }
+
     /// Ajouter une SoundFont à un bank spécifique
     pub fn add_soundfont(&self, bank_id: u32, sf2_bytes: Box<[u8]>) {
         if let Ok(mut queue) = self.font_queue.lock() {
