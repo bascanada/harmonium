@@ -14,6 +14,26 @@ use serde::{Serialize, Deserialize};
 use crate::sequencer::RhythmMode;
 use crate::harmony::HarmonyMode;
 
+/// État du mode de contrôle (émotion vs direct)
+/// Partagé entre VST et standalone builds
+#[derive(Clone, Debug)]
+pub struct ControlMode {
+    /// true = mode émotion (EngineParams → EmotionMapper → MusicalParams)
+    /// false = mode direct (MusicalParams directement)
+    pub use_emotion_mode: bool,
+    /// Paramètres musicaux directs (utilisés quand use_emotion_mode = false)
+    pub direct_params: MusicalParams,
+}
+
+impl Default for ControlMode {
+    fn default() -> Self {
+        Self {
+            use_emotion_mode: true,
+            direct_params: MusicalParams::default(),
+        }
+    }
+}
+
 /// Stratégie harmonique explicite (pour le Driver)
 #[derive(Clone, Copy, Debug, PartialEq, Default, Serialize, Deserialize)]
 pub enum HarmonyStrategy {

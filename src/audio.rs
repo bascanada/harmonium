@@ -3,28 +3,9 @@ use crate::engine::{HarmoniumEngine, SessionConfig, EngineParams, HarmonyState, 
 use crate::backend::synth_backend::SynthBackend;
 use crate::backend::recorder::RecorderBackend;
 use crate::events::RecordFormat;
-use crate::params::MusicalParams;
+use crate::params::ControlMode;
 use crate::log;
 use std::sync::{Arc, Mutex};
-
-/// État du mode de contrôle (émotion vs direct)
-#[derive(Clone, Debug)]
-pub struct ControlMode {
-    /// true = mode émotion (EngineParams → EmotionMapper → MusicalParams)
-    /// false = mode direct (MusicalParams directement)
-    pub use_emotion_mode: bool,
-    /// Paramètres musicaux directs (utilisés quand use_emotion_mode = false)
-    pub direct_params: MusicalParams,
-}
-
-impl Default for ControlMode {
-    fn default() -> Self {
-        Self {
-            use_emotion_mode: true,
-            direct_params: MusicalParams::default(),
-        }
-    }
-}
 
 pub fn create_stream(
     target_state: Arc<Mutex<EngineParams>>,

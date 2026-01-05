@@ -7,6 +7,9 @@ pub mod midi_backend;
 pub mod abc_backend;
 pub mod recorder;
 
+#[cfg(feature = "vst")]
+pub mod vst_midi_backend;
+
 pub trait AudioRenderer: Send + Sync {
     /// Appelé à chaque tick logique (ex: changement de step)
     fn handle_event(&mut self, event: AudioEvent);

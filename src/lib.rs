@@ -1,19 +1,31 @@
+#[cfg(feature = "wasm")]
 use wasm_bindgen::prelude::*;
+
+#[cfg(feature = "standalone")]
 use std::sync::{Arc, Mutex};
 
 pub mod sequencer;
 pub mod harmony;
 pub mod log;
 pub mod engine;
-pub mod audio;
 pub mod fractal;
-pub mod ai;
 pub mod events;
 pub mod backend;
 pub mod voice_manager;
 pub mod voicing;
 pub mod params;
 pub mod mapper;
+
+#[cfg(feature = "ai")]
+pub mod ai;
+
+// Audio module (only for standalone/WASM builds with cpal)
+#[cfg(feature = "standalone")]
+pub mod audio;
+
+// VST Plugin module (only for VST builds)
+#[cfg(feature = "vst")]
+pub mod vst_plugin;
 
 // Re-exports pour compatibilité avec l'ancien code
 pub use harmony::basic as progression;
@@ -23,15 +35,20 @@ pub use sequencer::RhythmMode;
 pub use harmony::HarmonyMode;
 
 // Re-exports pour la nouvelle architecture découplée
-pub use params::{MusicalParams, HarmonyStrategy};
+pub use params::{MusicalParams, HarmonyStrategy, ControlMode};
 pub use mapper::{EmotionMapper, MapperConfig};
 
-#[wasm_bindgen]
+// Re-export VST plugin when building with vst feature
+#[cfg(feature = "vst")]
+pub use vst_plugin::HarmoniumPlugin;
+
+#[cfg_attr(feature = "wasm", wasm_bindgen)]
 pub struct RecordedData {
     format_str: String,
     data: Vec<u8>,
 }
 
+#[cfg(feature = "wasm")]
 #[wasm_bindgen]
 impl RecordedData {
     #[wasm_bindgen(getter)]
@@ -45,14 +62,27 @@ impl RecordedData {
     }
 }
 
-#[wasm_bindgen]
+#[cfg(not(feature = "wasm"))]
+impl RecordedData {
+    pub fn format(&self) -> String {
+        self.format_str.clone()
+    }
+
+    pub fn data(&self) -> Vec<u8> {
+        self.data.clone()
+    }
+}
+
+// Handle and WASM bindings only available with standalone feature (cpal)
+#[cfg(feature = "standalone")]
+#[cfg_attr(feature = "wasm", wasm_bindgen)]
 pub struct Handle {
     #[allow(dead_code)]
     stream: cpal::Stream,
     /// État partagé pour contrôler le moteur en temps réel (mode émotion)
     target_state: Arc<Mutex<engine::EngineParams>>,
     /// État partagé pour le mode de contrôle (émotion vs direct)
-    control_mode: Arc<Mutex<audio::ControlMode>>,
+    control_mode: Arc<Mutex<params::ControlMode>>,
     /// État harmonique en lecture seule pour l'UI
     harmony_state: Arc<Mutex<engine::HarmonyState>>,
     /// Queue d'événements pour l'UI
@@ -68,7 +98,8 @@ pub struct Handle {
     steps: usize,
 }
 
-#[wasm_bindgen]
+#[cfg(feature = "standalone")]
+#[cfg_attr(feature = "wasm", wasm_bindgen)]
 impl Handle {
     pub fn get_bpm(&self) -> f32 {
         self.bpm
@@ -753,13 +784,14 @@ impl Handle {
     }
 }
 
+#[cfg(all(feature = "standalone", feature = "wasm"))]
 #[wasm_bindgen]
 pub fn start(sf2_bytes: Option<Box<[u8]>>) -> Result<Handle, JsValue> {
     console_error_panic_hook::set_once();
 
     // Créer les états partagés pour WASM
     let target_state = Arc::new(Mutex::new(engine::EngineParams::default()));
-    let control_mode = Arc::new(Mutex::new(audio::ControlMode::default()));
+    let control_mode = Arc::new(Mutex::new(params::ControlMode::default()));
 
     let target_state_clone = target_state.clone();
     let control_mode_clone = control_mode.clone();

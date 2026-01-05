@@ -649,6 +649,8 @@ impl HarmonyStrategy for SteedmanGrammar {
 
 impl SteedmanGrammar {
     /// Déduit le numeral romain d'un accord basé sur la tonique globale
+    /// (Utilisé pour les tests et potentiellement pour analyse future)
+    #[allow(dead_code)]
     fn deduce_numeral(&self, chord: &Chord, key: PitchClass) -> RomanNumeral {
         let interval = (chord.root + 12 - key) % 12;
 
