@@ -497,11 +497,26 @@
                     />
                     <div>
                         <span class="font-semibold {algorithm === 1 ? 'text-purple-400' : 'text-neutral-300'}">PerfectBalance</span>
-                        <p class="text-xs text-neutral-500">Geometric polygons - Perfect polyrhythms</p>
+                        <p class="text-xs text-neutral-500">Geometric polygons - XronoMorph polyrhythms</p>
                     </div>
                 </label>
 
-                {#if algorithm === 1}
+                <label class="flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors
+                    {algorithm === 2 ? 'bg-cyan-500/20 border border-cyan-500' : 'bg-neutral-700/50 border border-transparent hover:bg-neutral-700'}">
+                    <input
+                        type="radio"
+                        name="algorithm"
+                        value={2}
+                        bind:group={algorithm}
+                        class="w-4 h-4 accent-cyan-500"
+                    />
+                    <div>
+                        <span class="font-semibold {algorithm === 2 ? 'text-cyan-400' : 'text-neutral-300'}">ClassicGroove</span>
+                        <p class="text-xs text-neutral-500">Real drum patterns - Ghost notes & grooves</p>
+                    </div>
+                </label>
+
+                {#if algorithm === 1 || algorithm === 2}
                     <div class="mt-3 p-3 bg-purple-900/20 rounded-lg border border-purple-500/30">
                         <span class="block text-xs text-purple-300 mb-2">Resolution (steps per measure)</span>
                         <div class="flex gap-2">
@@ -645,8 +660,10 @@
                             <span class="px-3 py-1 rounded-full text-sm font-semibold
                                 {currentRhythmMode === 0
                                     ? 'bg-orange-500/20 text-orange-400 border border-orange-500/50'
-                                    : 'bg-purple-500/20 text-purple-400 border border-purple-500/50'}">
-                                {currentRhythmMode === 0 ? 'Euclidean' : 'PerfectBalance'}
+                                    : currentRhythmMode === 1
+                                        ? 'bg-purple-500/20 text-purple-400 border border-purple-500/50'
+                                        : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/50'}">
+                                {currentRhythmMode === 0 ? 'Euclidean' : currentRhythmMode === 1 ? 'PerfectBalance' : 'ClassicGroove'}
                             </span>
                             <span class="text-neutral-500 text-sm font-mono">
                                 {primarySteps} steps
@@ -974,7 +991,7 @@
                             <div class="flex rounded-lg bg-neutral-800 p-1 mb-4">
                                 <button
                                     onclick={() => { directRhythmMode = 0; directRhythmSteps = 16; updateDirectParams(); }}
-                                    class="flex-1 py-2 px-3 rounded-md text-xs font-semibold transition-all duration-200
+                                    class="flex-1 py-2 px-2 rounded-md text-xs font-semibold transition-all duration-200
                                         {directRhythmMode === 0
                                             ? 'bg-orange-600 text-white shadow-lg'
                                             : 'text-neutral-400 hover:text-neutral-200'}"
@@ -983,12 +1000,21 @@
                                 </button>
                                 <button
                                     onclick={() => { directRhythmMode = 1; directRhythmSteps = 48; updateDirectParams(); }}
-                                    class="flex-1 py-2 px-3 rounded-md text-xs font-semibold transition-all duration-200
+                                    class="flex-1 py-2 px-2 rounded-md text-xs font-semibold transition-all duration-200
                                         {directRhythmMode === 1
                                             ? 'bg-purple-600 text-white shadow-lg'
                                             : 'text-neutral-400 hover:text-neutral-200'}"
                                 >
                                     PerfectBalance
+                                </button>
+                                <button
+                                    onclick={() => { directRhythmMode = 2; directRhythmSteps = 48; updateDirectParams(); }}
+                                    class="flex-1 py-2 px-2 rounded-md text-xs font-semibold transition-all duration-200
+                                        {directRhythmMode === 2
+                                            ? 'bg-cyan-600 text-white shadow-lg'
+                                            : 'text-neutral-400 hover:text-neutral-200'}"
+                                >
+                                    ClassicGroove
                                 </button>
                             </div>
 
@@ -1061,9 +1087,9 @@
                                     </p>
                                 </div>
 
-                            {:else}
+                            {:else if directRhythmMode === 1}
                                 <!-- === PERFECTBALANCE MODE === -->
-                                <p class="text-xs text-neutral-500 mb-4">Real drum grooves - Density controls complexity</p>
+                                <p class="text-xs text-neutral-500 mb-4">XronoMorph polygons - Mathematical polyrhythms</p>
 
                                 <!-- Poly Steps Selection -->
                                 <div class="mb-4">
@@ -1102,6 +1128,65 @@
                                             class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
                                         />
                                         <div class="flex justify-between text-xs text-neutral-600 mt-1">
+                                            <span>Digon</span>
+                                            <span>Square</span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <span class="text-xs text-neutral-400">Tension: {directRhythmTension.toFixed(2)}</span>
+                                        <input
+                                            type="range" min="0" max="1" step="0.01"
+                                            bind:value={directRhythmTension} oninput={updateDirectParams}
+                                            class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                                        />
+                                        <div class="flex justify-between text-xs text-neutral-600 mt-1">
+                                            <span>Aligned</span>
+                                            <span>Phase shift</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            {:else}
+                                <!-- === CLASSICGROOVE MODE === -->
+                                <p class="text-xs text-neutral-500 mb-4">Real drum patterns - Ghost notes & syncopation</p>
+
+                                <!-- Poly Steps Selection -->
+                                <div class="mb-4">
+                                    <span class="text-xs text-neutral-400 mb-2 block">Resolution (steps per measure)</span>
+                                    <div class="flex gap-2">
+                                        {#each [48, 96, 192] as s}
+                                            <button
+                                                onclick={() => { directRhythmSteps = s; updateDirectParams(); }}
+                                                class="flex-1 py-2 px-3 rounded font-mono text-sm transition-colors
+                                                    {directRhythmSteps === s
+                                                        ? 'bg-cyan-600 text-white'
+                                                        : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}"
+                                            >
+                                                {s}
+                                            </button>
+                                        {/each}
+                                    </div>
+                                    <p class="text-xs text-neutral-600 mt-2">
+                                        {#if directRhythmSteps === 48}
+                                            Standard - 16th notes, good for most grooves
+                                        {:else if directRhythmSteps === 96}
+                                            High - 32nd notes, finer subdivisions
+                                        {:else}
+                                            Ultra - 64th notes, maximum precision
+                                        {/if}
+                                    </p>
+                                </div>
+
+                                <!-- Density & Tension -->
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <span class="text-xs text-neutral-400">Density: {directRhythmDensity.toFixed(2)}</span>
+                                        <input
+                                            type="range" min="0" max="1" step="0.01"
+                                            bind:value={directRhythmDensity} oninput={updateDirectParams}
+                                            class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                                        />
+                                        <div class="flex justify-between text-xs text-neutral-600 mt-1">
                                             <span>Half-time</span>
                                             <span>Breakbeat</span>
                                         </div>
@@ -1111,7 +1196,7 @@
                                         <input
                                             type="range" min="0" max="1" step="0.01"
                                             bind:value={directRhythmTension} oninput={updateDirectParams}
-                                            class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                                            class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
                                         />
                                         <div class="flex justify-between text-xs text-neutral-600 mt-1">
                                             <span>Clean</span>
