@@ -133,13 +133,19 @@ jobs:
             version "${{ github.ref_name }}"
             sha256 "${{ needs.create-release.outputs.plugins_sha256 }}"
 
-            url "https://github.com/bascanada/harmonium/releases/download/#{version}/harmonium-plugins-macos-universal.zip"
+            url "https://github.com/bascanada/harmonium/releases/download/v#{version}/harmonium-plugins-macos-universal.zip"
             name "Harmonium Plugins"
             desc "AI-powered generative music VST3/CLAP plugins"
             homepage "https://github.com/bascanada/harmonium"
 
             artifact "harmonium.vst3", target: "~/Library/Audio/Plug-Ins/VST3/harmonium.vst3"
             artifact "harmonium.clap", target: "~/Library/Audio/Plug-Ins/CLAP/harmonium.clap"
+
+            # Remove quarantine to bypass Gatekeeper for unsigned plugins
+            postflight do
+              system_command "/usr/bin/xattr", args: ["-cr", "#{Dir.home}/Library/Audio/Plug-Ins/VST3/harmonium.vst3"]
+              system_command "/usr/bin/xattr", args: ["-cr", "#{Dir.home}/Library/Audio/Plug-Ins/CLAP/harmonium.clap"]
+            end
 
             uninstall delete: [
               "~/Library/Audio/Plug-Ins/VST3/harmonium.vst3",
