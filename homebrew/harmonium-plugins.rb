@@ -13,6 +13,12 @@ cask "harmonium-plugins" do
   artifact "harmonium.vst3", target: "~/Library/Audio/Plug-Ins/VST3/harmonium.vst3"
   artifact "harmonium.clap", target: "~/Library/Audio/Plug-Ins/CLAP/harmonium.clap"
 
+  # Remove quarantine to bypass Gatekeeper for unsigned plugins
+  postflight do
+    system_command "/usr/bin/xattr", args: ["-cr", "#{Dir.home}/Library/Audio/Plug-Ins/VST3/harmonium.vst3"]
+    system_command "/usr/bin/xattr", args: ["-cr", "#{Dir.home}/Library/Audio/Plug-Ins/CLAP/harmonium.clap"]
+  end
+
   uninstall delete: [
     "~/Library/Audio/Plug-Ins/VST3/harmonium.vst3",
     "~/Library/Audio/Plug-Ins/CLAP/harmonium.clap",

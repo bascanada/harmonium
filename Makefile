@@ -42,6 +42,9 @@ vst/install: vst
 	@mkdir -p $(INSTALL_VST3) $(INSTALL_CLAP)
 	@cp -r $(VST3_PATH) $(INSTALL_VST3)/
 	@cp -r $(CLAP_PATH) $(INSTALL_CLAP)/
+	@echo "Removing quarantine (bypass Gatekeeper for unsigned plugins)..."
+	@xattr -cr $(INSTALL_VST3)/harmonium.vst3
+	@xattr -cr $(INSTALL_CLAP)/harmonium.clap
 	@echo "Installed to:"
 	@echo "   - $(INSTALL_VST3)/harmonium.vst3"
 	@echo "   - $(INSTALL_CLAP)/harmonium.clap"
