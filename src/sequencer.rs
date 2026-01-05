@@ -50,22 +50,24 @@ impl Polygon {
         Self { vertices, rotation_offset, velocity }
     }
 
-    /// Checks if this polygon has an active vertex at the given step
-    /// Algorithm: (step - offset) % (total_steps / vertices) == 0
+    /// Checks if this polygon has an active vertex at the given step.
+    /// Uses a fast path when total_steps is divisible by vertices,
+    /// and falls back to a Euclidean rhythm algorithm for non-divisible cases.
     pub fn hits(&self, step: usize, total_steps: usize) -> bool {
         if self.vertices == 0 { return false; }
 
-        // Calculate interval between two vertices
-        // Ex: On 48 steps, a Square (4 vertices) has an interval of 12.
-        let interval = total_steps / self.vertices;
-
-        if interval == 0 { return false; }
-
-        // Normalize step relative to rotation
-        // Add total_steps before modulo to handle edge cases/wrapping correctly
         let adjusted_step = (step + total_steps - (self.rotation_offset % total_steps)) % total_steps;
 
-        adjusted_step % interval == 0
+        if total_steps % self.vertices == 0 {
+            // Fast path for when vertices is a divisor of total_steps.
+            let interval = total_steps / self.vertices;
+            if interval == 0 { return false; }
+            adjusted_step % interval == 0
+        } else {
+            // Fallback for non-divisors, generates a Euclidean rhythm.
+            let prev_adjusted_step = (adjusted_step + total_steps - 1) % total_steps;
+            (adjusted_step * self.vertices) / total_steps != (prev_adjusted_step * self.vertices) / total_steps
+        }
     }
 }
 
