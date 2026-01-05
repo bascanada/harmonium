@@ -8,7 +8,7 @@ INSTALL_VST3 := ~/Library/Audio/Plug-Ins/VST3
 INSTALL_CLAP := ~/Library/Audio/Plug-Ins/CLAP
 PLUGINVAL := /Applications/pluginval.app/Contents/MacOS/pluginval
 
-.PHONY: run test web/build web/serve web/install models/download vst vst/install vst/uninstall vst/validate vst/run release release/cli release/plugins release/clean
+.PHONY: run test web/build web/serve web/install models/download vst vst/install vst/uninstall vst/clean vst/validate vst/run release release/cli release/plugins release/clean
 
 # ════════════════════════════════════════════════════════════════════
 # STANDALONE / CLI
@@ -47,12 +47,21 @@ vst/install: vst
 	@echo "   - $(INSTALL_CLAP)/harmonium.clap"
 	@echo "Restart your DAW to detect the new plugins"
 
-## Uninstall plugins from system directories
-vst/uninstall:
-	@echo "Uninstalling plugins..."
+## Clean/uninstall manually installed plugins (run before using brew)
+vst/clean:
+	@echo "Removing manually installed plugins..."
 	@rm -rf $(INSTALL_VST3)/harmonium.vst3
 	@rm -rf $(INSTALL_CLAP)/harmonium.clap
-	@echo "Plugins removed"
+	@echo "Plugins removed from:"
+	@echo "   - $(INSTALL_VST3)/harmonium.vst3"
+	@echo "   - $(INSTALL_CLAP)/harmonium.clap"
+	@echo ""
+	@echo "You can now install via brew:"
+	@echo "   brew tap bascanada/tap"
+	@echo "   brew install --cask harmonium-plugins"
+
+## Alias for vst/clean
+vst/uninstall: vst/clean
 
 ## Validate VST3 with pluginval
 vst/validate: vst

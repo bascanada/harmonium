@@ -2,8 +2,8 @@
 # This file should be placed in bascanada/homebrew-tap/Casks/harmonium-plugins.rb
 
 cask "harmonium-plugins" do
-  version "0.1.0"
-  sha256 "PLACEHOLDER_SHA256"
+  version "0.0.2"
+  sha256 "daa0f90a1a06c3bb2599d3f6e8bd9303837d2289b62f9053ce737704623d38ee"
 
   url "https://github.com/bascanada/harmonium/releases/download/v#{version}/harmonium-plugins-macos-universal.zip"
   name "Harmonium Plugins"
