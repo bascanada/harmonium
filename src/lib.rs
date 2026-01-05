@@ -568,24 +568,31 @@ impl Handle {
         self.control_mode.lock().map(|m| m.direct_params.bpm).unwrap_or(120.0)
     }
 
-    /// Active/désactive le module rythmique
+    /// Active/désactive le module rythmique (global - works in both modes)
     pub fn set_direct_enable_rhythm(&self, enabled: bool) {
         if let Ok(mut mode) = self.control_mode.lock() {
-            mode.direct_params.enable_rhythm = enabled;
+            mode.enable_rhythm = enabled;
         }
     }
 
-    /// Active/désactive le module harmonique
+    /// Active/désactive le module harmonique (global - works in both modes)
     pub fn set_direct_enable_harmony(&self, enabled: bool) {
         if let Ok(mut mode) = self.control_mode.lock() {
-            mode.direct_params.enable_harmony = enabled;
+            mode.enable_harmony = enabled;
         }
     }
 
-    /// Active/désactive le module mélodique
+    /// Active/désactive le module mélodique (global - works in both modes)
     pub fn set_direct_enable_melody(&self, enabled: bool) {
         if let Ok(mut mode) = self.control_mode.lock() {
-            mode.direct_params.enable_melody = enabled;
+            mode.enable_melody = enabled;
+        }
+    }
+
+    /// Active/désactive le voicing (global - works in both modes)
+    pub fn set_direct_enable_voicing(&self, enabled: bool) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            mode.enable_voicing = enabled;
         }
     }
 
@@ -724,15 +731,19 @@ impl Handle {
     // === Getters pour l'UI en mode direct ===
 
     pub fn get_direct_enable_rhythm(&self) -> bool {
-        self.control_mode.lock().map(|m| m.direct_params.enable_rhythm).unwrap_or(true)
+        self.control_mode.lock().map(|m| m.enable_rhythm).unwrap_or(true)
     }
 
     pub fn get_direct_enable_harmony(&self) -> bool {
-        self.control_mode.lock().map(|m| m.direct_params.enable_harmony).unwrap_or(true)
+        self.control_mode.lock().map(|m| m.enable_harmony).unwrap_or(true)
     }
 
     pub fn get_direct_enable_melody(&self) -> bool {
-        self.control_mode.lock().map(|m| m.direct_params.enable_melody).unwrap_or(true)
+        self.control_mode.lock().map(|m| m.enable_melody).unwrap_or(true)
+    }
+
+    pub fn get_direct_enable_voicing(&self) -> bool {
+        self.control_mode.lock().map(|m| m.enable_voicing).unwrap_or(true)
     }
 
     /// Retourne le mode rythmique (0 = Euclidean, 1 = PerfectBalance)

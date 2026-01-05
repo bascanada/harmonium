@@ -106,6 +106,10 @@ pub struct HarmoniumParams {
     #[id = "enable_melody"]
     pub enable_melody: BoolParam,
 
+    /// Enable Voicing (harmonized chords on melody)
+    #[id = "enable_voicing"]
+    pub enable_voicing: BoolParam,
+
     // ═══════════════════════════════════════════════════════════════════
     // CHANNEL MUTES
     // ═══════════════════════════════════════════════════════════════════
@@ -186,6 +190,7 @@ impl Default for HarmoniumParams {
             enable_rhythm: BoolParam::new("Enable Rhythm", true),
             enable_harmony: BoolParam::new("Enable Harmony", true),
             enable_melody: BoolParam::new("Enable Melody", true),
+            enable_voicing: BoolParam::new("Enable Voicing", true),
 
             // Channel Mutes
             mute_bass: BoolParam::new("Mute Bass", false),
@@ -254,9 +259,11 @@ impl HarmoniumPlugin {
                 } else {
                     HarmonyMode::Basic
                 };
-                mode.direct_params.enable_rhythm = self.params.enable_rhythm.value();
-                mode.direct_params.enable_harmony = self.params.enable_harmony.value();
-                mode.direct_params.enable_melody = self.params.enable_melody.value();
+                // Global enable overrides (work in both emotion and direct modes)
+                mode.enable_rhythm = self.params.enable_rhythm.value();
+                mode.enable_harmony = self.params.enable_harmony.value();
+                mode.enable_melody = self.params.enable_melody.value();
+                mode.enable_voicing = self.params.enable_voicing.value();
                 mode.direct_params.muted_channels = vec![
                     self.params.mute_bass.value(),
                     self.params.mute_lead.value(),

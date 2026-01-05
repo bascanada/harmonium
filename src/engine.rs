@@ -453,6 +453,14 @@ impl HarmoniumEngine {
             }
         }
 
+        // Apply global enable overrides (work in BOTH modes)
+        if let Ok(guard) = self.control_mode.try_lock() {
+            self.musical_params.enable_rhythm = guard.enable_rhythm;
+            self.musical_params.enable_harmony = guard.enable_harmony;
+            self.musical_params.enable_melody = guard.enable_melody;
+            self.musical_params.enable_voicing = guard.enable_voicing;
+        }
+
         let mp = &self.musical_params; // Raccourci pour la lisibilité
 
         // === LOAD FONTS ===
@@ -868,8 +876,9 @@ impl HarmoniumEngine {
                 self.active_lead_notes.clear();
             }
 
-            // Utiliser le voicer pour décider du style
-            if self.voicer.should_voice(&ctx) {
+            // Utiliser le voicer pour décider du style (si activé)
+            let voicing_enabled = self.musical_params.enable_voicing;
+            if voicing_enabled && self.voicer.should_voice(&ctx) {
                 // Beat fort: jouer l'accord complet
                 let voiced_notes = self.voicer.process_note(melody_midi, base_vel, &ctx);
                 for vn in voiced_notes {

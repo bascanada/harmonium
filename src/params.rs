@@ -23,6 +23,18 @@ pub struct ControlMode {
     pub use_emotion_mode: bool,
     /// Paramètres musicaux directs (utilisés quand use_emotion_mode = false)
     pub direct_params: MusicalParams,
+
+    // === GLOBAL ENABLE OVERRIDES ===
+    // Ces flags s'appliquent dans TOUS les modes (émotion ET direct)
+
+    /// Enable rhythm module (global override)
+    pub enable_rhythm: bool,
+    /// Enable harmony module (global override)
+    pub enable_harmony: bool,
+    /// Enable melody module (global override)
+    pub enable_melody: bool,
+    /// Enable voicing (harmonized chords) - global override
+    pub enable_voicing: bool,
 }
 
 impl Default for ControlMode {
@@ -30,6 +42,11 @@ impl Default for ControlMode {
         Self {
             use_emotion_mode: true,
             direct_params: MusicalParams::default(),
+            // All modules enabled by default
+            enable_rhythm: true,
+            enable_harmony: true,
+            enable_melody: true,
+            enable_voicing: true,
         }
     }
 }
@@ -75,9 +92,14 @@ pub struct MusicalParams {
     #[serde(default = "default_true")]
     pub enable_harmony: bool,
 
-    /// Activer le module mélodique/voicing
+    /// Activer le module mélodique
     #[serde(default = "default_true")]
     pub enable_melody: bool,
+
+    /// Activer le voicing (accords harmonisés sur la mélodie)
+    /// Quand désactivé, seule la note mélodique joue
+    #[serde(default = "default_true")]
+    pub enable_voicing: bool,
 
     // ═══════════════════════════════════════════════════════════════════
     // RYTHME
@@ -265,6 +287,7 @@ impl Default for MusicalParams {
             enable_rhythm: true,
             enable_harmony: true,
             enable_melody: true,
+            enable_voicing: true,
 
             // Rythme
             rhythm_mode: RhythmMode::Euclidean,
