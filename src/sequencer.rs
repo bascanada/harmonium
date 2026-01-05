@@ -54,14 +54,18 @@ impl Polygon {
     /// Uses a fast path when total_steps is divisible by vertices,
     /// and falls back to a Euclidean rhythm algorithm for non-divisible cases.
     pub fn hits(&self, step: usize, total_steps: usize) -> bool {
-        if self.vertices == 0 { return false; }
+        if self.vertices == 0 || total_steps == 0 { return false; }
+        // If vertices are more than total_steps, it's not meaningful to have hits in a polygon context.
+        // This also prevents the Euclidean algorithm from always returning true.
+        if self.vertices > total_steps { return false; }
 
         let adjusted_step = (step + total_steps - (self.rotation_offset % total_steps)) % total_steps;
 
         if total_steps % self.vertices == 0 {
             // Fast path for when vertices is a divisor of total_steps.
             let interval = total_steps / self.vertices;
-            if interval == 0 { return false; }
+            // interval cannot be 0 here because we already checked self.vertices > total_steps
+            // and total_steps is not 0.
             adjusted_step % interval == 0
         } else {
             // Fallback for non-divisors, generates a Euclidean rhythm.
