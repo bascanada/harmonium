@@ -448,14 +448,28 @@ impl Handle {
         }
     }
 
+    #[cfg(feature = "wasm")]
     pub fn resume(&self) -> Result<(), JsValue> {
         use cpal::traits::StreamTrait;
         self.stream.play().map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
+    #[cfg(not(feature = "wasm"))]
+    pub fn resume(&self) -> Result<(), String> {
+        use cpal::traits::StreamTrait;
+        self.stream.play().map_err(|e| e.to_string())
+    }
+
+    #[cfg(feature = "wasm")]
     pub fn pause(&self) -> Result<(), JsValue> {
         use cpal::traits::StreamTrait;
         self.stream.pause().map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    #[cfg(not(feature = "wasm"))]
+    pub fn pause(&self) -> Result<(), String> {
+        use cpal::traits::StreamTrait;
+        self.stream.pause().map_err(|e| e.to_string())
     }
 
     // === Recording ===

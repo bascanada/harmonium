@@ -1,5 +1,6 @@
 HF_CLI ?= hf
 BUNDLE_DIR := target/bundled
+DIST_DIR := dist
 VST3_PATH := $(BUNDLE_DIR)/harmonium.vst3
 CLAP_PATH := $(BUNDLE_DIR)/harmonium.clap
 APP_PATH := $(BUNDLE_DIR)/harmonium.app
@@ -7,7 +8,7 @@ INSTALL_VST3 := ~/Library/Audio/Plug-Ins/VST3
 INSTALL_CLAP := ~/Library/Audio/Plug-Ins/CLAP
 PLUGINVAL := /Applications/pluginval.app/Contents/MacOS/pluginval
 
-.PHONY: run test web/build web/serve web/install models/download vst vst/install vst/uninstall vst/validate vst/run
+.PHONY: run test web/build web/serve web/install models/download vst vst/install vst/uninstall vst/validate vst/run release release/cli release/plugins release/clean
 
 # ════════════════════════════════════════════════════════════════════
 # STANDALONE / CLI
@@ -120,3 +121,73 @@ python/install: python/venv
 
 python/run:
 	. .venv/bin/activate && python3 scripts/video_to_osc.py --video "$(VIDEO)"
+
+# ════════════════════════════════════════════════════════════════════
+# RELEASE BUILDS (Universal macOS binaries)
+# ════════════════════════════════════════════════════════════════════
+
+## Clean dist directory
+release/clean:
+	@rm -rf $(DIST_DIR)
+	@echo "Cleaned $(DIST_DIR)"
+
+## Build universal CLI binary (ARM64 + x86_64)
+release/cli:
+	@echo "Building CLI for ARM64..."
+	@cargo build --release --no-default-features --features standalone --target aarch64-apple-darwin
+	@echo "Building CLI for x86_64..."
+	@cargo build --release --no-default-features --features standalone --target x86_64-apple-darwin
+	@echo "Creating universal binary..."
+	@mkdir -p $(DIST_DIR)
+	@lipo -create \
+		target/aarch64-apple-darwin/release/harmonium \
+		target/x86_64-apple-darwin/release/harmonium \
+		-output $(DIST_DIR)/harmonium
+	@chmod +x $(DIST_DIR)/harmonium
+	@codesign --force --deep --sign - $(DIST_DIR)/harmonium
+	@echo "CLI built: $(DIST_DIR)/harmonium"
+	@file $(DIST_DIR)/harmonium
+
+## Build universal VST3/CLAP plugins (ARM64 + x86_64)
+release/plugins:
+	@echo "Building plugins for ARM64..."
+	@cargo xtask bundle harmonium --release --no-default-features --features vst --target aarch64-apple-darwin
+	@mkdir -p $(DIST_DIR)/arm64
+	@cp -r $(BUNDLE_DIR)/harmonium.vst3 $(DIST_DIR)/arm64/
+	@cp -r $(BUNDLE_DIR)/harmonium.clap $(DIST_DIR)/arm64/
+	@echo "Building plugins for x86_64..."
+	@cargo xtask bundle harmonium --release --no-default-features --features vst --target x86_64-apple-darwin
+	@mkdir -p $(DIST_DIR)/x86_64
+	@cp -r $(BUNDLE_DIR)/harmonium.vst3 $(DIST_DIR)/x86_64/
+	@cp -r $(BUNDLE_DIR)/harmonium.clap $(DIST_DIR)/x86_64/
+	@echo "Creating universal plugin bundles..."
+	@mkdir -p $(DIST_DIR)/harmonium.vst3/Contents/MacOS
+	@mkdir -p $(DIST_DIR)/harmonium.clap/Contents/MacOS
+	@cp -r $(DIST_DIR)/arm64/harmonium.vst3/Contents/Info.plist $(DIST_DIR)/harmonium.vst3/Contents/
+	@cp -r $(DIST_DIR)/arm64/harmonium.clap/Contents/Info.plist $(DIST_DIR)/harmonium.clap/Contents/
+	@lipo -create \
+		$(DIST_DIR)/arm64/harmonium.vst3/Contents/MacOS/harmonium \
+		$(DIST_DIR)/x86_64/harmonium.vst3/Contents/MacOS/harmonium \
+		-output $(DIST_DIR)/harmonium.vst3/Contents/MacOS/harmonium
+	@lipo -create \
+		$(DIST_DIR)/arm64/harmonium.clap/Contents/MacOS/harmonium \
+		$(DIST_DIR)/x86_64/harmonium.clap/Contents/MacOS/harmonium \
+		-output $(DIST_DIR)/harmonium.clap/Contents/MacOS/harmonium
+	@rm -rf $(DIST_DIR)/arm64 $(DIST_DIR)/x86_64
+	@codesign --force --deep --sign - $(DIST_DIR)/harmonium.vst3
+	@codesign --force --deep --sign - $(DIST_DIR)/harmonium.clap
+	@echo "Plugins built:"
+	@du -sh $(DIST_DIR)/harmonium.vst3 $(DIST_DIR)/harmonium.clap
+
+## Build and package everything for release
+release: release/clean release/cli release/plugins
+	@echo "Packaging CLI..."
+	@cd $(DIST_DIR) && tar -czvf harmonium-cli-macos-universal.tar.gz harmonium
+	@echo "Packaging plugins..."
+	@cd $(DIST_DIR) && zip -r harmonium-plugins-macos-universal.zip harmonium.vst3 harmonium.clap
+	@echo ""
+	@echo "Release artifacts:"
+	@ls -lh $(DIST_DIR)/*.tar.gz $(DIST_DIR)/*.zip
+	@echo ""
+	@echo "Checksums:"
+	@cd $(DIST_DIR) && shasum -a 256 *.tar.gz *.zip

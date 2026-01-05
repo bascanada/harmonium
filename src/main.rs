@@ -8,6 +8,7 @@ use rosc::{OscPacket, OscType};
 use harmonium::audio;
 use harmonium::engine::EngineParams;
 use harmonium::harmony::HarmonyMode;
+#[cfg(feature = "ai")]
 use harmonium::ai::EmotionEngine;
 use harmonium::log;
 use rand::Rng;
@@ -151,31 +152,42 @@ fn main() {
                 }
             };
 
-            // Initialize AI Engine
-            let config_path = "web/static/models/config.json";
-            let weights_path = "web/static/models/model.safetensors";
-            let tokenizer_path = "web/static/models/tokenizer.json";
-            
-            let mut emotion_engine = None;
-            
-            if fs::metadata(config_path).is_ok() && fs::metadata(weights_path).is_ok() && fs::metadata(tokenizer_path).is_ok() {
-                log::info("Loading AI Model for OSC...");
-                match (fs::read(config_path), fs::read(weights_path), fs::read(tokenizer_path)) {
-                    (Ok(c), Ok(w), Ok(t)) => {
-                        match EmotionEngine::new(&c, &w, &t) {
-                            Ok(engine) => {
-                                log::info("AI Model loaded successfully!");
-                                emotion_engine = Some(engine);
-                            },
-                            Err(e) => log::error(&format!("Failed to init AI engine: {:?}", e)),
+            // Initialize AI Engine (only when ai feature is enabled)
+            #[cfg(feature = "ai")]
+            let emotion_engine: Option<EmotionEngine> = {
+                let config_path = "web/static/models/config.json";
+                let weights_path = "web/static/models/model.safetensors";
+                let tokenizer_path = "web/static/models/tokenizer.json";
+
+                if fs::metadata(config_path).is_ok() && fs::metadata(weights_path).is_ok() && fs::metadata(tokenizer_path).is_ok() {
+                    log::info("Loading AI Model for OSC...");
+                    match (fs::read(config_path), fs::read(weights_path), fs::read(tokenizer_path)) {
+                        (Ok(c), Ok(w), Ok(t)) => {
+                            match EmotionEngine::new(&c, &w, &t) {
+                                Ok(engine) => {
+                                    log::info("AI Model loaded successfully!");
+                                    Some(engine)
+                                },
+                                Err(e) => {
+                                    log::error(&format!("Failed to init AI engine: {:?}", e));
+                                    None
+                                }
+                            }
+                        },
+                        _ => {
+                            log::error("Failed to read model files");
+                            None
                         }
-                    },
-                    _ => log::error("Failed to read model files"),
+                    }
+                } else {
+                    log::warn("AI Model files not found in web/static/models. OSC will only accept raw params.");
+                    log::warn("Run 'make models/download' to enable AI features.");
+                    None
                 }
-            } else {
-                log::warn("AI Model files not found in web/static/models. OSC will only accept raw params.");
-                log::warn("Run 'make models/download' to enable AI features.");
-            }
+            };
+
+            #[cfg(not(feature = "ai"))]
+            let emotion_engine: Option<()> = None;
 
             let mut buf = [0u8; 4096];
             loop {
@@ -184,11 +196,12 @@ fn main() {
                         if let Ok((_, packet)) = rosc::decoder::decode_udp(&buf[..size]) {
                             match packet {
                                 OscPacket::Message(msg) => {
+                                    #[cfg(feature = "ai")]
                                     if msg.addr == "/harmonium/label" {
-                                         let args = msg.args;
+                                         let args = msg.args.clone();
                                          if let Some(OscType::String(label)) = args.get(0) {
                                             log::info(&format!("OSC LABEL RECEIVED: {}", label));
-                                            
+
                                             if let Some(engine) = &emotion_engine {
                                                 match engine.predict_native(label) {
                                                     Ok(params) => {
@@ -209,7 +222,9 @@ fn main() {
                                                 log::warn("AI Engine not loaded. Ignoring label.");
                                             }
                                          }
-                                    } else if msg.addr == "/harmonium/params" {
+                                    }
+
+                                    if msg.addr == "/harmonium/params" {
                                         // Fallback for manual control
                                         let args = msg.args;
                                         if args.len() >= 4 {

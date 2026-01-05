@@ -23,62 +23,13 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
-      - name: Build CLI (ARM64)
-        run: cargo build --release --no-default-features --features standalone --target aarch64-apple-darwin
+      - name: Build Release (CLI + Plugins)
+        run: make release
 
-      - name: Build CLI (x86_64)
-        run: cargo build --release --no-default-features --features standalone --target x86_64-apple-darwin
-
-      - name: Create Universal CLI Binary
-        run: |
-          mkdir -p dist
-          lipo -create \
-            target/aarch64-apple-darwin/release/harmonium \
-            target/x86_64-apple-darwin/release/harmonium \
-            -output dist/harmonium
-          chmod +x dist/harmonium
-
-      - name: Build VST3/CLAP Plugins (ARM64)
-        run: cargo xtask bundle harmonium --release --no-default-features --features vst --target aarch64-apple-darwin
-
-      - name: Build VST3/CLAP Plugins (x86_64)
-        run: cargo xtask bundle harmonium --release --no-default-features --features vst --target x86_64-apple-darwin
-
-      - name: Create Universal Plugin Bundles
-        run: |
-          # VST3: Merge dylib into universal binary
-          mkdir -p dist/harmonium.vst3/Contents/MacOS
-          cp -r target/aarch64-apple-darwin/bundled/harmonium.vst3/Contents/Info.plist dist/harmonium.vst3/Contents/
-          cp -r target/aarch64-apple-darwin/bundled/harmonium.vst3/Contents/Resources dist/harmonium.vst3/Contents/ 2>/dev/null || true
-          lipo -create \
-            target/aarch64-apple-darwin/bundled/harmonium.vst3/Contents/MacOS/harmonium \
-            target/x86_64-apple-darwin/bundled/harmonium.vst3/Contents/MacOS/harmonium \
-            -output dist/harmonium.vst3/Contents/MacOS/harmonium
-
-          # CLAP: Merge dylib into universal binary
-          mkdir -p dist/harmonium.clap/Contents/MacOS
-          cp -r target/aarch64-apple-darwin/bundled/harmonium.clap/Contents/Info.plist dist/harmonium.clap/Contents/
-          lipo -create \
-            target/aarch64-apple-darwin/bundled/harmonium.clap/Contents/MacOS/harmonium \
-            target/x86_64-apple-darwin/bundled/harmonium.clap/Contents/MacOS/harmonium \
-            -output dist/harmonium.clap/Contents/MacOS/harmonium
-
-      - name: Sign Binaries (Ad-hoc)
-        run: |
-          codesign --force --deep --sign - dist/harmonium
-          codesign --force --deep --sign - dist/harmonium.vst3
-          codesign --force --deep --sign - dist/harmonium.clap
-
-      - name: Package CLI
+      - name: Generate Checksums
         run: |
           cd dist
-          tar -czvf harmonium-cli-macos-universal.tar.gz harmonium
           shasum -a 256 harmonium-cli-macos-universal.tar.gz > harmonium-cli-macos-universal.tar.gz.sha256
-
-      - name: Package Plugins
-        run: |
-          cd dist
-          zip -r harmonium-plugins-macos-universal.zip harmonium.vst3 harmonium.clap
           shasum -a 256 harmonium-plugins-macos-universal.zip > harmonium-plugins-macos-universal.zip.sha256
 
       - name: Upload Artifacts
