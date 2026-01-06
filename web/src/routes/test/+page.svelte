@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import init, { start } from 'harmonium';
+    import init, { start, start_with_backend, get_available_backends } from 'harmonium';
     import EuclideanCircle from '$lib/components/EuclideanCircle.svelte';
     import { ai, aiStatus, aiError } from '$lib/ai';
     import abcjs from 'abcjs';
@@ -9,6 +9,11 @@
     let isPlaying = false;
     let error = "";
     let sessionInfo = "";
+
+    // Audio Backend Selection
+    type AudioBackendType = 'fundsp' | 'odin2';
+    let selectedBackend: AudioBackendType = 'fundsp';
+    let availableBackends: AudioBackendType[] = ['fundsp'];
 
     // === MODE DE CONTRÔLE ===
     // true = Emotional (arousal/valence/density/tension)
@@ -172,8 +177,19 @@
         }
     }
 
-    onMount(() => {
+    onMount(async () => {
         const interval = setInterval(checkRecordings, 1000);
+
+        // Fetch available backends
+        try {
+            await init();
+            const backends = get_available_backends();
+            availableBackends = backends.map((b: string) => b as AudioBackendType);
+        } catch (e) {
+            console.warn("Could not fetch available backends:", e);
+            availableBackends = ['fundsp'];
+        }
+
         return () => clearInterval(interval);
     });
 
@@ -391,9 +407,9 @@
             if (!AudioContext) {
                 throw new Error("Web Audio API is not supported in this browser");
             }
-            
+
             await init();
-            handle = start(undefined);
+            handle = start_with_backend(undefined, selectedBackend);
             
             // Load all fonts
             for (const font of loadedFonts) {
@@ -467,6 +483,46 @@
     <p class="text-neutral-400 mb-8">Morphing Music Engine</p>
     
     {#if !isPlaying}
+        <!-- Audio Backend Selection (only when stopped) -->
+        {#if availableBackends.length > 1}
+            <div class="mb-6 p-4 bg-neutral-800 rounded-xl border border-neutral-700 w-80">
+                <h3 class="text-sm font-semibold text-neutral-400 mb-3 text-center">Audio Backend</h3>
+                <div class="flex flex-col gap-2">
+                    <label class="flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors
+                        {selectedBackend === 'fundsp' ? 'bg-emerald-500/20 border border-emerald-500' : 'bg-neutral-700/50 border border-transparent hover:bg-neutral-700'}">
+                        <input
+                            type="radio"
+                            name="audioBackend"
+                            value="fundsp"
+                            bind:group={selectedBackend}
+                            class="w-4 h-4 accent-emerald-500"
+                        />
+                        <div>
+                            <span class="font-semibold {selectedBackend === 'fundsp' ? 'text-emerald-400' : 'text-neutral-300'}">FundSP</span>
+                            <p class="text-xs text-neutral-500">FM synthesis + SoundFont support</p>
+                        </div>
+                    </label>
+
+                    {#if availableBackends.includes('odin2')}
+                        <label class="flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors
+                            {selectedBackend === 'odin2' ? 'bg-pink-500/20 border border-pink-500' : 'bg-neutral-700/50 border border-transparent hover:bg-neutral-700'}">
+                            <input
+                                type="radio"
+                                name="audioBackend"
+                                value="odin2"
+                                bind:group={selectedBackend}
+                                class="w-4 h-4 accent-pink-500"
+                            />
+                            <div>
+                                <span class="font-semibold {selectedBackend === 'odin2' ? 'text-pink-400' : 'text-neutral-300'}">Odin2</span>
+                                <p class="text-xs text-neutral-500">Analog modeling synth with rich sound</p>
+                            </div>
+                        </label>
+                    {/if}
+                </div>
+            </div>
+        {/if}
+
         <!-- Algorithm Selection (only when stopped) -->
         <div class="mb-6 p-4 bg-neutral-800 rounded-xl border border-neutral-700 w-80">
             <h3 class="text-sm font-semibold text-neutral-400 mb-3 text-center">Rhythm Algorithm</h3>
@@ -632,8 +688,13 @@
             <div class="text-purple-300 text-xl font-mono">
                 Global Key: {sessionInfo}
             </div>
-            <div class="text-xs text-neutral-500">
-                (The "home" tonality - stays constant during session)
+            <div class="flex gap-2 items-center">
+                <span class="text-xs px-2 py-1 rounded {selectedBackend === 'odin2' ? 'bg-pink-500/30 text-pink-300' : 'bg-emerald-500/30 text-emerald-300'}">
+                    {selectedBackend === 'odin2' ? 'Odin2' : 'FundSP'}
+                </span>
+                <span class="text-xs text-neutral-500">
+                    (The "home" tonality - stays constant during session)
+                </span>
             </div>
         </div>
     {/if}

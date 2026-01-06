@@ -1,5 +1,5 @@
 // VST Bridge - Implementation for VST mode using nih-plug-webview IPC
-import type { HarmoniumBridge, EngineState } from './types';
+import type { HarmoniumBridge, EngineState, AudioBackendType } from './types';
 import { createEmptyState } from './types';
 
 // Message types for VST <-> Webview communication
@@ -32,7 +32,7 @@ export class VstBridge implements HarmoniumBridge {
   private connected = false;
   private previousOnPluginMessage: ((msg: unknown) => void) | undefined;
 
-  async connect(): Promise<void> {
+  async connect(_sf2Data?: Uint8Array, _backend?: AudioBackendType): Promise<void> {
     // Store previous handler if any
     this.previousOnPluginMessage = window.onPluginMessage;
 
@@ -46,9 +46,16 @@ export class VstBridge implements HarmoniumBridge {
     };
 
     this.connected = true;
+    // VST backend is always native (controlled by plugin)
+    this.currentState.audioBackend = 'fundsp';
 
     // Notify the plugin that webview is ready
     this.postMessage({ type: 'action', method: 'init' });
+  }
+
+  getAvailableBackends(): AudioBackendType[] {
+    // VST mode uses plugin's native backend, cannot be changed
+    return ['fundsp'];
   }
 
   disconnect(): void {

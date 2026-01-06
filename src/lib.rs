@@ -42,6 +42,10 @@ pub use harmony::HarmonyMode;
 pub use params::{MusicalParams, HarmonyStrategy, ControlMode};
 pub use mapper::{EmotionMapper, MapperConfig};
 
+// Re-export audio backend type (for runtime switching)
+#[cfg(feature = "standalone")]
+pub use audio::AudioBackendType;
+
 // Re-export VST plugin when building with vst feature
 #[cfg(feature = "vst")]
 pub use vst_plugin::HarmoniumPlugin;
@@ -821,7 +825,26 @@ impl Handle {
 #[cfg(all(feature = "standalone", feature = "wasm"))]
 #[wasm_bindgen]
 pub fn start(sf2_bytes: Option<Box<[u8]>>) -> Result<Handle, JsValue> {
+    start_with_backend(sf2_bytes, "fundsp")
+}
+
+/// Start Harmonium with a specific audio backend
+/// backend: "fundsp" (default) or "odin2" (if compiled with odin2 feature)
+#[cfg(all(feature = "standalone", feature = "wasm"))]
+#[wasm_bindgen]
+pub fn start_with_backend(sf2_bytes: Option<Box<[u8]>>, backend: &str) -> Result<Handle, JsValue> {
     console_error_panic_hook::set_once();
+
+    // Parse backend type
+    let backend_type = match backend.to_lowercase().as_str() {
+        "fundsp" | "synth" | "default" => audio::AudioBackendType::FundSP,
+        #[cfg(feature = "odin2")]
+        "odin2" | "odin" => audio::AudioBackendType::Odin2,
+        _ => {
+            log::warn(&format!("Unknown backend '{}', using FundSP", backend));
+            audio::AudioBackendType::FundSP
+        }
+    };
 
     // Créer les états partagés pour WASM
     let target_state = Arc::new(Mutex::new(engine::EngineParams::default()));
@@ -831,7 +854,7 @@ pub fn start(sf2_bytes: Option<Box<[u8]>>) -> Result<Handle, JsValue> {
     let control_mode_clone = control_mode.clone();
 
     let (stream, config, harmony_state, event_queue, font_queue, finished_recordings) =
-        audio::create_stream(target_state, control_mode, sf2_bytes.as_deref())
+        audio::create_stream(target_state, control_mode, sf2_bytes.as_deref(), backend_type)
             .map_err(|e| JsValue::from_str(&e))?;
 
     Ok(Handle {
@@ -848,5 +871,15 @@ pub fn start(sf2_bytes: Option<Box<[u8]>>) -> Result<Handle, JsValue> {
         pulses: config.pulses,
         steps: config.steps,
     })
+}
+
+/// Get list of available audio backends
+#[cfg(all(feature = "standalone", feature = "wasm"))]
+#[wasm_bindgen]
+pub fn get_available_backends() -> Vec<JsValue> {
+    let mut backends = vec![JsValue::from_str("fundsp")];
+    #[cfg(feature = "odin2")]
+    backends.push(JsValue::from_str("odin2"));
+    backends
 }
 

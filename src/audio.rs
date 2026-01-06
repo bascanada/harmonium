@@ -2,15 +2,31 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::engine::{HarmoniumEngine, SessionConfig, EngineParams, HarmonyState, VisualizationEvent};
 use crate::backend::synth_backend::SynthBackend;
 use crate::backend::recorder::RecorderBackend;
+use crate::backend::AudioRenderer;
 use crate::events::RecordFormat;
 use crate::params::ControlMode;
 use crate::log;
 use std::sync::{Arc, Mutex};
 
+#[cfg(feature = "odin2")]
+use crate::backend::odin2_backend::Odin2Backend;
+
+/// Available audio backend types
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AudioBackendType {
+    /// FundSP + Oxisynth backend (default)
+    #[default]
+    FundSP,
+    /// Odin2 synthesizer backend
+    #[cfg(feature = "odin2")]
+    Odin2,
+}
+
 pub fn create_stream(
     target_state: Arc<Mutex<EngineParams>>,
     control_mode: Arc<Mutex<ControlMode>>,
     sf2_bytes: Option<&[u8]>,
+    backend_type: AudioBackendType,
 ) -> Result<(cpal::Stream, SessionConfig, Arc<Mutex<HarmonyState>>, Arc<Mutex<Vec<VisualizationEvent>>>, Arc<Mutex<Vec<(u32, Vec<u8>)>>>, Arc<Mutex<Vec<(RecordFormat, Vec<u8>)>>>), String> {
     // 1. Setup CPAL
     let host = cpal::default_host();
@@ -40,10 +56,22 @@ pub fn create_stream(
     log::info(&format!("Sample rate: {}, Channels: {}", sample_rate, channels));
 
     let initial_routing = target_state.lock().unwrap().channel_routing.clone();
-    let synth_backend = Box::new(SynthBackend::new(sample_rate, sf2_bytes, &initial_routing));
+
+    // Create the appropriate backend based on backend_type
+    let inner_backend: Box<dyn AudioRenderer> = match backend_type {
+        AudioBackendType::FundSP => {
+            log::info("Using FundSP/Oxisynth backend");
+            Box::new(SynthBackend::new(sample_rate, sf2_bytes, &initial_routing))
+        }
+        #[cfg(feature = "odin2")]
+        AudioBackendType::Odin2 => {
+            log::info("Using Odin2 backend");
+            Box::new(Odin2Backend::new(sample_rate))
+        }
+    };
 
     let finished_recordings = Arc::new(Mutex::new(Vec::new()));
-    let recorder_backend = Box::new(RecorderBackend::new(synth_backend, finished_recordings.clone(), sample_rate as u32));
+    let recorder_backend = Box::new(RecorderBackend::new(inner_backend, finished_recordings.clone(), sample_rate as u32));
 
     let mut engine = HarmoniumEngine::new(sample_rate, target_state, control_mode, recorder_backend);
     let session_config = engine.config.clone();

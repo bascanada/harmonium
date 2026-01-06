@@ -6,6 +6,7 @@ use std::fs;
 use std::net::UdpSocket;
 use rosc::{OscPacket, OscType};
 use harmonium::audio;
+use harmonium::audio::AudioBackendType;
 use harmonium::engine::EngineParams;
 use harmonium::harmony::HarmonyMode;
 #[cfg(feature = "ai")]
@@ -27,6 +28,7 @@ fn main() {
     let mut duration_secs = 0; // 0 = infini
     let mut harmony_mode = HarmonyMode::Driver; // Default to Driver
     let mut poly_steps: usize = 48; // Default polyrythm steps
+    let mut backend_type = AudioBackendType::default();
 
     let mut i = 1;
     while i < args.len() {
@@ -69,11 +71,26 @@ fn main() {
                     }
                 }
             }
+            "--backend" | "-b" => {
+                if i + 1 < args.len() {
+                    backend_type = match args[i+1].to_lowercase().as_str() {
+                        "fundsp" | "synth" | "default" => AudioBackendType::FundSP,
+                        #[cfg(feature = "odin2")]
+                        "odin2" | "odin" => AudioBackendType::Odin2,
+                        _ => {
+                            log::warn(&format!("Unknown backend '{}', using default", args[i+1]));
+                            AudioBackendType::default()
+                        }
+                    };
+                    i += 1;
+                }
+            }
             "--help" | "-h" => {
                 println!("Usage: harmonium [OPTIONS] [SOUNDFONT.sf2]");
                 println!();
                 println!("Options:");
                 println!("  --harmony-mode, -m <MODE>  Harmony engine: 'basic' or 'driver' (default: driver)");
+                println!("  --backend, -b <BACKEND>    Audio backend: 'fundsp' or 'odin2' (default: fundsp)");
                 println!("  --record-wav               Record to WAV file");
                 println!("  --record-midi              Record to MIDI file");
                 println!("  --record-abc               Record to ABC notation");
@@ -97,6 +114,7 @@ fn main() {
     }
 
     log::info(&format!("🎹 Harmony Mode: {:?}", harmony_mode));
+    log::info(&format!("🎛️ Audio Backend: {:?}", backend_type));
 
     let sf2_data = if let Some(path) = sf2_path {
         log::info(&format!("📂 Loading SoundFont: {}", path));
@@ -293,7 +311,7 @@ fn main() {
     // === 3. Création du Stream Audio avec l'état partagé ===
     let control_mode = std::sync::Arc::new(std::sync::Mutex::new(harmonium::ControlMode::default()));
     let (_stream, config, _harmony_state, _event_queue, _font_queue, finished_recordings) =
-        audio::create_stream(target_state.clone(), control_mode, sf2_data.as_deref())
+        audio::create_stream(target_state.clone(), control_mode, sf2_data.as_deref(), backend_type)
             .expect("Failed to create audio stream");
 
     // Démarrage de l'enregistrement si demandé

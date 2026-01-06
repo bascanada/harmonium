@@ -1,6 +1,6 @@
 // WASM Bridge - Implementation for web mode using harmonium.js
-import init, { start, type Handle } from 'harmonium';
-import type { HarmoniumBridge, EngineState } from './types';
+import init, { start, start_with_backend, get_available_backends, type Handle } from 'harmonium';
+import type { HarmoniumBridge, EngineState, AudioBackendType } from './types';
 import { createEmptyState } from './types';
 
 export class WasmBridge implements HarmoniumBridge {
@@ -9,16 +9,34 @@ export class WasmBridge implements HarmoniumBridge {
   private subscribers: Set<(state: EngineState) => void> = new Set();
   private currentState: EngineState = createEmptyState();
   private _isEmotionMode = true;
+  private _currentBackend: AudioBackendType = 'fundsp';
+  private _availableBackends: AudioBackendType[] = ['fundsp'];
 
-  async connect(sf2Data?: Uint8Array): Promise<void> {
+  async connect(sf2Data?: Uint8Array, backend: AudioBackendType = 'fundsp'): Promise<void> {
     await init();
-    this.handle = start(sf2Data);
+
+    // Get available backends from WASM
+    try {
+      const backends = get_available_backends();
+      this._availableBackends = backends.map((b: string) => b as AudioBackendType);
+    } catch {
+      this._availableBackends = ['fundsp'];
+    }
+
+    // Start with selected backend
+    this._currentBackend = backend;
+    this.currentState.audioBackend = backend;
+    this.handle = start_with_backend(sf2Data, backend);
 
     // Get initial key/scale
     this.currentState.key = this.handle.get_key();
     this.currentState.scale = this.handle.get_scale();
 
     this.startPolling();
+  }
+
+  getAvailableBackends(): AudioBackendType[] {
+    return this._availableBackends;
   }
 
   disconnect(): void {

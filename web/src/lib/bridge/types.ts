@@ -1,7 +1,11 @@
 // Types for the Harmonium Bridge abstraction layer
 // Allows the same UI components to work with both WASM (web) and VST (postMessage) backends
 
+export type AudioBackendType = 'fundsp' | 'odin2';
+
 export interface EngineState {
+  // Audio backend
+  audioBackend: AudioBackendType;
   // Harmony state
   currentChord: string;
   currentMeasure: number;
@@ -64,9 +68,12 @@ export interface EngineState {
 
 export interface HarmoniumBridge {
   // === Lifecycle ===
-  connect(sf2Data?: Uint8Array): Promise<void>;
+  connect(sf2Data?: Uint8Array, backend?: AudioBackendType): Promise<void>;
   disconnect(): void;
   isConnected(): boolean;
+
+  // === Backend ===
+  getAvailableBackends(): AudioBackendType[];
 
   // === Mode Control ===
   useEmotionMode(): void;
@@ -125,6 +132,7 @@ export type BridgeFactory = (mode: 'wasm' | 'vst') => HarmoniumBridge;
 // Default empty state
 export function createEmptyState(): EngineState {
   return {
+    audioBackend: 'fundsp',
     currentChord: 'I',
     currentMeasure: 1,
     currentStep: 0,

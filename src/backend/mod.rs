@@ -10,6 +10,9 @@ pub mod recorder;
 #[cfg(feature = "vst")]
 pub mod vst_midi_backend;
 
+#[cfg(feature = "odin2")]
+pub mod odin2_backend;
+
 pub trait AudioRenderer: Send + Sync {
     /// Appelé à chaque tick logique (ex: changement de step)
     fn handle_event(&mut self, event: AudioEvent);
