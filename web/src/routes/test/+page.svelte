@@ -12,7 +12,7 @@
 
     // Audio Backend Selection
     type AudioBackendType = 'fundsp' | 'odin2';
-    let selectedBackend: AudioBackendType = 'fundsp';
+    let selectedBackend: AudioBackendType = 'odin2';  // Odin2 par défaut
     let availableBackends: AudioBackendType[] = ['fundsp'];
 
     // === MODE DE CONTRÔLE ===

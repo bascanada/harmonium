@@ -132,7 +132,7 @@ export type BridgeFactory = (mode: 'wasm' | 'vst') => HarmoniumBridge;
 // Default empty state
 export function createEmptyState(): EngineState {
   return {
-    audioBackend: 'fundsp',
+    audioBackend: 'odin2',  // Odin2 par défaut
     currentChord: 'I',
     currentMeasure: 1,
     currentStep: 0,
