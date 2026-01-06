@@ -27,6 +27,10 @@ pub mod audio;
 #[cfg(feature = "vst")]
 pub mod vst_plugin;
 
+// VST GUI module (only for VST builds with GUI)
+#[cfg(feature = "vst-gui")]
+pub mod vst_gui;
+
 // Re-exports pour compatibilité avec l'ancien code
 pub use harmony::basic as progression;
 pub use harmony::melody as harmony_melody;
@@ -743,7 +747,7 @@ impl Handle {
     }
 
     pub fn get_direct_enable_voicing(&self) -> bool {
-        self.control_mode.lock().map(|m| m.enable_voicing).unwrap_or(true)
+        self.control_mode.lock().map(|m| m.enable_voicing).unwrap_or(false)
     }
 
     /// Retourne le mode rythmique (0 = Euclidean, 1 = PerfectBalance)

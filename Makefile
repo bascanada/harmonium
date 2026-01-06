@@ -8,7 +8,7 @@ INSTALL_VST3 := ~/Library/Audio/Plug-Ins/VST3
 INSTALL_CLAP := ~/Library/Audio/Plug-Ins/CLAP
 PLUGINVAL := /Applications/pluginval.app/Contents/MacOS/pluginval
 
-.PHONY: run test web/build web/serve web/install models/download vst vst/install vst/uninstall vst/clean vst/validate vst/run release release/cli release/plugins release/clean
+.PHONY: run test web/build web/build-vst web/serve web/install models/download vst vst/install vst/uninstall vst/clean vst/validate vst/run release release/cli release/plugins release/clean
 
 # ════════════════════════════════════════════════════════════════════
 # STANDALONE / CLI
@@ -24,17 +24,17 @@ test:
 # VST / CLAP PLUGIN
 # ════════════════════════════════════════════════════════════════════
 
-## Build VST3 and CLAP plugins (release)
-vst:
+## Build VST3 and CLAP plugins with GUI (release)
+vst: web/build-vst
 	@echo "Building VST3 & CLAP plugins..."
-	cargo xtask bundle harmonium --release --no-default-features --features vst
+	cargo xtask bundle harmonium --release --no-default-features --features vst-gui
 	@echo "Plugins built:"
 	@ls -lh $(BUNDLE_DIR)/*.vst3 $(BUNDLE_DIR)/*.clap 2>/dev/null || true
 
-## Build VST3 and CLAP plugins (debug)
-vst/debug:
+## Build VST3 and CLAP plugins with GUI (debug)
+vst/debug: web/build-vst
 	@echo "Building VST3 & CLAP plugins (debug)..."
-	cargo xtask bundle harmonium --no-default-features --features vst
+	cargo xtask bundle harmonium --no-default-features --features vst-gui
 
 ## Install plugins to system directories
 vst/install: vst
@@ -101,6 +101,12 @@ wasm/build:
 web/build: wasm/build
 	cd web && npm run build
 
+## Build VST webview interface (Svelte -> embedded HTML)
+web/build-vst:
+	@echo "Building VST webview interface..."
+	cd web && npm run build:vst
+	@echo "VST interface built: web/dist/vst/"
+
 web/serve:
 	cd web && npm run dev
 
@@ -161,14 +167,14 @@ release/cli:
 	@file $(DIST_DIR)/harmonium
 
 ## Build universal VST3/CLAP plugins (ARM64 + x86_64)
-release/plugins:
+release/plugins: web/build-vst
 	@echo "Building plugins for ARM64..."
-	@cargo xtask bundle harmonium --release --no-default-features --features vst --target aarch64-apple-darwin
+	@cargo xtask bundle harmonium --release --no-default-features --features vst-gui --target aarch64-apple-darwin
 	@mkdir -p $(DIST_DIR)/arm64
 	@cp -r $(BUNDLE_DIR)/harmonium.vst3 $(DIST_DIR)/arm64/
 	@cp -r $(BUNDLE_DIR)/harmonium.clap $(DIST_DIR)/arm64/
 	@echo "Building plugins for x86_64..."
-	@cargo xtask bundle harmonium --release --no-default-features --features vst --target x86_64-apple-darwin
+	@cargo xtask bundle harmonium --release --no-default-features --features vst-gui --target x86_64-apple-darwin
 	@mkdir -p $(DIST_DIR)/x86_64
 	@cp -r $(BUNDLE_DIR)/harmonium.vst3 $(DIST_DIR)/x86_64/
 	@cp -r $(BUNDLE_DIR)/harmonium.clap $(DIST_DIR)/x86_64/

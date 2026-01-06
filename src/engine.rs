@@ -333,6 +333,12 @@ impl HarmoniumEngine {
         let emotion_mapper = EmotionMapper::new();
         let musical_params = emotion_mapper.map(&initial_params);
 
+        // Initialize session key/scale in control_mode for UI
+        if let Ok(mut mode) = control_mode.lock() {
+            mode.session_key = config.key.clone();
+            mode.session_scale = config.scale.clone();
+        }
+
         Self {
             config,
             target_state,
@@ -816,7 +822,7 @@ impl HarmoniumEngine {
         let rhythm_enabled = self.musical_params.enable_rhythm;
 
         // Bass (Kick) - part of Rhythm module
-        if rhythm_enabled && trigger_primary.kick && !self.cached_target.muted_channels.get(0).copied().unwrap_or(false) {
+        if rhythm_enabled && trigger_primary.kick && !self.musical_params.muted_channels.get(0).copied().unwrap_or(false) {
             let root = if let Ok(s) = self.harmony_state.lock() { s.chord_root_offset } else { 0 };
             let midi = 36 + root;
             let vel = self.cached_target.vel_base_bass + (self.current_state.arousal * 25.0) as u8;
@@ -834,7 +840,7 @@ impl HarmoniumEngine {
 
         let play_lead = melody_enabled
                         && (trigger_primary.kick || trigger_primary.snare || trigger_secondary.kick || trigger_secondary.snare || trigger_secondary.hat)
-                        && !self.cached_target.muted_channels.get(1).copied().unwrap_or(false);
+                        && !self.musical_params.muted_channels.get(1).copied().unwrap_or(false);
         if play_lead {
             let is_strong = trigger_primary.kick;
             let freq = self.harmony.next_note_hybrid(is_strong);
@@ -902,13 +908,13 @@ impl HarmoniumEngine {
         }
         
         // Snare - part of Rhythm module
-        if rhythm_enabled && trigger_primary.snare && !self.cached_target.muted_channels.get(2).copied().unwrap_or(false) {
+        if rhythm_enabled && trigger_primary.snare && !self.musical_params.muted_channels.get(2).copied().unwrap_or(false) {
              let vel = self.cached_target.vel_base_snare + (self.current_state.arousal * 30.0) as u8;
              events.push(AudioEvent::NoteOn { note: 38, velocity: vel, channel: 2 });
         }
 
         // Hat - part of Rhythm module
-        if rhythm_enabled && (trigger_primary.hat || trigger_secondary.hat) && !self.cached_target.muted_channels.get(3).copied().unwrap_or(false) {
+        if rhythm_enabled && (trigger_primary.hat || trigger_secondary.hat) && !self.musical_params.muted_channels.get(3).copied().unwrap_or(false) {
              let vel = 70 + (self.current_state.arousal * 30.0) as u8;
              events.push(AudioEvent::NoteOn { note: 42, velocity: vel, channel: 3 });
         }
@@ -931,6 +937,22 @@ impl HarmoniumEngine {
                         });
                     }
                 }
+            }
+        }
+
+        // Update live state for UI visualization (VST webview)
+        if let Ok(mut mode) = self.control_mode.try_lock() {
+            mode.current_step = self.sequencer_primary.current_step as u32;
+            mode.current_measure = self.measure_counter as u32;
+            // Convert StepTrigger patterns to bool (true = any trigger: kick, snare, or hat)
+            mode.primary_pattern = self.sequencer_primary.pattern.iter().map(|t| t.is_any()).collect();
+            mode.secondary_pattern = self.sequencer_secondary.pattern.iter().map(|t| t.is_any()).collect();
+
+            // Get chord info from harmony_state
+            if let Ok(state) = self.harmony_state.try_lock() {
+                mode.current_chord = state.chord_name.clone();
+                mode.is_minor_chord = state.chord_is_minor;
+                mode.progression_name = state.progression_name.clone();
             }
         }
     }

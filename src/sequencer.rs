@@ -93,19 +93,25 @@ impl Sequencer {
             }
         };
 
-        // Appliquer la rotation
-        if self.rotation > 0 {
-            raw.rotate_left(self.steps - self.rotation); // rotate_left fait un shift circulaire
+        // Appliquer la rotation (safe: handle edge cases)
+        let raw_len = raw.len();
+        if self.rotation > 0 && raw_len > 0 {
+            let safe_rotation = self.rotation % raw_len;
+            if safe_rotation > 0 {
+                raw.rotate_left(raw_len - safe_rotation);
+            }
         }
-        
+
         self.pattern = raw;
     }
 
     /// Upgrade to a specific number of steps (48, 96, etc.)
     pub fn upgrade_to_steps(&mut self, new_steps: usize) {
-        if self.steps != new_steps {
+        if self.steps != new_steps && new_steps > 0 {
             self.steps = new_steps;
             self.current_step = 0;
+            // Clamp rotation to new step count to prevent overflow in regenerate_pattern
+            self.rotation = self.rotation % new_steps;
             self.pattern = vec![StepTrigger::default(); new_steps];
             self.regenerate_pattern();
         }
@@ -117,9 +123,15 @@ impl Sequencer {
     }
 
     pub fn tick(&mut self) -> StepTrigger {
-        if self.pattern.is_empty() { return StepTrigger::default(); }
+        if self.pattern.is_empty() {
+            return StepTrigger::default();
+        }
+        // Safety: clamp current_step to pattern bounds (can become invalid if steps changed)
+        if self.current_step >= self.pattern.len() {
+            self.current_step = 0;
+        }
         let trigger = self.pattern[self.current_step];
-        self.current_step = (self.current_step + 1) % self.steps;
+        self.current_step = (self.current_step + 1) % self.pattern.len();
         trigger
     }
 }

@@ -22,6 +22,7 @@ required-features = ["standalone"]
 default = ["standalone", "wasm"]
 standalone = ["cpal"]
 vst = ["nih_plug"]
+vst-gui = ["vst", "nih_plug_webview"]
 wasm = ["wasm-bindgen", "console_error_panic_hook", "serde-wasm-bindgen", "js-sys"]
 ai = ["candle-core", "candle-nn", "candle-transformers", "tokenizers"]
 
@@ -31,6 +32,7 @@ cpal = { version = "0.15", features = ["wasm-bindgen"], optional = true }
 
 # VST Plugin (optional - for DAW integration)
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", optional = true }
+nih_plug_webview = { git = "https://github.com/httnn/nih-plug-webview.git", optional = true }
 
 # Core synthesis (always needed)
 fundsp = "0.20.0"

@@ -35,6 +35,36 @@ pub struct ControlMode {
     pub enable_melody: bool,
     /// Enable voicing (harmonized chords) - global override
     pub enable_voicing: bool,
+
+    // === WEBVIEW CONTROL FLAGS ===
+    /// When true, the webview is the source of truth for emotional params
+    /// and sync_params_to_engine should NOT overwrite target_state
+    pub webview_controls_emotions: bool,
+    /// When true, the webview controls the emotion/direct mode switch
+    pub webview_controls_mode: bool,
+    /// When true, the webview controls direct/technical params
+    pub webview_controls_direct: bool,
+
+    // === LIVE STATE FROM ENGINE ===
+    // Updated by the engine during processing for UI visualization
+    /// Current step in the sequencer (updated by engine)
+    pub current_step: u32,
+    /// Current measure number
+    pub current_measure: u32,
+    /// Primary pattern (for visualization)
+    pub primary_pattern: Vec<bool>,
+    /// Secondary pattern (for visualization)
+    pub secondary_pattern: Vec<bool>,
+    /// Current chord name
+    pub current_chord: String,
+    /// Whether current chord is minor
+    pub is_minor_chord: bool,
+    /// Progression name
+    pub progression_name: String,
+    /// Session key (e.g., "C")
+    pub session_key: String,
+    /// Session scale (e.g., "major")
+    pub session_scale: String,
 }
 
 impl Default for ControlMode {
@@ -46,7 +76,21 @@ impl Default for ControlMode {
             enable_rhythm: true,
             enable_harmony: true,
             enable_melody: true,
-            enable_voicing: true,
+            enable_voicing: false,
+            // Start with DAW params as source of truth
+            webview_controls_emotions: false,
+            webview_controls_mode: false,
+            webview_controls_direct: false,
+            // Live state
+            current_step: 0,
+            current_measure: 1,
+            primary_pattern: vec![],
+            secondary_pattern: vec![],
+            current_chord: "I".to_string(),
+            is_minor_chord: false,
+            progression_name: String::new(),
+            session_key: "C".to_string(),
+            session_scale: "major".to_string(),
         }
     }
 }
@@ -287,7 +331,7 @@ impl Default for MusicalParams {
             enable_rhythm: true,
             enable_harmony: true,
             enable_melody: true,
-            enable_voicing: true,
+            enable_voicing: false,
 
             // Rythme
             rhythm_mode: RhythmMode::Euclidean,

@@ -190,7 +190,7 @@ impl Default for HarmoniumParams {
             enable_rhythm: BoolParam::new("Enable Rhythm", true),
             enable_harmony: BoolParam::new("Enable Harmony", true),
             enable_melody: BoolParam::new("Enable Melody", true),
-            enable_voicing: BoolParam::new("Enable Voicing", true),
+            enable_voicing: BoolParam::new("Enable Voicing", false),
 
             // Channel Mutes
             mute_bass: BoolParam::new("Mute Bass", false),
@@ -237,13 +237,44 @@ impl HarmoniumPlugin {
 
     /// Sync plugin parameters to engine state
     fn sync_params_to_engine(&self) {
-        let use_emotion_mode = self.params.control_mode.value();
+        let daw_emotion_mode = self.params.control_mode.value();
 
-        // Update control mode
+        // Check if webview is controlling
+        let (webview_controls_emotions, webview_controls_mode, webview_controls_direct) =
+            if let Ok(mode) = self.control_mode.lock() {
+                (mode.webview_controls_emotions, mode.webview_controls_mode, mode.webview_controls_direct)
+            } else {
+                (false, false, false)
+            };
+
+        // Get actual emotion mode (webview overrides DAW if controlling)
+        let use_emotion_mode = if webview_controls_mode {
+            if let Ok(mode) = self.control_mode.lock() {
+                mode.use_emotion_mode
+            } else {
+                daw_emotion_mode
+            }
+        } else {
+            daw_emotion_mode
+        };
+
+        // Update control mode (only update use_emotion_mode if webview isn't controlling it)
         if let Ok(mut mode) = self.control_mode.lock() {
-            mode.use_emotion_mode = use_emotion_mode;
+            if !webview_controls_mode {
+                mode.use_emotion_mode = daw_emotion_mode;
+            }
 
-            if !use_emotion_mode {
+            // Global enable overrides - these work in BOTH modes (unless webview is controlling)
+            // Must be outside the direct-mode block!
+            if !webview_controls_direct {
+                mode.enable_rhythm = self.params.enable_rhythm.value();
+                mode.enable_harmony = self.params.enable_harmony.value();
+                mode.enable_melody = self.params.enable_melody.value();
+                mode.enable_voicing = self.params.enable_voicing.value();
+            }
+
+            // Only sync direct params from DAW if webview is NOT controlling them
+            if !use_emotion_mode && !webview_controls_direct {
                 // Technical mode - update direct params
                 mode.direct_params.bpm = self.params.bpm.value();
                 mode.direct_params.rhythm_mode = if self.params.rhythm_mode.value() {
@@ -259,11 +290,6 @@ impl HarmoniumPlugin {
                 } else {
                     HarmonyMode::Basic
                 };
-                // Global enable overrides (work in both emotion and direct modes)
-                mode.enable_rhythm = self.params.enable_rhythm.value();
-                mode.enable_harmony = self.params.enable_harmony.value();
-                mode.enable_melody = self.params.enable_melody.value();
-                mode.enable_voicing = self.params.enable_voicing.value();
                 mode.direct_params.muted_channels = vec![
                     self.params.mute_bass.value(),
                     self.params.mute_lead.value(),
@@ -273,8 +299,9 @@ impl HarmoniumPlugin {
             }
         }
 
-        if use_emotion_mode {
-            // Emotional mode - update target state
+        // Only sync emotional params from DAW if webview is NOT controlling
+        if use_emotion_mode && !webview_controls_emotions {
+            // Emotional mode - update target state from DAW params
             if let Ok(mut state) = self.target_state.lock() {
                 state.arousal = self.params.arousal.value();
                 state.valence = self.params.valence.value();
@@ -308,6 +335,10 @@ impl Plugin for HarmoniumPlugin {
     const URL: &'static str = "https://github.com/bascanada/harmonium";
     const EMAIL: &'static str = "";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
+    // Enable GUI with vst-gui feature
+    #[cfg(feature = "vst-gui")]
+    const SAMPLE_ACCURATE_AUTOMATION: bool = true;
 
     const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[
         // MIDI Generator - no audio I/O needed, but we need at least one layout
@@ -375,7 +406,10 @@ impl Plugin for HarmoniumPlugin {
         // Get the engine (should always exist after initialize)
         let engine = match &mut self.engine {
             Some(e) => e,
-            None => return ProcessStatus::Normal,
+            None => {
+                nih_log!("[PROCESS] Engine is None!");
+                return ProcessStatus::Normal;
+            }
         };
 
         // Process the audio buffer through the engine
@@ -433,6 +467,16 @@ impl Plugin for HarmoniumPlugin {
         }
 
         ProcessStatus::Normal
+    }
+
+    /// Create the GUI editor (when vst-gui feature is enabled)
+    #[cfg(feature = "vst-gui")]
+    fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
+        crate::vst_gui::create_editor(
+            self.target_state.clone(),
+            self.control_mode.clone(),
+            self.params.clone(),
+        )
     }
 }
 
