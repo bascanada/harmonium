@@ -1,2 +1,5 @@
 [alias]
 xtask = "run --package xtask --release --"
+# Shortcuts for building/running with odin2 backend
+run-odin = "run --features odin2"
+build-odin = "build --features odin2"

@@ -19,7 +19,7 @@ path = "src/main.rs"
 required-features = ["standalone"]
 
 [features]
-default = ["standalone", "wasm", "odin2"]
+default = ["standalone", "wasm"]
 standalone = ["cpal"]
 vst = ["nih_plug"]
 vst-gui = ["vst", "nih_plug_webview"]
@@ -42,6 +42,7 @@ rand = "0.8.5"
 rust-music-theory = "0.3.0"
 
 # Odin2 synthesizer (optional - alternative to fundsp)
+# Use path for local dev, git for CI (when repo is public)
 odin2-core = { path = "../odin2-rs/crates/odin2-core", features = ["std"], optional = true }
 
 # WASM bindings (optional - only for web builds)
