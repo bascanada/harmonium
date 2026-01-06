@@ -157,23 +157,26 @@ impl Handle {
         }
     }
 
-    /// Définir l'algorithme rythmique (0 = Euclidean, 1 = PerfectBalance)
-    /// PerfectBalance active le mode 48 steps pour les polyrythmes parfaits 4:3
+    /// Définir l'algorithme rythmique (0 = Euclidean, 1 = PerfectBalance, 2 = ClassicGroove)
+    /// PerfectBalance: polyrythmes parfaits via polygones (XronoMorph)
+    /// ClassicGroove: patterns de batterie réalistes avec ghost notes
     pub fn set_algorithm(&mut self, algorithm: u8) {
         if let Ok(mut state) = self.target_state.lock() {
             state.algorithm = match algorithm {
                 0 => RhythmMode::Euclidean,
                 1 => RhythmMode::PerfectBalance,
+                2 => RhythmMode::ClassicGroove,
                 _ => RhythmMode::Euclidean, // Fallback
             };
         }
     }
 
-    /// Obtenir l'algorithme rythmique actuel (0 = Euclidean, 1 = PerfectBalance)
+    /// Obtenir l'algorithme rythmique actuel (0 = Euclidean, 1 = PerfectBalance, 2 = ClassicGroove)
     pub fn get_algorithm(&self) -> u8 {
         self.target_state.lock().map(|s| match s.algorithm {
             RhythmMode::Euclidean => 0,
             RhythmMode::PerfectBalance => 1,
+            RhythmMode::ClassicGroove => 2,
         }).unwrap_or(0)
     }
 
@@ -600,12 +603,13 @@ impl Handle {
         }
     }
 
-    /// Définit le mode rythmique (0 = Euclidean, 1 = PerfectBalance)
+    /// Définit le mode rythmique (0 = Euclidean, 1 = PerfectBalance, 2 = ClassicGroove)
     pub fn set_direct_rhythm_mode(&self, mode: u8) {
         if let Ok(mut m) = self.control_mode.lock() {
             m.direct_params.rhythm_mode = match mode {
                 0 => RhythmMode::Euclidean,
                 1 => RhythmMode::PerfectBalance,
+                2 => RhythmMode::ClassicGroove,
                 _ => RhythmMode::Euclidean,
             };
         }
@@ -750,12 +754,13 @@ impl Handle {
         self.control_mode.lock().map(|m| m.enable_voicing).unwrap_or(false)
     }
 
-    /// Retourne le mode rythmique (0 = Euclidean, 1 = PerfectBalance)
+    /// Retourne le mode rythmique (0 = Euclidean, 1 = PerfectBalance, 2 = ClassicGroove)
     pub fn get_direct_rhythm_mode(&self) -> u8 {
         self.control_mode.lock().map(|m| {
             match m.direct_params.rhythm_mode {
                 RhythmMode::Euclidean => 0,
                 RhythmMode::PerfectBalance => 1,
+                RhythmMode::ClassicGroove => 2,
             }
         }).unwrap_or(0)
     }
