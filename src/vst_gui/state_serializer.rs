@@ -157,6 +157,7 @@ pub fn collect_state(
         state.rhythm_mode = match dp.rhythm_mode {
             RhythmMode::Euclidean => 0,
             RhythmMode::PerfectBalance => 1,
+            RhythmMode::ClassicGroove => 2,
         };
         // Primary rhythm
         state.primary_steps = dp.rhythm_steps as u32;
@@ -192,11 +193,6 @@ pub fn collect_state(
     }
 
     state
-}
-
-/// Serialize state to JSON string
-pub fn serialize_state(state: &EngineState) -> String {
-    serde_json::to_string(state).unwrap_or_else(|_| "{}".to_string())
 }
 
 /// Create a state update message

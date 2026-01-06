@@ -95,7 +95,8 @@
   function setRhythmMode(mode: number) {
     startEditing();
     local.rhythmMode = mode;
-    local.rhythmSteps = mode === 0 ? 16 : 48;
+    // Default steps per mode: Euclidean=16, PerfectBalance=48, ClassicGroove=16
+    local.rhythmSteps = mode === 1 ? 48 : 16;
     update();
   }
 
@@ -186,6 +187,15 @@
             : 'text-neutral-400 hover:text-neutral-200'}"
       >
         PerfectBalance
+      </button>
+      <button
+        onclick={() => setRhythmMode(2)}
+        class="flex-1 py-2.5 px-4 rounded-md text-sm font-semibold transition-all duration-200
+          {local.rhythmMode === 2
+            ? 'bg-teal-600 text-white shadow-lg'
+            : 'text-neutral-400 hover:text-neutral-200'}"
+      >
+        ClassicGroove
       </button>
     </div>
 
@@ -281,9 +291,9 @@
           {local.rhythmSteps}:{local.secondarySteps} polyrhythm
         </p>
       </div>
-    {:else}
+    {:else if local.rhythmMode === 1}
       <!-- PERFECTBALANCE MODE -->
-      <p class="text-xs text-neutral-500 mb-4">Real drum grooves - Density controls complexity</p>
+      <p class="text-xs text-neutral-500 mb-4">XronoMorph style - Regular polygons</p>
 
       <!-- Poly Steps Selection -->
       <div class="mb-4">
@@ -317,6 +327,45 @@
             class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
           />
           <div class="flex justify-between text-xs text-neutral-600 mt-1">
+            <span>Sparse</span>
+            <span>Dense</span>
+          </div>
+        </div>
+        <div>
+          <span class="text-xs text-neutral-400">Tension: {local.rhythmTension.toFixed(2)}</span>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            bind:value={local.rhythmTension}
+            oninput={update}
+            class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+          />
+          <div class="flex justify-between text-xs text-neutral-600 mt-1">
+            <span>Simple</span>
+            <span>Complex</span>
+          </div>
+        </div>
+      </div>
+    {:else}
+      <!-- CLASSICGROOVE MODE -->
+      <p class="text-xs text-neutral-500 mb-4">Realistic drum patterns - Ghost notes & grooves</p>
+
+      <!-- Density & Tension -->
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <span class="text-xs text-neutral-400">Density: {local.rhythmDensity.toFixed(2)}</span>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            bind:value={local.rhythmDensity}
+            oninput={update}
+            class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-teal-500"
+          />
+          <div class="flex justify-between text-xs text-neutral-600 mt-1">
             <span>Half-time</span>
             <span>Breakbeat</span>
           </div>
@@ -330,7 +379,7 @@
             step="0.01"
             bind:value={local.rhythmTension}
             oninput={update}
-            class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+            class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-teal-500"
           />
           <div class="flex justify-between text-xs text-neutral-600 mt-1">
             <span>Clean</span>

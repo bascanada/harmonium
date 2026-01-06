@@ -114,10 +114,10 @@ fn handle_set(
             if let Some(v) = msg_params.and_then(|p| p.get("mode")).and_then(|v| v.as_i64()) {
                 if let Ok(mut mode) = control_mode.lock() {
                     mode.webview_controls_direct = true;
-                    mode.direct_params.rhythm_mode = if v == 1 {
-                        RhythmMode::PerfectBalance
-                    } else {
-                        RhythmMode::Euclidean
+                    mode.direct_params.rhythm_mode = match v {
+                        1 => RhythmMode::PerfectBalance,
+                        2 => RhythmMode::ClassicGroove,
+                        _ => RhythmMode::Euclidean,
                     };
                 }
                 return true;
@@ -304,10 +304,10 @@ fn handle_set(
         "set_algorithm" => {
             if let Some(v) = msg_params.and_then(|p| p.get("mode")).and_then(|v| v.as_i64()) {
                 if let Ok(mut state) = target_state.lock() {
-                    state.algorithm = if v == 1 {
-                        RhythmMode::PerfectBalance
-                    } else {
-                        RhythmMode::Euclidean
+                    state.algorithm = match v {
+                        1 => RhythmMode::PerfectBalance,
+                        2 => RhythmMode::ClassicGroove,
+                        _ => RhythmMode::Euclidean,
                     };
                 }
                 return true;
