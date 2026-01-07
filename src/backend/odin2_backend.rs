@@ -578,24 +578,20 @@ impl Odin2Backend {
     }
 
     /// Check if preset changed significantly enough to warrant updating
-    fn preset_changed(&self, _last: &Option<SynthPreset>, _new: &SynthPreset) -> bool {
-        // TEMPORARY: Always return true to debug if parameters are being applied
-        true
-
-        // Original code (disabled for debugging):
-        // match last {
-        //     None => true,
-        //     Some(last) => {
-        //         // Check if any significant parameter changed
-        //         (last.osc.waveform_mix - new.osc.waveform_mix).abs() > 0.01
-        //             || (last.osc.detune - new.osc.detune).abs() > 0.01
-        //             || (last.filter.cutoff - new.filter.cutoff).abs() > 10.0
-        //             || (last.filter.resonance - new.filter.resonance).abs() > 0.01
-        //             || (last.filter.drive - new.filter.drive).abs() > 0.05
-        //             || (last.envelopes.amp.attack - new.envelopes.amp.attack).abs() > 0.005
-        //             || (last.envelopes.amp.release - new.envelopes.amp.release).abs() > 0.005
-        //     }
-        // }
+    fn preset_changed(&self, last: &Option<SynthPreset>, new: &SynthPreset) -> bool {
+        match last {
+            None => true,
+            Some(last) => {
+                // Check if any significant parameter changed
+                (last.osc.waveform_mix - new.osc.waveform_mix).abs() > 0.01
+                    || (last.osc.detune - new.osc.detune).abs() > 0.01
+                    || (last.filter.cutoff - new.filter.cutoff).abs() > 10.0
+                    || (last.filter.resonance - new.filter.resonance).abs() > 0.01
+                    || (last.filter.drive - new.filter.drive).abs() > 0.05
+                    || (last.envelopes.amp.attack - new.envelopes.amp.attack).abs() > 0.005
+                    || (last.envelopes.amp.release - new.envelopes.amp.release).abs() > 0.005
+            }
+        }
     }
 
     /// Apply preset to bass voice
@@ -847,5 +843,9 @@ impl AudioRenderer for Odin2Backend {
 
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
+    }
+
+    fn odin2_backend_mut(&mut self) -> Option<&mut Odin2Backend> {
+        Some(self)
     }
 }

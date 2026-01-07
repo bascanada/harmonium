@@ -526,17 +526,13 @@ impl HarmoniumEngine {
         // === SYNTHESIS MORPHING (emotional timbre control) ===
         #[cfg(feature = "odin2")]
         if self.cached_target.enable_synthesis_morphing {
-            // The renderer is wrapped in RecorderBackend, so we need to unwrap it first
-            if let Some(recorder) = self.renderer.as_any_mut().downcast_mut::<crate::backend::recorder::RecorderBackend>() {
-                // Now get the inner backend and try to downcast it to Odin2Backend
-                if let Some(odin2) = recorder.inner_mut().as_any_mut().downcast_mut::<crate::backend::odin2_backend::Odin2Backend>() {
-                    odin2.apply_emotional_morphing(
-                        self.current_state.valence,
-                        self.current_state.arousal,
-                        self.current_state.tension,
-                        self.current_state.density,
-                    );
-                }
+            if let Some(odin2) = self.renderer.odin2_backend_mut() {
+                odin2.apply_emotional_morphing(
+                    self.current_state.valence,
+                    self.current_state.arousal,
+                    self.current_state.tension,
+                    self.current_state.density,
+                );
             }
         }
 

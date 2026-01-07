@@ -1831,6 +1831,7 @@ dependencies = [
  "nih_plug",
  "nih_plug_webview",
  "odin2-core",
+ "once_cell",
  "oxisynth",
  "rand 0.8.5",
  "rosc",

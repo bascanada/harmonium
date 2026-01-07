@@ -6,6 +6,16 @@
 use super::presets::EmotionalPresetBank;
 use super::types::*;
 
+/// Macro to reduce boilerplate in morph_* functions
+/// Interpolates each field using lerp4 across the 4 emotional corners
+macro_rules! lerp_struct {
+    ($self:expr, $struct_name:ident { $($field:ident),* $(,)? }, $calm:expr, $joy:expr, $sadness:expr, $anger:expr, $w:expr) => {
+        $struct_name {
+            $($field: $self.lerp4($calm.$field, $joy.$field, $sadness.$field, $anger.$field, $w),)*
+        }
+    }
+}
+
 /// Bilinear interpolation engine for emotional morphing
 pub struct EmotionalMorpher {
     /// The 4 corner presets
@@ -200,44 +210,14 @@ impl EmotionalMorpher {
         anger: &OscillatorParams,
         w: &QuadWeights,
     ) -> OscillatorParams {
-        OscillatorParams {
-            waveform_mix: self.lerp4(
-                calm.waveform_mix,
-                joy.waveform_mix,
-                sadness.waveform_mix,
-                anger.waveform_mix,
-                w,
-            ),
-            detune: self.lerp4(calm.detune, joy.detune, sadness.detune, anger.detune, w),
-            stereo_width: self.lerp4(
-                calm.stereo_width,
-                joy.stereo_width,
-                sadness.stereo_width,
-                anger.stereo_width,
-                w,
-            ),
-            pitch_mod: self.lerp4(
-                calm.pitch_mod,
-                joy.pitch_mod,
-                sadness.pitch_mod,
-                anger.pitch_mod,
-                w,
-            ),
-            sub_level: self.lerp4(
-                calm.sub_level,
-                joy.sub_level,
-                sadness.sub_level,
-                anger.sub_level,
-                w,
-            ),
-            noise_level: self.lerp4(
-                calm.noise_level,
-                joy.noise_level,
-                sadness.noise_level,
-                anger.noise_level,
-                w,
-            ),
-        }
+        lerp_struct!(self, OscillatorParams {
+            waveform_mix,
+            detune,
+            stereo_width,
+            pitch_mod,
+            sub_level,
+            noise_level,
+        }, calm, joy, sadness, anger, w)
     }
 
     fn morph_filter(
@@ -298,24 +278,12 @@ impl EmotionalMorpher {
         anger: &AdsrValues,
         w: &QuadWeights,
     ) -> AdsrValues {
-        AdsrValues {
-            attack: self.lerp4(calm.attack, joy.attack, sadness.attack, anger.attack, w),
-            decay: self.lerp4(calm.decay, joy.decay, sadness.decay, anger.decay, w),
-            sustain: self.lerp4(
-                calm.sustain,
-                joy.sustain,
-                sadness.sustain,
-                anger.sustain,
-                w,
-            ),
-            release: self.lerp4(
-                calm.release,
-                joy.release,
-                sadness.release,
-                anger.release,
-                w,
-            ),
-        }
+        lerp_struct!(self, AdsrValues {
+            attack,
+            decay,
+            sustain,
+            release,
+        }, calm, joy, sadness, anger, w)
     }
 
     fn morph_effects(
@@ -353,17 +321,11 @@ impl EmotionalMorpher {
         anger: &DelayParams,
         w: &QuadWeights,
     ) -> DelayParams {
-        DelayParams {
-            time: self.lerp4(calm.time, joy.time, sadness.time, anger.time, w),
-            feedback: self.lerp4(
-                calm.feedback,
-                joy.feedback,
-                sadness.feedback,
-                anger.feedback,
-                w,
-            ),
-            mix: self.lerp4(calm.mix, joy.mix, sadness.mix, anger.mix, w),
-        }
+        lerp_struct!(self, DelayParams {
+            time,
+            feedback,
+            mix,
+        }, calm, joy, sadness, anger, w)
     }
 
     fn morph_chorus(
@@ -374,17 +336,11 @@ impl EmotionalMorpher {
         anger: &ChorusParams,
         w: &QuadWeights,
     ) -> ChorusParams {
-        ChorusParams {
-            lfo_freq: self.lerp4(
-                calm.lfo_freq,
-                joy.lfo_freq,
-                sadness.lfo_freq,
-                anger.lfo_freq,
-                w,
-            ),
-            depth: self.lerp4(calm.depth, joy.depth, sadness.depth, anger.depth, w),
-            mix: self.lerp4(calm.mix, joy.mix, sadness.mix, anger.mix, w),
-        }
+        lerp_struct!(self, ChorusParams {
+            lfo_freq,
+            depth,
+            mix,
+        }, calm, joy, sadness, anger, w)
     }
 
     fn morph_reverb(
@@ -395,23 +351,11 @@ impl EmotionalMorpher {
         anger: &ReverbParams,
         w: &QuadWeights,
     ) -> ReverbParams {
-        ReverbParams {
-            room_size: self.lerp4(
-                calm.room_size,
-                joy.room_size,
-                sadness.room_size,
-                anger.room_size,
-                w,
-            ),
-            damping: self.lerp4(
-                calm.damping,
-                joy.damping,
-                sadness.damping,
-                anger.damping,
-                w,
-            ),
-            mix: self.lerp4(calm.mix, joy.mix, sadness.mix, anger.mix, w),
-        }
+        lerp_struct!(self, ReverbParams {
+            room_size,
+            damping,
+            mix,
+        }, calm, joy, sadness, anger, w)
     }
 
     fn morph_output(
@@ -422,10 +366,10 @@ impl EmotionalMorpher {
         anger: &OutputParams,
         w: &QuadWeights,
     ) -> OutputParams {
-        OutputParams {
-            gain: self.lerp4(calm.gain, joy.gain, sadness.gain, anger.gain, w),
-            pan: self.lerp4(calm.pan, joy.pan, sadness.pan, anger.pan, w),
-        }
+        lerp_struct!(self, OutputParams {
+            gain,
+            pan,
+        }, calm, joy, sadness, anger, w)
     }
 
     /// 4-way linear interpolation (bilinear)
@@ -540,15 +484,27 @@ mod tests {
         let mut morpher = EmotionalMorpher::new(bank);
 
         // Test that morphed value is between corner values
-        let result = morpher.morph(0.5, 0.5);
+        // NOTE: morph() expects valence in [-1, 1] range (gets normalized to [0, 1])
+        // To get center position, use valence=0.0 (center of -1..1), arousal=0.5 (center of 0..1)
+        let result = morpher.morph(0.0, 0.5);
 
-        // At center, cutoff should be average of all 4 corners
-        let avg_cutoff = (800.0 + 4000.0 + 1500.0 + 2500.0) / 4.0;
+        // At center, cutoff should be average of all 4 corners (using actual values)
+        let calm_cutoff = morpher.preset_bank.calm.lead.filter.cutoff;
+        let joy_cutoff = morpher.preset_bank.joy.lead.filter.cutoff;
+        let sadness_cutoff = morpher.preset_bank.sadness.lead.filter.cutoff;
+        let anger_cutoff = morpher.preset_bank.anger.lead.filter.cutoff;
+
+        let avg_cutoff = (calm_cutoff + joy_cutoff + sadness_cutoff + anger_cutoff) / 4.0;
+
         assert!(
-            (result.lead.filter.cutoff - avg_cutoff).abs() < 100.0,
-            "Expected cutoff around {}, got {}",
+            (result.lead.filter.cutoff - avg_cutoff).abs() < 50.0,
+            "Expected cutoff around {}, got {} (corner values: calm={}, joy={}, sadness={}, anger={})",
             avg_cutoff,
-            result.lead.filter.cutoff
+            result.lead.filter.cutoff,
+            calm_cutoff,
+            joy_cutoff,
+            sadness_cutoff,
+            anger_cutoff
         );
     }
 }

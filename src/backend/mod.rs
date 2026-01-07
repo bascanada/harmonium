@@ -23,4 +23,11 @@ pub trait AudioRenderer: Send + Sync {
 
     /// Allow downcasting to concrete types for emotional morphing
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
+
+    /// Provides mutable access to Odin2Backend if present in chain
+    /// Default implementation returns None for backends that don't wrap Odin2
+    #[cfg(feature = "odin2")]
+    fn odin2_backend_mut(&mut self) -> Option<&mut odin2_backend::Odin2Backend> {
+        None
+    }
 }

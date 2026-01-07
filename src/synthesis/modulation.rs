@@ -6,6 +6,25 @@
 
 use super::types::SynthPreset;
 
+// === Modulation Factors ===
+
+// Tension modulation factors
+const TENSION_DETUNE_FACTOR: f32 = 0.3;      // Max detune increase
+const TENSION_DRIVE_FACTOR: f32 = 1.5;       // Max drive increase
+const TENSION_RESONANCE_FACTOR: f32 = 0.3;   // Max resonance increase
+const TENSION_NOISE_FACTOR: f32 = 0.2;       // Max noise addition
+
+// Density modulation factors
+const DENSITY_ATTACK_REDUCTION: f32 = 0.3;   // Attack time reduction (30%)
+const DENSITY_RELEASE_REDUCTION: f32 = 0.4;  // Release time reduction (40%)
+const DENSITY_CHORUS_FACTOR: f32 = 0.2;      // Chorus depth increase
+
+// Limits
+const MIN_ENVELOPE_TIME: f32 = 0.001;        // Minimum attack/release (1ms)
+const MAX_DETUNE: f32 = 1.0;                 // Maximum detune value
+const MAX_RESONANCE: f32 = 0.95;             // Maximum resonance value
+const MAX_PARAM: f32 = 1.0;                  // Generic max for normalized params
+
 /// Apply tension and density as independent modulators ON TOP of morphed preset
 ///
 /// # Parameters
@@ -33,32 +52,32 @@ pub fn apply_tension_density_modulation(
     // === TENSION → Dissonance/Distortion ===
 
     // 1. Increase oscillator detune (more dissonance)
-    result.osc.detune = (base.osc.detune + tension * 0.3).min(1.0);
+    result.osc.detune = (base.osc.detune + tension * TENSION_DETUNE_FACTOR).min(MAX_DETUNE);
 
     // 2. Increase filter drive (more distortion)
-    result.filter.drive = base.filter.drive + tension * 1.5; // Up to +1.5x drive
+    result.filter.drive = base.filter.drive + tension * TENSION_DRIVE_FACTOR;
 
     // 3. Increase filter resonance (harsher sound)
-    result.filter.resonance = (base.filter.resonance + tension * 0.3).min(0.95);
+    result.filter.resonance = (base.filter.resonance + tension * TENSION_RESONANCE_FACTOR).min(MAX_RESONANCE);
 
     // 4. Add noise (grit/texture)
-    result.osc.noise_level = (base.osc.noise_level + tension * 0.2).min(1.0);
+    result.osc.noise_level = (base.osc.noise_level + tension * TENSION_NOISE_FACTOR).min(MAX_PARAM);
 
     // === DENSITY → Envelope Timing ===
     // Denser = faster attacks for more notes, shorter releases for clarity
 
     // 1. Attack modulation (denser = faster attacks for more notes)
-    let attack_mod = 1.0 - (density * 0.3); // Reduce attack by up to 30%
-    result.envelopes.amp.attack = (base.envelopes.amp.attack * attack_mod).max(0.001);
-    result.envelopes.filter.attack = (base.envelopes.filter.attack * attack_mod).max(0.001);
+    let attack_mod = 1.0 - (density * DENSITY_ATTACK_REDUCTION);
+    result.envelopes.amp.attack = (base.envelopes.amp.attack * attack_mod).max(MIN_ENVELOPE_TIME);
+    result.envelopes.filter.attack = (base.envelopes.filter.attack * attack_mod).max(MIN_ENVELOPE_TIME);
 
     // 2. Release modulation (denser = shorter releases for clarity)
-    let release_mod = 1.0 - (density * 0.4); // Reduce release by up to 40%
-    result.envelopes.amp.release = (base.envelopes.amp.release * release_mod).max(0.001);
-    result.envelopes.filter.release = (base.envelopes.filter.release * release_mod).max(0.001);
+    let release_mod = 1.0 - (density * DENSITY_RELEASE_REDUCTION);
+    result.envelopes.amp.release = (base.envelopes.amp.release * release_mod).max(MIN_ENVELOPE_TIME);
+    result.envelopes.filter.release = (base.envelopes.filter.release * release_mod).max(MIN_ENVELOPE_TIME);
 
     // 3. Chorus depth (denser = slightly more chorus for texture)
-    result.effects.chorus.depth = (base.effects.chorus.depth + density * 0.2).min(1.0);
+    result.effects.chorus.depth = (base.effects.chorus.depth + density * DENSITY_CHORUS_FACTOR).min(MAX_PARAM);
 
     result
 }
