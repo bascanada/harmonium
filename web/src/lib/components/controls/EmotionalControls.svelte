@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { HarmoniumBridge } from '$lib/bridge';
+  import { ai, aiStatus, aiError } from '$lib/ai';
 
   // Props - bridge passed from parent
   export let bridge: HarmoniumBridge;
@@ -28,6 +29,10 @@
 
   // Calculated BPM from local arousal (for display)
   $: bpm = 70 + localArousal * 110;
+
+  // AI Input
+  let aiInputText = '';
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Mark slider as active and reset timeout
   function startEditing(slider: string) {
@@ -58,9 +63,64 @@
     startEditing('tension');
     bridge.setTension(localTension);
   }
+
+  async function analyzeText() {
+    if (!aiInputText) return;
+
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(async () => {
+      if ($aiStatus === 'idle' || $aiStatus === 'error') {
+        await ai.init();
+      }
+
+      if ($aiStatus === 'ready') {
+        const params = await ai.predictParameters(aiInputText);
+        if (params) {
+          console.log('Applying AI Params:', params);
+          localArousal = params.arousal;
+          localValence = params.valence;
+          localTension = params.tension;
+          localDensity = params.density;
+          bridge.setArousal(localArousal);
+          bridge.setValence(localValence);
+          bridge.setTension(localTension);
+          bridge.setDensity(localDensity);
+        } else {
+          console.warn('AI could not determine parameters for this input.');
+        }
+      }
+    }, 600);
+  }
 </script>
 
 <div class="emotional-controls space-y-6">
+  <!-- AI Director -->
+  <div class="p-4 bg-neutral-800 rounded-lg border border-neutral-700">
+    <h3 class="text-lg font-semibold mb-3">AI Director</h3>
+    <div class="flex gap-2">
+      <input
+        type="text"
+        bind:value={aiInputText}
+        placeholder="Enter words to describe emotions (e.g. 'battle fire danger')"
+        class="flex-1 bg-neutral-900 border border-neutral-600 rounded px-3 py-2 text-white text-sm"
+        onkeydown={(e) => e.key === 'Enter' && analyzeText()}
+      />
+      <button
+        onclick={analyzeText}
+        disabled={$aiStatus === 'loading'}
+        class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded disabled:opacity-50 text-sm font-medium"
+      >
+        {$aiStatus === 'loading' ? '...' : 'Set'}
+      </button>
+    </div>
+    {#if $aiError}
+      <div class="text-red-400 text-xs mt-2">{$aiError}</div>
+    {/if}
+    {#if $aiStatus === 'ready' && !aiInputText}
+      <div class="text-green-400 text-xs mt-2">AI Engine Ready</div>
+    {/if}
+  </div>
+
   <!-- BPM Display (calculated from Arousal) -->
   <div class="p-5 bg-neutral-900 rounded-lg border-l-4 border-purple-600">
     <div class="flex justify-between items-center">
