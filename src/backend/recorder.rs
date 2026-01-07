@@ -55,7 +55,7 @@ pub struct RecorderBackend {
 
 impl RecorderBackend {
     pub fn new(
-        inner: Box<dyn AudioRenderer>, 
+        inner: Box<dyn AudioRenderer>,
         finished_recordings: Arc<Mutex<Vec<(RecordFormat, Vec<u8>)>>>,
         sample_rate: u32
     ) -> Self {
@@ -70,6 +70,11 @@ impl RecorderBackend {
             current_samples_per_step: 11025,
             abc_backend: None,
         }
+    }
+
+    /// Access the inner backend for downcasting
+    pub fn inner_mut(&mut self) -> &mut dyn AudioRenderer {
+        self.inner.as_mut()
     }
 
     fn start_wav(&mut self) {
@@ -237,4 +242,5 @@ impl AudioRenderer for RecorderBackend {
             abc.process_buffer(output, channels);
         }
     }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
 }

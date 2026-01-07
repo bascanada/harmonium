@@ -164,4 +164,5 @@ impl AudioRenderer for VstMidiBackend {
         // Increment sample counter for timing
         self.current_sample += (output.len() / 2) as u32;
     }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
 }

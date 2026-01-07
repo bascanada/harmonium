@@ -99,6 +99,10 @@ pub struct EngineParams {
     #[serde(default)]
     pub record_abc: bool,
 
+    // Synthesis Morphing Control
+    #[serde(default = "default_true")]
+    pub enable_synthesis_morphing: bool,
+
     // Mixer Gains (0.0 - 1.0)
     #[serde(default = "default_gain_lead")]
     pub gain_lead: f32,
@@ -123,10 +127,11 @@ pub struct EngineParams {
 fn default_gain_lead() -> f32 { 1.0 }
 fn default_gain_bass() -> f32 { 0.6 }
 fn default_gain_snare() -> f32 { 0.5 }
-fn default_gain_hat() -> f32 { 0.4 }
+fn default_gain_hat() -> f32 { 0.3 }
 fn default_vel_bass() -> u8 { 85 }
 fn default_vel_snare() -> u8 { 70 }
 fn default_poly_steps() -> usize { 48 }
+fn default_true() -> bool { true }
 
 impl Default for EngineParams {
     fn default() -> Self {
@@ -143,6 +148,7 @@ impl Default for EngineParams {
             record_wav: false,
             record_midi: false,
             record_abc: false,
+            enable_synthesis_morphing: true,
             // Mixer defaults
             gain_lead: default_gain_lead(),
             gain_bass: default_gain_bass(),
@@ -516,6 +522,23 @@ impl HarmoniumEngine {
         // On le recalcule pour compatibilité avec l'affichage UI
         let arousal_from_bpm = (mp.bpm - 70.0) / 110.0;
         self.current_state.arousal += (arousal_from_bpm - self.current_state.arousal) * morph_factor;
+
+        // === SYNTHESIS MORPHING (emotional timbre control) ===
+        #[cfg(feature = "odin2")]
+        if self.cached_target.enable_synthesis_morphing {
+            // The renderer is wrapped in RecorderBackend, so we need to unwrap it first
+            if let Some(recorder) = self.renderer.as_any_mut().downcast_mut::<crate::backend::recorder::RecorderBackend>() {
+                // Now get the inner backend and try to downcast it to Odin2Backend
+                if let Some(odin2) = recorder.inner_mut().as_any_mut().downcast_mut::<crate::backend::odin2_backend::Odin2Backend>() {
+                    odin2.apply_emotional_morphing(
+                        self.current_state.valence,
+                        self.current_state.arousal,
+                        self.current_state.tension,
+                        self.current_state.density,
+                    );
+                }
+            }
+        }
 
         // === MELODY SMOOTHNESS → Hurst Factor ===
         // Applique le smoothness au navigateur harmonique pour le comportement mélodique

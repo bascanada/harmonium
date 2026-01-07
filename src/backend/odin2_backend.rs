@@ -9,6 +9,7 @@
 
 use crate::backend::AudioRenderer;
 use crate::events::AudioEvent;
+use crate::synthesis::{EmotionalMorpher, EmotionalPresetBank, SynthPreset, apply_tension_density_modulation};
 
 use odin2_core::dsp::envelopes::{Adsr, Envelope, EnvelopeState};
 use odin2_core::dsp::filters::{Filter, LadderFilter, LadderFilterType};
@@ -286,15 +287,15 @@ struct HatVoice {
 impl HatVoice {
     fn new(sample_rate: f32) -> Self {
         let mut noise = NoiseOscillator::new(sample_rate);
-        // Highpass for hi-hat
-        noise.set_lp_freq(18000.0);
-        noise.set_hp_freq(6000.0);
+        // Highpass for hi-hat (less harsh range)
+        noise.set_lp_freq(12000.0);
+        noise.set_hp_freq(4000.0);
 
         let mut env = Adsr::new(sample_rate);
         env.set_attack(0.001);
-        env.set_decay(0.05);
+        env.set_decay(0.08);
         env.set_sustain(0.0);
-        env.set_release(0.05);
+        env.set_release(0.08);
 
         Self {
             noise,
@@ -322,9 +323,9 @@ impl HatVoice {
             self.active = false;
         }
 
-        let out = noise_out * amp * self.velocity * 0.4;
-        // Pan slightly right
-        (out * 0.8, out * 1.2)
+        let out = noise_out * amp * self.velocity * 0.25;
+        // Pan slightly right (subtle)
+        (out * 0.9, out * 1.1)
     }
 }
 
@@ -437,6 +438,14 @@ pub struct Odin2Backend {
     chorus_mix: f32,
     reverb_mix: f32,
 
+    // Emotional morphing system
+    morpher: EmotionalMorpher,
+    last_bass_preset: Option<SynthPreset>,
+    last_lead_preset: Option<SynthPreset>,
+    last_snare_preset: Option<SynthPreset>,
+    last_hat_preset: Option<SynthPreset>,
+    last_poly_preset: Option<SynthPreset>,
+
     #[allow(dead_code)]
     sample_rate: f32,
     samples_per_step: usize,
@@ -473,6 +482,10 @@ impl Odin2Backend {
         let mut reverb = ZitaReverb::new(sr);
         reverb.set_mix(0.15);
 
+        // Initialize emotional morphing system
+        let preset_bank = EmotionalPresetBank::default_presets();
+        let morpher = EmotionalMorpher::new(preset_bank);
+
         Self {
             bass,
             lead,
@@ -482,13 +495,19 @@ impl Odin2Backend {
             gain_bass: 0.6,
             gain_lead: 1.0,
             gain_snare: 0.5,
-            gain_hat: 0.4,
+            gain_hat: 0.3,
             delay,
             chorus,
             reverb,
             delay_mix: 0.15,
             chorus_mix: 0.2,
             reverb_mix: 0.15,
+            morpher,
+            last_bass_preset: None,
+            last_lead_preset: None,
+            last_snare_preset: None,
+            last_hat_preset: None,
+            last_poly_preset: None,
             sample_rate: sr,
             samples_per_step: 0,
         }
@@ -510,6 +529,172 @@ impl Odin2Backend {
         self.poly_voices
             .iter()
             .position(|v| v.active && v.note == note && v.channel == channel)
+    }
+
+    /// Apply emotional morphing to synthesis parameters
+    ///
+    /// This is the main entry point for the emotional morphing system.
+    /// It performs bilinear interpolation across the 4 emotional quadrants,
+    /// applies tension/density modulation, and updates voice parameters.
+    pub fn apply_emotional_morphing(&mut self, valence: f32, arousal: f32, tension: f32, density: f32) {
+        // Step 1: Get morphed presets from bilinear interpolation
+        let morphed = self.morpher.morph(valence, arousal);
+
+        // Step 2: Apply tension/density modulation ON TOP
+        let bass_final = apply_tension_density_modulation(&morphed.bass, tension, density);
+        let lead_final = apply_tension_density_modulation(&morphed.lead, tension, density);
+        let snare_final = apply_tension_density_modulation(&morphed.snare, tension, density);
+        let hat_final = apply_tension_density_modulation(&morphed.hat, tension, density);
+        let poly_final = apply_tension_density_modulation(&morphed.poly, tension, density);
+
+        // Step 3: Apply to voices (only if changed)
+        if self.preset_changed(&self.last_bass_preset, &bass_final) {
+            self.apply_preset_to_bass(&bass_final);
+            self.last_bass_preset = Some(bass_final);
+        }
+
+        if self.preset_changed(&self.last_lead_preset, &lead_final) {
+            self.apply_preset_to_lead(&lead_final);
+            self.last_lead_preset = Some(lead_final);
+        }
+
+        if self.preset_changed(&self.last_snare_preset, &snare_final) {
+            self.apply_preset_to_snare(&snare_final);
+            self.last_snare_preset = Some(snare_final);
+        }
+
+        if self.preset_changed(&self.last_hat_preset, &hat_final) {
+            self.apply_preset_to_hat(&hat_final);
+            self.last_hat_preset = Some(hat_final);
+        }
+
+        if self.preset_changed(&self.last_poly_preset, &poly_final) {
+            self.apply_preset_to_poly(&poly_final);
+            self.last_poly_preset = Some(poly_final);
+        }
+
+        // Step 4: Apply global effects
+        self.apply_effects_params(&morphed.bass.effects);
+    }
+
+    /// Check if preset changed significantly enough to warrant updating
+    fn preset_changed(&self, _last: &Option<SynthPreset>, _new: &SynthPreset) -> bool {
+        // TEMPORARY: Always return true to debug if parameters are being applied
+        true
+
+        // Original code (disabled for debugging):
+        // match last {
+        //     None => true,
+        //     Some(last) => {
+        //         // Check if any significant parameter changed
+        //         (last.osc.waveform_mix - new.osc.waveform_mix).abs() > 0.01
+        //             || (last.osc.detune - new.osc.detune).abs() > 0.01
+        //             || (last.filter.cutoff - new.filter.cutoff).abs() > 10.0
+        //             || (last.filter.resonance - new.filter.resonance).abs() > 0.01
+        //             || (last.filter.drive - new.filter.drive).abs() > 0.05
+        //             || (last.envelopes.amp.attack - new.envelopes.amp.attack).abs() > 0.005
+        //             || (last.envelopes.amp.release - new.envelopes.amp.release).abs() > 0.005
+        //     }
+        // }
+    }
+
+    /// Apply preset to bass voice
+    fn apply_preset_to_bass(&mut self, preset: &SynthPreset) {
+        // Filter params
+        self.bass.filter.set_cutoff(preset.filter.cutoff);
+        self.bass.filter.set_resonance(preset.filter.resonance);
+
+        // Envelope params
+        self.bass.env.set_attack(preset.envelopes.amp.attack);
+        self.bass.env.set_decay(preset.envelopes.amp.decay);
+        self.bass.env.set_sustain(preset.envelopes.amp.sustain);
+        self.bass.env.set_release(preset.envelopes.amp.release);
+
+        // Note: Waveform mix requires refactoring BassVoice to store
+        // dynamic sine/saw ratios (currently hardcoded 70/30 mix)
+        // This is a future enhancement
+    }
+
+    /// Apply preset to lead voice
+    fn apply_preset_to_lead(&mut self, preset: &SynthPreset) {
+        // MultiOscillator supports dynamic parameters
+        self.lead.osc.set_detune(preset.osc.detune);
+        self.lead.osc.set_stereo_width(preset.osc.stereo_width);
+
+        // Filter
+        self.lead.filter.set_cutoff(preset.filter.cutoff);
+        self.lead.filter.set_resonance(preset.filter.resonance);
+        self.lead.base_cutoff = preset.filter.cutoff;
+
+        // Amp envelope
+        self.lead.amp_env.set_attack(preset.envelopes.amp.attack);
+        self.lead.amp_env.set_decay(preset.envelopes.amp.decay);
+        self.lead.amp_env.set_sustain(preset.envelopes.amp.sustain);
+        self.lead.amp_env.set_release(preset.envelopes.amp.release);
+
+        // Filter envelope
+        self.lead.filter_env.set_attack(preset.envelopes.filter.attack);
+        self.lead.filter_env.set_decay(preset.envelopes.filter.decay);
+        self.lead.filter_env.set_sustain(preset.envelopes.filter.sustain);
+        self.lead.filter_env.set_release(preset.envelopes.filter.release);
+    }
+
+    /// Apply preset to snare voice
+    fn apply_preset_to_snare(&mut self, preset: &SynthPreset) {
+        // Snare uses noise, so less parameters to control
+        // Envelope
+        self.snare.env.set_attack(preset.envelopes.amp.attack);
+        self.snare.env.set_decay(preset.envelopes.amp.decay);
+        self.snare.env.set_sustain(preset.envelopes.amp.sustain);
+        self.snare.env.set_release(preset.envelopes.amp.release);
+    }
+
+    /// Apply preset to hat voice
+    fn apply_preset_to_hat(&mut self, preset: &SynthPreset) {
+        // Hat uses noise with highpass filter
+        // Envelope (HatVoice uses 'env' not 'amp_env')
+        self.hat.env.set_attack(preset.envelopes.amp.attack);
+        self.hat.env.set_decay(preset.envelopes.amp.decay);
+        self.hat.env.set_sustain(preset.envelopes.amp.sustain);
+        self.hat.env.set_release(preset.envelopes.amp.release);
+    }
+
+    /// Apply preset to poly voices
+    fn apply_preset_to_poly(&mut self, preset: &SynthPreset) {
+        for voice in &mut self.poly_voices {
+            // MultiOscillator parameters
+            voice.osc.set_detune(preset.osc.detune);
+            voice.osc.set_stereo_width(preset.osc.stereo_width);
+
+            // Filter
+            voice.filter.set_cutoff(preset.filter.cutoff);
+            voice.filter.set_resonance(preset.filter.resonance);
+
+            // Amp envelope
+            voice.amp_env.set_attack(preset.envelopes.amp.attack);
+            voice.amp_env.set_decay(preset.envelopes.amp.decay);
+            voice.amp_env.set_sustain(preset.envelopes.amp.sustain);
+            voice.amp_env.set_release(preset.envelopes.amp.release);
+        }
+    }
+
+    /// Apply global effects parameters
+    fn apply_effects_params(&mut self, effects: &crate::synthesis::EffectsParams) {
+        // Delay
+        self.delay.set_delay_time(effects.delay.time);
+        self.delay.set_feedback(effects.delay.feedback);
+        self.delay.set_wet(effects.delay.mix);
+        self.delay.set_dry(1.0 - effects.delay.mix);
+
+        // Chorus
+        self.chorus.set_lfo_freq(effects.chorus.lfo_freq);
+        self.chorus.set_amount(effects.chorus.depth);
+        self.chorus.set_dry_wet(effects.chorus.mix);
+
+        // Reverb
+        self.reverb.set_mix(effects.reverb.mix);
+        // Note: ZitaReverb may not expose room_size/damping directly
+        // Using default mix parameter for now
     }
 }
 
@@ -658,5 +843,9 @@ impl AudioRenderer for Odin2Backend {
                 frame[1] = (rr * 0.8_f32).tanh();
             }
         }
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 }

@@ -23,7 +23,7 @@ default = ["standalone", "wasm", "odin2"]
 standalone = ["cpal"]
 vst = ["nih_plug"]
 vst-gui = ["vst", "nih_plug_webview"]
-wasm = ["wasm-bindgen", "console_error_panic_hook", "serde-wasm-bindgen", "js-sys"]
+wasm = ["wasm-bindgen", "console_error_panic_hook", "serde-wasm-bindgen", "js-sys", "web-sys"]
 ai = ["candle-core", "candle-nn", "candle-transformers", "tokenizers"]
 odin2 = ["odin2-core"]
 
@@ -49,6 +49,7 @@ wasm-bindgen = { version = "0.2", optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
 js-sys = { version = "0.3", optional = true }
+web-sys = { version = "0.3", features = ["console"], optional = true }
 
 # Pour l'IA (optional for VST builds)
 candle-core = { version = "0.8", optional = true }
@@ -57,6 +58,7 @@ candle-transformers = { version = "0.8", default-features = false, optional = tr
 tokenizers = { version = "0.13.3", default-features = false, features = ["fancy-regex", "onig"], optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+toml = "0.8"
 hound = "3.5.1"
 midly = "0.5.3"
 rosc = "0.10"
