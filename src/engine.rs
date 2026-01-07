@@ -457,6 +457,12 @@ impl HarmoniumEngine {
             if let Ok(guard) = self.control_mode.try_lock() {
                 self.musical_params = guard.direct_params.clone();
             }
+
+            // Apply mixer gains from target_state (they work in both modes)
+            self.musical_params.gain_lead = self.cached_target.gain_lead;
+            self.musical_params.gain_bass = self.cached_target.gain_bass;
+            self.musical_params.gain_snare = self.cached_target.gain_snare;
+            self.musical_params.gain_hat = self.cached_target.gain_hat;
         }
 
         // Apply global enable overrides (work in BOTH modes)

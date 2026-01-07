@@ -1,6 +1,7 @@
 // VST Bridge - Implementation for VST mode using nih-plug-webview IPC
-import type { HarmoniumBridge, EngineState, AudioBackendType } from './types';
+import type { EngineState, AudioBackendType } from './types';
 import { createEmptyState } from './types';
+import { BaseBridge } from './base-bridge';
 
 // Message types for VST <-> Webview communication
 interface VstRequest {
@@ -26,11 +27,13 @@ declare global {
   }
 }
 
-export class VstBridge implements HarmoniumBridge {
-  private subscribers: Set<(state: EngineState) => void> = new Set();
-  private currentState: EngineState = createEmptyState();
+export class VstBridge extends BaseBridge {
   private connected = false;
   private previousOnPluginMessage: ((msg: unknown) => void) | undefined;
+
+  constructor() {
+    super(createEmptyState());
+  }
 
   async connect(_sf2Data?: Uint8Array, _backend?: AudioBackendType): Promise<void> {
     // Store previous handler if any
@@ -68,6 +71,49 @@ export class VstBridge implements HarmoniumBridge {
     return this.connected;
   }
 
+  /**
+   * Send command to VST plugin via IPC message passing.
+   */
+  protected sendCommand(method: string, ...args: any[]): void {
+    // Convert args array to params object
+    const params: Record<string, unknown> = {};
+
+    // Map common parameter names
+    if (args.length === 1) {
+      // Single argument - determine the parameter name from method
+      if (method.includes('enable')) {
+        params.enabled = args[0];
+      } else if (method.includes('steps')) {
+        params.steps = args[0];
+      } else if (method.includes('pulses')) {
+        params.pulses = args[0];
+      } else if (method.includes('rotation')) {
+        params.rotation = args[0];
+      } else if (method.includes('mode')) {
+        params.mode = args[0];
+      } else if (method.includes('channel')) {
+        params.channel = args[0];
+      } else {
+        params.value = args[0];
+      }
+    } else if (args.length === 2) {
+      // Two arguments - typically channel operations
+      params.channel = args[0];
+      if (method.includes('muted')) {
+        params.muted = args[1];
+      } else if (method.includes('routing')) {
+        params.routing = args[1];
+      } else if (method.includes('gain')) {
+        params.gain = args[1];
+      } else {
+        params.value = args[1];
+      }
+    }
+
+    const message: VstRequest = { type: method.includes('use_') ? 'action' : 'set', method, params };
+    this.postMessage(message);
+  }
+
   private handleMessage = (msg: unknown) => {
     try {
       // Message is already parsed by nih-plug-webview
@@ -93,159 +139,5 @@ export class VstBridge implements HarmoniumBridge {
       // Fallback for development/testing without actual VST
       console.warn('[VstBridge] No IPC available, message not sent:', msg);
     }
-  }
-
-  // === Mode Control ===
-  useEmotionMode(): void {
-    this.postMessage({ type: 'action', method: 'use_emotion_mode' });
-    this.currentState.isEmotionMode = true;
-  }
-
-  useDirectMode(): void {
-    this.postMessage({ type: 'action', method: 'use_direct_mode' });
-    this.currentState.isEmotionMode = false;
-  }
-
-  // === Emotional Controls ===
-  setArousal(value: number): void {
-    this.postMessage({ type: 'set', method: 'set_arousal', params: { value } });
-    this.currentState.arousal = value;
-  }
-
-  setValence(value: number): void {
-    this.postMessage({ type: 'set', method: 'set_valence', params: { value } });
-    this.currentState.valence = value;
-  }
-
-  setDensity(value: number): void {
-    this.postMessage({ type: 'set', method: 'set_density', params: { value } });
-    this.currentState.density = value;
-  }
-
-  setTension(value: number): void {
-    this.postMessage({ type: 'set', method: 'set_tension', params: { value } });
-    this.currentState.tension = value;
-  }
-
-  // === Algorithm & Harmony Mode ===
-  setAlgorithm(mode: number): void {
-    this.postMessage({ type: 'set', method: 'set_algorithm', params: { mode } });
-  }
-
-  setHarmonyMode(mode: number): void {
-    this.postMessage({ type: 'set', method: 'set_harmony_mode', params: { mode } });
-  }
-
-  setPolySteps(steps: number): void {
-    this.postMessage({ type: 'set', method: 'set_poly_steps', params: { steps } });
-  }
-
-  // === Direct Controls ===
-  setDirectBpm(value: number): void {
-    this.postMessage({ type: 'set', method: 'set_direct_bpm', params: { value } });
-  }
-
-  setDirectEnableRhythm(enabled: boolean): void {
-    this.postMessage({ type: 'set', method: 'set_direct_enable_rhythm', params: { enabled } });
-  }
-
-  setDirectEnableHarmony(enabled: boolean): void {
-    this.postMessage({ type: 'set', method: 'set_direct_enable_harmony', params: { enabled } });
-  }
-
-  setDirectEnableMelody(enabled: boolean): void {
-    this.postMessage({ type: 'set', method: 'set_direct_enable_melody', params: { enabled } });
-  }
-
-  setDirectEnableVoicing(enabled: boolean): void {
-    this.postMessage({ type: 'set', method: 'set_direct_enable_voicing', params: { enabled } });
-  }
-
-  setDirectRhythmMode(mode: number): void {
-    this.postMessage({ type: 'set', method: 'set_direct_rhythm_mode', params: { mode } });
-  }
-
-  setDirectRhythmSteps(steps: number): void {
-    this.postMessage({ type: 'set', method: 'set_direct_rhythm_steps', params: { steps } });
-  }
-
-  setDirectRhythmPulses(pulses: number): void {
-    this.postMessage({ type: 'set', method: 'set_direct_rhythm_pulses', params: { pulses } });
-  }
-
-  setDirectRhythmRotation(rotation: number): void {
-    this.postMessage({ type: 'set', method: 'set_direct_rhythm_rotation', params: { rotation } });
-  }
-
-  setDirectRhythmDensity(density: number): void {
-    this.postMessage({ type: 'set', method: 'set_direct_rhythm_density', params: { density } });
-  }
-
-  setDirectRhythmTension(tension: number): void {
-    this.postMessage({ type: 'set', method: 'set_direct_rhythm_tension', params: { tension } });
-  }
-
-  setDirectSecondarySteps(steps: number): void {
-    this.postMessage({ type: 'set', method: 'set_direct_secondary_steps', params: { steps } });
-  }
-
-  setDirectSecondaryPulses(pulses: number): void {
-    this.postMessage({ type: 'set', method: 'set_direct_secondary_pulses', params: { pulses } });
-  }
-
-  setDirectSecondaryRotation(rotation: number): void {
-    this.postMessage({ type: 'set', method: 'set_direct_secondary_rotation', params: { rotation } });
-  }
-
-  setDirectHarmonyTension(tension: number): void {
-    this.postMessage({ type: 'set', method: 'set_direct_harmony_tension', params: { tension } });
-  }
-
-  setDirectHarmonyValence(valence: number): void {
-    this.postMessage({ type: 'set', method: 'set_direct_harmony_valence', params: { valence } });
-  }
-
-  setDirectMelodySmoothness(smoothness: number): void {
-    this.postMessage({ type: 'set', method: 'set_direct_melody_smoothness', params: { smoothness } });
-  }
-
-  setDirectVoicingDensity(density: number): void {
-    this.postMessage({ type: 'set', method: 'set_direct_voicing_density', params: { density } });
-  }
-
-  setDirectVoicingTension(tension: number): void {
-    this.postMessage({ type: 'set', method: 'set_direct_voicing_tension', params: { tension } });
-  }
-
-  // === Channel Controls ===
-  setChannelMuted(channel: number, muted: boolean): void {
-    this.postMessage({ type: 'set', method: 'set_channel_muted', params: { channel, muted } });
-    this.currentState.channelMuted[channel] = muted;
-  }
-
-  setChannelRouting(channel: number, routing: number): void {
-    this.postMessage({ type: 'set', method: 'set_channel_routing', params: { channel, routing } });
-  }
-
-  setChannelGain(channel: number, gain: number): void {
-    this.postMessage({ type: 'set', method: 'set_channel_gain', params: { channel, gain } });
-    this.currentState.channelGains[channel] = gain;
-  }
-
-  // === SoundFont (not supported in VST mode - SoundFonts loaded through DAW) ===
-  // This method is optional in the interface
-
-  // === State Subscription ===
-  subscribe(callback: (state: EngineState) => void): () => void {
-    this.subscribers.add(callback);
-    // Immediately call with current state
-    callback(this.currentState);
-    return () => {
-      this.subscribers.delete(callback);
-    };
-  }
-
-  getState(): EngineState | null {
-    return this.connected ? { ...this.currentState } : null;
   }
 }

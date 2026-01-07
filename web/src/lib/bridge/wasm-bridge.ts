@@ -1,16 +1,19 @@
 // WASM Bridge - Implementation for web mode using harmonium.js
 import init, { start, start_with_backend, get_available_backends, type Handle } from 'harmonium';
-import type { HarmoniumBridge, EngineState, AudioBackendType } from './types';
+import type { EngineState, AudioBackendType } from './types';
 import { createEmptyState } from './types';
+import { BaseBridge } from './base-bridge';
 
-export class WasmBridge implements HarmoniumBridge {
+export class WasmBridge extends BaseBridge {
   private handle: Handle | null = null;
   private animationId: number | null = null;
-  private subscribers: Set<(state: EngineState) => void> = new Set();
-  private currentState: EngineState = createEmptyState();
   private _isEmotionMode = true;
   private _currentBackend: AudioBackendType = 'fundsp';
   private _availableBackends: AudioBackendType[] = ['fundsp'];
+
+  constructor() {
+    super(createEmptyState());
+  }
 
   async connect(sf2Data?: Uint8Array, backend: AudioBackendType = 'fundsp'): Promise<void> {
     await init();
@@ -31,6 +34,11 @@ export class WasmBridge implements HarmoniumBridge {
     // Get initial key/scale
     this.currentState.key = this.handle.get_key();
     this.currentState.scale = this.handle.get_scale();
+
+    // Collect initial state immediately before starting polling
+    this.collectState();
+    // Create a shallow copy to ensure Svelte detects the change
+    this.subscribers.forEach(cb => cb({ ...this.currentState }));
 
     this.startPolling();
   }
@@ -54,12 +62,22 @@ export class WasmBridge implements HarmoniumBridge {
     return this.handle !== null;
   }
 
+  /**
+   * Send command to WASM by calling the appropriate method on the Handle.
+   */
+  protected sendCommand(method: string, ...args: any[]): void {
+    if (this.handle && typeof (this.handle as any)[method] === 'function') {
+      (this.handle as any)[method](...args);
+    }
+  }
+
   private startPolling(): void {
     const poll = () => {
       if (!this.handle) return;
 
       this.collectState();
-      this.subscribers.forEach(cb => cb(this.currentState));
+      // Create a shallow copy to ensure Svelte detects the change
+      this.subscribers.forEach(cb => cb({ ...this.currentState }));
 
       // Clear event queue
       this.handle.get_events();
@@ -113,163 +131,29 @@ export class WasmBridge implements HarmoniumBridge {
     this.currentState.voicingTension = h.get_direct_voicing_tension();
   }
 
-  // === Mode Control ===
-  useEmotionMode(): void {
+  // Override mode control to track emotion mode locally
+  override useEmotionMode(): void {
     this._isEmotionMode = true;
-    this.handle?.use_emotion_mode();
+    super.useEmotionMode();
   }
 
-  useDirectMode(): void {
+  override useDirectMode(): void {
     this._isEmotionMode = false;
-    this.handle?.use_direct_mode();
+    super.useDirectMode();
   }
 
-  // === Emotional Controls ===
-  setArousal(value: number): void {
-    this.handle?.set_arousal(value);
-    this.currentState.arousal = value;
-  }
-
-  setValence(value: number): void {
-    this.handle?.set_valence(value);
-    this.currentState.valence = value;
-  }
-
-  setDensity(value: number): void {
-    this.handle?.set_density(value);
-    this.currentState.density = value;
-  }
-
-  setTension(value: number): void {
-    this.handle?.set_tension(value);
-    this.currentState.tension = value;
-  }
-
-  // === Algorithm & Harmony Mode ===
-  setAlgorithm(mode: number): void {
-    this.handle?.set_algorithm(mode);
-  }
-
-  setHarmonyMode(mode: number): void {
-    this.handle?.set_harmony_mode(mode);
-  }
-
-  setPolySteps(steps: number): void {
-    this.handle?.set_poly_steps(steps);
-  }
-
-  // === Direct Controls ===
-  setDirectBpm(value: number): void {
-    this.handle?.set_direct_bpm(value);
-  }
-
-  setDirectEnableRhythm(enabled: boolean): void {
-    this.handle?.set_direct_enable_rhythm(enabled);
-  }
-
-  setDirectEnableHarmony(enabled: boolean): void {
-    this.handle?.set_direct_enable_harmony(enabled);
-  }
-
-  setDirectEnableMelody(enabled: boolean): void {
-    this.handle?.set_direct_enable_melody(enabled);
-  }
-
-  setDirectEnableVoicing(enabled: boolean): void {
-    this.handle?.set_direct_enable_voicing(enabled);
-  }
-
-  setDirectRhythmMode(mode: number): void {
-    this.handle?.set_direct_rhythm_mode(mode);
-  }
-
-  setDirectRhythmSteps(steps: number): void {
-    this.handle?.set_direct_rhythm_steps(steps);
-  }
-
-  setDirectRhythmPulses(pulses: number): void {
-    this.handle?.set_direct_rhythm_pulses(pulses);
-  }
-
-  setDirectRhythmRotation(rotation: number): void {
-    this.handle?.set_direct_rhythm_rotation(rotation);
-  }
-
-  setDirectRhythmDensity(density: number): void {
-    this.handle?.set_direct_rhythm_density(density);
-  }
-
-  setDirectRhythmTension(tension: number): void {
-    this.handle?.set_direct_rhythm_tension(tension);
-  }
-
-  setDirectSecondarySteps(steps: number): void {
-    this.handle?.set_direct_secondary_steps(steps);
-  }
-
-  setDirectSecondaryPulses(pulses: number): void {
-    this.handle?.set_direct_secondary_pulses(pulses);
-  }
-
-  setDirectSecondaryRotation(rotation: number): void {
-    this.handle?.set_direct_secondary_rotation(rotation);
-  }
-
-  setDirectHarmonyTension(tension: number): void {
-    this.handle?.set_direct_harmony_tension(tension);
-  }
-
-  setDirectHarmonyValence(valence: number): void {
-    this.handle?.set_direct_harmony_valence(valence);
-  }
-
-  setDirectMelodySmoothness(smoothness: number): void {
-    this.handle?.set_direct_melody_smoothness(smoothness);
-  }
-
-  setDirectVoicingDensity(density: number): void {
-    this.handle?.set_direct_voicing_density(density);
-  }
-
-  setDirectVoicingTension(tension: number): void {
-    this.handle?.set_direct_voicing_tension(tension);
-  }
-
-  // === Channel Controls ===
-  setChannelMuted(channel: number, muted: boolean): void {
-    this.handle?.set_channel_muted(channel, muted);
-    this.currentState.channelMuted[channel] = muted;
-  }
-
-  setChannelRouting(channel: number, routing: number): void {
-    this.handle?.set_channel_routing(channel, routing);
-  }
-
-  setChannelGain(channel: number, gain: number): void {
+  // Override channel gain to handle WASM-specific channel mapping
+  override setChannelGain(channel: number, gain: number): void {
     this.currentState.channelGains[channel] = gain;
-    // Map channel index to specific gain setter
+    // Map channel index to specific gain setter (WASM-specific)
     if (channel === 0) this.handle?.set_gain_bass(gain);
     else if (channel === 1) this.handle?.set_gain_lead(gain);
     else if (channel === 2) this.handle?.set_gain_snare(gain);
     else if (channel === 3) this.handle?.set_gain_hat(gain);
   }
 
-  // === SoundFont ===
+  // === SoundFont (WASM only) ===
   addSoundFont(bankId: number, data: Uint8Array): void {
     this.handle?.add_soundfont(bankId, data);
-  }
-
-  // === State Subscription ===
-  subscribe(callback: (state: EngineState) => void): () => void {
-    this.subscribers.add(callback);
-    // Immediately call with current state
-    callback(this.currentState);
-    return () => {
-      this.subscribers.delete(callback);
-    };
-  }
-
-  getState(): EngineState | null {
-    return this.handle ? { ...this.currentState } : null;
   }
 }

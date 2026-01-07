@@ -2,10 +2,14 @@
   import type { HarmoniumBridge, EngineState } from '$lib/bridge';
   import EmotionalControls from './EmotionalControls.svelte';
   import TechnicalControls from './TechnicalControls.svelte';
+  import ChannelMixer from './ChannelMixer.svelte';
 
   // Props - bridge passed from parent
   export let bridge: HarmoniumBridge;
   export let state: EngineState;
+
+  // Audio mode detection (true = web audio rendering, false = VST MIDI-only)
+  export let isAudioMode = true;
 
   // Local control mode (decoupled from state during transitions)
   let localIsEmotionMode = true;
@@ -29,15 +33,15 @@
   }
 </script>
 
-<div class="bg-neutral-800 rounded-xl p-6 shadow-xl h-fit sticky top-8">
+<div class="bg-neutral-800 rounded-lg p-4 shadow-xl h-fit sticky top-8">
   <!-- MODE TOGGLE -->
-  <div class="mb-8">
+  <div class="mb-4">
     <div class="flex rounded-lg bg-neutral-900 p-1.5">
       <button
         onclick={() => {
           if (!localIsEmotionMode) toggleControlMode();
         }}
-        class="flex-1 py-3 px-6 rounded-md text-base font-semibold transition-all duration-200
+        class="flex-1 py-2 px-4 rounded-md text-sm font-semibold transition-all duration-200
           {localIsEmotionMode
             ? 'bg-purple-600 text-white shadow-lg'
             : 'text-neutral-400 hover:text-neutral-200'}"
@@ -48,7 +52,7 @@
         onclick={() => {
           if (localIsEmotionMode) toggleControlMode();
         }}
-        class="flex-1 py-3 px-6 rounded-md text-base font-semibold transition-all duration-200
+        class="flex-1 py-2 px-4 rounded-md text-sm font-semibold transition-all duration-200
           {!localIsEmotionMode
             ? 'bg-cyan-600 text-white shadow-lg'
             : 'text-neutral-400 hover:text-neutral-200'}"
@@ -56,9 +60,14 @@
         Technical
       </button>
     </div>
-    <p class="text-sm text-neutral-500 text-center mt-3">
+    <p class="text-xs text-neutral-500 text-center mt-2">
       {localIsEmotionMode ? "Russell's Circumplex Model" : 'Direct Musical Parameters'}
     </p>
+  </div>
+
+  <!-- CHANNEL MIXER (always visible) -->
+  <div class="mb-4">
+    <ChannelMixer {bridge} {state} />
   </div>
 
   {#if localIsEmotionMode}
@@ -73,6 +82,8 @@
     <TechnicalControls
       {bridge}
       {state}
+      {isAudioMode}
+      audioBackend={state.audioBackend}
       enableRhythm={state.enableRhythm}
       enableHarmony={state.enableHarmony}
       enableMelody={state.enableMelody}
@@ -91,7 +102,12 @@
       harmonyTension={state.harmonyTension}
       melodySmoothness={state.melodySmoothness}
       voicingDensity={state.voicingDensity}
-      voicingTension={state.voicingTension}
+      filterCutoff={state.voicingTension}
+      filterResonance={0.3}
+      chorusMix={0.0}
+      delayMix={0.0}
+      reverbMix={0.3}
+      expression={0.5}
     />
   {/if}
 </div>
