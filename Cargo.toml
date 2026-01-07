@@ -41,6 +41,12 @@ oxisynth = "0.1.0"
 rand = "0.8.5"
 rust-music-theory = "0.3.0"
 
+# Lock-free data structures for real-time audio safety
+rtrb = "0.3"                    # Real-time ring buffer (SPSC queues)
+triple_buffer = "8.0"           # Lock-free triple buffering
+arrayvec = "0.7"                # Fixed-capacity Vec and String (no heap allocation)
+crossbeam-channel = "0.5"       # MPSC channels for font loading
+
 # Odin2 synthesizer (optional - alternative to fundsp)
 odin2-core = { git = "https://github.com/bascanada/odin-rs", features = ["std"], optional = true }
 

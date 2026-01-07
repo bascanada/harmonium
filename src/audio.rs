@@ -27,7 +27,7 @@ pub fn create_stream(
     control_mode: Arc<Mutex<ControlMode>>,
     sf2_bytes: Option<&[u8]>,
     backend_type: AudioBackendType,
-) -> Result<(cpal::Stream, SessionConfig, Arc<Mutex<HarmonyState>>, Arc<Mutex<Vec<VisualizationEvent>>>, Arc<Mutex<Vec<(u32, Vec<u8>)>>>, Arc<Mutex<Vec<(RecordFormat, Vec<u8>)>>>), String> {
+) -> Result<(cpal::Stream, SessionConfig, Arc<Mutex<rtrb::Consumer<HarmonyState>>>, Arc<Mutex<rtrb::Consumer<VisualizationEvent>>>, Arc<Mutex<Vec<(u32, Vec<u8>)>>>, Arc<Mutex<Vec<(RecordFormat, Vec<u8>)>>>), String> {
     // 1. Setup CPAL
     let host = cpal::default_host();
 
@@ -73,10 +73,14 @@ pub fn create_stream(
     let finished_recordings = Arc::new(Mutex::new(Vec::new()));
     let recorder_backend = Box::new(RecorderBackend::new(inner_backend, finished_recordings.clone(), sample_rate as u32));
 
-    let mut engine = HarmoniumEngine::new(sample_rate, target_state, control_mode, recorder_backend);
+    // Phase 2: Engine now returns consumers for lock-free queues
+    let (mut engine, harmony_state_rx, event_queue_rx) = HarmoniumEngine::new(sample_rate, target_state, control_mode, recorder_backend);
     let session_config = engine.config.clone();
-    let harmony_state = engine.harmony_state.clone(); // Cloner l'Arc pour le retourner
-    let event_queue = engine.event_queue.clone(); // Cloner l'Arc pour le retourner
+
+    // Wrap consumers in Arc<Mutex<>> for backwards compatibility with existing API
+    // (Phase 2: temporary until we update callers to use consumers directly)
+    let harmony_state = Arc::new(Mutex::new(harmony_state_rx));
+    let event_queue = Arc::new(Mutex::new(event_queue_rx));
     let font_queue = engine.font_queue.clone();
 
     let err_fn = |err| log::error(&format!("an error occurred on stream: {}", err));

@@ -16,6 +16,12 @@ pub mod voice_manager;
 pub mod voicing;
 pub mod params;
 pub mod mapper;
+pub mod realtime;
+
+// Real-time safety: Global allocator that panics on allocations in audio thread (debug builds only)
+#[cfg(debug_assertions)]
+#[global_allocator]
+static GLOBAL: realtime::rt_check::RTCheckAllocator = realtime::rt_check::RTCheckAllocator;
 
 #[cfg(feature = "ai")]
 pub mod ai;
@@ -92,10 +98,12 @@ pub struct Handle {
     target_state: Arc<Mutex<engine::EngineParams>>,
     /// État partagé pour le mode de contrôle (émotion vs direct)
     control_mode: Arc<Mutex<params::ControlMode>>,
-    /// État harmonique en lecture seule pour l'UI
-    harmony_state: Arc<Mutex<engine::HarmonyState>>,
-    /// Queue d'événements pour l'UI
-    event_queue: Arc<Mutex<Vec<engine::VisualizationEvent>>>,
+    /// Phase 2: Lock-free consumer for harmony state (Audio→UI)
+    harmony_state_rx: Arc<Mutex<rtrb::Consumer<engine::HarmonyState>>>,
+    /// Phase 2: Lock-free consumer for visualization events (Audio→UI)
+    event_queue_rx: Arc<Mutex<rtrb::Consumer<engine::VisualizationEvent>>>,
+    /// Phase 2: Cached harmony state (updated by draining consumer)
+    cached_harmony_state: Arc<Mutex<engine::HarmonyState>>,
     /// Queue de chargement de SoundFonts
     font_queue: Arc<Mutex<Vec<(u32, Vec<u8>)>>>,
     /// Enregistrements terminés
@@ -128,6 +136,23 @@ impl Handle {
 
     pub fn get_steps(&self) -> usize {
         self.steps
+    }
+
+    // Phase 2: Helper to update cached harmony state from consumer
+    fn update_harmony_state_cache(&self) {
+        // Drain all available harmony states and keep only the latest
+        if let Ok(mut rx) = self.harmony_state_rx.lock() {
+            let mut latest: Option<engine::HarmonyState> = None;
+            while let Ok(state) = rx.pop() {
+                latest = Some(state);
+            }
+            // Update cache if we got at least one state
+            if let Some(state) = latest {
+                if let Ok(mut cache) = self.cached_harmony_state.lock() {
+                    *cache = state;
+                }
+            }
+        }
     }
 
     // === Contrôles en Temps Réel pour l'UI (Modèle Émotionnel) ===
@@ -200,7 +225,8 @@ impl Handle {
 
     /// Obtenir le mode d'harmonie actuel depuis l'état du moteur (0 = Basic, 1 = Driver)
     pub fn get_harmony_mode(&self) -> u8 {
-        self.harmony_state.lock().map(|s| match s.harmony_mode {
+        self.update_harmony_state_cache();
+        self.cached_harmony_state.lock().map(|s| match s.harmony_mode {
             HarmonyMode::Basic => 0,
             HarmonyMode::Driver => 1,
         }).unwrap_or(1)
@@ -247,82 +273,110 @@ impl Handle {
 
     /// Obtenir le nom de l'accord courant ("I", "vi", "IV", "V")
     pub fn get_current_chord_name(&self) -> String {
-        self.harmony_state.lock().map(|s| s.chord_name.clone()).unwrap_or("?".to_string())
+        self.update_harmony_state_cache();
+        self.cached_harmony_state.lock()
+            .map(|s| s.chord_name.to_string())
+            .unwrap_or_else(|_| "?".to_string())
     }
 
     /// Obtenir l'index de l'accord courant (0-3)
     pub fn get_current_chord_index(&self) -> usize {
-        self.harmony_state.lock().map(|s| s.current_chord_index).unwrap_or(0)
+        self.update_harmony_state_cache();
+        self.cached_harmony_state.lock().map(|s| s.current_chord_index).unwrap_or(0)
     }
 
     /// Obtenir si l'accord courant est mineur
     pub fn is_current_chord_minor(&self) -> bool {
-        self.harmony_state.lock().map(|s| s.chord_is_minor).unwrap_or(false)
+        self.update_harmony_state_cache();
+        self.cached_harmony_state.lock().map(|s| s.chord_is_minor).unwrap_or(false)
     }
 
     /// Obtenir le numéro de mesure courant
     pub fn get_current_measure(&self) -> usize {
-        self.harmony_state.lock().map(|s| s.measure_number).unwrap_or(1)
+        self.update_harmony_state_cache();
+        self.cached_harmony_state.lock().map(|s| s.measure_number).unwrap_or(1)
     }
 
     /// Obtenir le numéro de cycle courant
     pub fn get_current_cycle(&self) -> usize {
-        self.harmony_state.lock().map(|s| s.cycle_number).unwrap_or(1)
+        self.update_harmony_state_cache();
+        self.cached_harmony_state.lock().map(|s| s.cycle_number).unwrap_or(1)
     }
 
     /// Obtenir le step courant dans la mesure (0-15)
     pub fn get_current_step(&self) -> usize {
-        self.harmony_state.lock().map(|s| s.current_step).unwrap_or(0)
+        self.update_harmony_state_cache();
+        self.cached_harmony_state.lock().map(|s| s.current_step).unwrap_or(0)
     }
 
     /// Obtenir le nom de la progression harmonique active
     pub fn get_progression_name(&self) -> String {
-        self.harmony_state.lock().map(|s| s.progression_name.clone()).unwrap_or("?".to_string())
+        self.update_harmony_state_cache();
+        self.cached_harmony_state.lock()
+            .map(|s| s.progression_name.to_string())
+            .unwrap_or_else(|_| "?".to_string())
     }
 
     /// Obtenir la longueur de la progression active (nombre d'accords)
     pub fn get_progression_length(&self) -> usize {
-        self.harmony_state.lock().map(|s| s.progression_length).unwrap_or(4)
+        self.update_harmony_state_cache();
+        self.cached_harmony_state.lock().map(|s| s.progression_length).unwrap_or(4)
     }
 
     // === Getters pour la Visualisation Rythmique ===
 
     pub fn get_primary_pulses(&self) -> usize {
-        self.harmony_state.lock().map(|s| s.primary_pulses).unwrap_or(4)
+        self.update_harmony_state_cache();
+        self.cached_harmony_state.lock().map(|s| s.primary_pulses).unwrap_or(4)
     }
 
     pub fn get_secondary_pulses(&self) -> usize {
-        self.harmony_state.lock().map(|s| s.secondary_pulses).unwrap_or(3)
+        self.update_harmony_state_cache();
+        self.cached_harmony_state.lock().map(|s| s.secondary_pulses).unwrap_or(3)
     }
 
     pub fn get_primary_rotation(&self) -> usize {
-        self.harmony_state.lock().map(|s| s.primary_rotation).unwrap_or(0)
+        self.update_harmony_state_cache();
+        self.cached_harmony_state.lock().map(|s| s.primary_rotation).unwrap_or(0)
     }
 
     pub fn get_secondary_rotation(&self) -> usize {
-        self.harmony_state.lock().map(|s| s.secondary_rotation).unwrap_or(0)
+        self.update_harmony_state_cache();
+        self.cached_harmony_state.lock().map(|s| s.secondary_rotation).unwrap_or(0)
     }
 
     pub fn get_primary_steps(&self) -> usize {
-        self.harmony_state.lock().map(|s| s.primary_steps).unwrap_or(16)
+        self.update_harmony_state_cache();
+        self.cached_harmony_state.lock().map(|s| s.primary_steps).unwrap_or(16)
     }
 
     pub fn get_secondary_steps(&self) -> usize {
-        self.harmony_state.lock().map(|s| s.secondary_steps).unwrap_or(12)
+        self.update_harmony_state_cache();
+        self.cached_harmony_state.lock().map(|s| s.secondary_steps).unwrap_or(12)
     }
 
-    /// Récupérer le pattern primaire (Vec<bool> converti en Vec<u8> pour WASM)
+    /// Récupérer le pattern primaire (fixed array converti en Vec<u8> pour WASM)
     /// 1 = pulse actif, 0 = silence
+    /// Phase 2.5: Reads only up to primary_steps from fixed-size array
     pub fn get_primary_pattern(&self) -> Vec<u8> {
-        self.harmony_state.lock()
-            .map(|s| s.primary_pattern.iter().map(|&b| if b { 1 } else { 0 }).collect())
+        self.update_harmony_state_cache();
+        self.cached_harmony_state.lock()
+            .map(|s| {
+                let len = s.primary_steps.min(192);
+                s.primary_pattern[..len].iter().map(|&b| if b { 1 } else { 0 }).collect()
+            })
             .unwrap_or_else(|_| vec![0; 16])
     }
 
     /// Récupérer le pattern secondaire
+    /// Phase 2.5: Reads only up to secondary_steps from fixed-size array
     pub fn get_secondary_pattern(&self) -> Vec<u8> {
-        self.harmony_state.lock()
-            .map(|s| s.secondary_pattern.iter().map(|&b| if b { 1 } else { 0 }).collect())
+        self.update_harmony_state_cache();
+        self.cached_harmony_state.lock()
+            .map(|s| {
+                let len = s.secondary_steps.min(192);
+                s.secondary_pattern[..len].iter().map(|&b| if b { 1 } else { 0 }).collect()
+            })
             .unwrap_or_else(|_| vec![0; 12])
     }
 
@@ -330,8 +384,9 @@ impl Handle {
     /// Retourne un tableau plat [note, instr, step, dur, note, instr, step, dur, ...]
     pub fn get_events(&self) -> Vec<u32> {
         let mut result = Vec::new();
-        if let Ok(mut queue) = self.event_queue.lock() {
-            for event in queue.drain(..) {
+        // Phase 2: Drain event queue consumer
+        if let Ok(mut rx) = self.event_queue_rx.lock() {
+            while let Ok(event) = rx.pop() {
                 result.push(event.note_midi as u32);
                 result.push(event.instrument as u32);
                 result.push(event.step as u32);
@@ -854,16 +909,20 @@ pub fn start_with_backend(sf2_bytes: Option<Box<[u8]>>, backend: &str) -> Result
     let target_state_clone = target_state.clone();
     let control_mode_clone = control_mode.clone();
 
-    let (stream, config, harmony_state, event_queue, font_queue, finished_recordings) =
+    let (stream, config, harmony_state_rx, event_queue_rx, font_queue, finished_recordings) =
         audio::create_stream(target_state, control_mode, sf2_bytes.as_deref(), backend_type)
             .map_err(|e| JsValue::from_str(&e))?;
+
+    // Phase 2: Create cached harmony state
+    let cached_harmony_state = Arc::new(Mutex::new(engine::HarmonyState::default()));
 
     Ok(Handle {
         stream,
         target_state: target_state_clone,
         control_mode: control_mode_clone,
-        harmony_state,
-        event_queue,
+        harmony_state_rx,
+        event_queue_rx,
+        cached_harmony_state,
         font_queue,
         finished_recordings,
         bpm: config.bpm,

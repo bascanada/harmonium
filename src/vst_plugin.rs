@@ -21,6 +21,9 @@ use crate::harmony::HarmonyMode;
 pub struct HarmoniumPlugin {
     params: Arc<HarmoniumParams>,
     engine: Option<HarmoniumEngine>,
+    // Phase 2: Lock-free consumers for Audio→UI communication
+    harmony_state_rx: Option<rtrb::Consumer<crate::engine::HarmonyState>>,
+    event_queue_rx: Option<rtrb::Consumer<crate::engine::VisualizationEvent>>,
     midi_backend: Arc<Mutex<VstMidiBackend>>,
     target_state: Arc<Mutex<EngineParams>>,
     control_mode: Arc<Mutex<ControlMode>>,
@@ -211,6 +214,8 @@ impl Default for HarmoniumPlugin {
         Self {
             params,
             engine: None,
+            harmony_state_rx: None,  // Phase 2: Initialized in activate()
+            event_queue_rx: None,    // Phase 2: Initialized in activate()
             midi_backend,
             target_state,
             control_mode,
@@ -376,13 +381,17 @@ impl Plugin for HarmoniumPlugin {
         // We need to create a new one because we can't clone Arc<Mutex<>> into Box<dyn>
         let engine_backend = Box::new(VstMidiBackend::new());
 
-        // Initialize the engine with the MIDI backend
-        self.engine = Some(HarmoniumEngine::new(
+        // Phase 2: Engine now returns (engine, harmony_rx, event_rx)
+        let (engine, harmony_state_rx, event_queue_rx) = HarmoniumEngine::new(
             self.sample_rate as f64,
             self.target_state.clone(),
             self.control_mode.clone(),
             engine_backend,
-        ));
+        );
+
+        self.engine = Some(engine);
+        self.harmony_state_rx = Some(harmony_state_rx);
+        self.event_queue_rx = Some(event_queue_rx);
 
         true
     }
@@ -426,10 +435,10 @@ impl Plugin for HarmoniumPlugin {
         let mut temp_buffer = vec![0.0f32; num_samples * internal_channels];
         engine.process_buffer(&mut temp_buffer, internal_channels);
 
-        // Collect MIDI events from the engine's event_queue
+        // Phase 2: Collect MIDI events from the event_queue consumer
         // and convert those to MIDI output
-        if let Ok(mut queue) = engine.event_queue.lock() {
-            for event in queue.drain(..) {
+        if let Some(ref mut event_rx) = self.event_queue_rx {
+            while let Ok(event) = event_rx.pop() {
                 // Convert visualization event to MIDI output
                 // Channel mapping: 0=Bass/Kick, 1=Lead/Melody, 2=Snare, 3=Hat
                 //
