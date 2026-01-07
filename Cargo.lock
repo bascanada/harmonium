@@ -1831,6 +1831,7 @@ dependencies = [
  "nih_plug",
  "nih_plug_webview",
  "odin2-core",
+ "once_cell",
  "oxisynth",
  "rand 0.8.5",
  "rosc",
@@ -1839,6 +1840,7 @@ dependencies = [
  "serde-wasm-bindgen 0.6.5",
  "serde_json",
  "tokenizers",
+ "toml 0.8.23",
  "wasm-bindgen",
  "web-sys",
 ]
@@ -4375,6 +4377,7 @@ dependencies = [
  "serde",
  "serde_spanned",
  "toml_datetime 0.6.11",
+ "toml_write",
  "winnow 0.7.14",
 ]
 
@@ -4398,6 +4401,12 @@ checksum = "a3198b4b0a8e11f09dd03e133c0280504d0801269e9afa46362ffde1cbeebf44"
 dependencies = [
  "winnow 0.7.14",
 ]
+
+[[package]]
+name = "toml_write"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 
 [[package]]
 name = "tracing"

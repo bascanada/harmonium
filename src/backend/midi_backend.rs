@@ -80,4 +80,5 @@ impl AudioRenderer for MidiBackend {
         self.samples_since_last_event += (output.len() / channels) as u64;
         output.fill(0.0);
     }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
 }

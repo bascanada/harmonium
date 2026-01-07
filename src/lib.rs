@@ -11,6 +11,7 @@ pub mod engine;
 pub mod fractal;
 pub mod events;
 pub mod backend;
+pub mod synthesis;
 pub mod voice_manager;
 pub mod voicing;
 pub mod params;

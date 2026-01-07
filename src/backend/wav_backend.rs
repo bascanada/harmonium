@@ -33,4 +33,5 @@ impl AudioRenderer for WavBackend {
             self.writer.write_sample(*sample).ok();
         }
     }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
 }

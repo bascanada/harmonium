@@ -205,7 +205,7 @@ fn main() {
             };
 
             #[cfg(not(feature = "ai"))]
-            let emotion_engine: Option<()> = None;
+            let _emotion_engine: Option<()> = None;
 
             let mut buf = [0u8; 4096];
             loop {
