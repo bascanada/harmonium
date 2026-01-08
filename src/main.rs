@@ -1,18 +1,18 @@
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
-use std::env;
-use std::fs;
-use std::net::UdpSocket;
-use rosc::{OscPacket, OscType};
+#[cfg(feature = "ai")]
+use harmonium::ai::EmotionEngine;
 use harmonium::audio;
 use harmonium::audio::AudioBackendType;
 use harmonium::engine::EngineParams;
 use harmonium::harmony::HarmonyMode;
-#[cfg(feature = "ai")]
-use harmonium::ai::EmotionEngine;
 use harmonium::log;
 use rand::Rng;
+use rosc::{OscPacket, OscType};
+use std::env;
+use std::fs;
+use std::net::UdpSocket;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
 fn main() {
     log::info("Harmonium - Procedural Music Generator");
@@ -28,7 +28,7 @@ fn main() {
     let mut duration_secs = 0; // 0 = infini
     let mut harmony_mode = HarmonyMode::Driver; // Default to Driver
     let mut poly_steps: usize = 48; // Default polyrythm steps
-    let mut backend_type = AudioBackendType::default();
+    let mut backend_type = AudioBackendType::Odin2;
 
     let mut i = 1;
     while i < args.len() {
@@ -39,11 +39,14 @@ fn main() {
             "--osc" => use_osc = true,
             "--harmony-mode" | "-m" => {
                 if i + 1 < args.len() {
-                    harmony_mode = match args[i+1].to_lowercase().as_str() {
+                    harmony_mode = match args[i + 1].to_lowercase().as_str() {
                         "basic" => HarmonyMode::Basic,
                         "driver" => HarmonyMode::Driver,
                         _ => {
-                            log::warn(&format!("Unknown harmony mode '{}', using Driver", args[i+1]));
+                            log::warn(&format!(
+                                "Unknown harmony mode '{}', using Driver",
+                                args[i + 1]
+                            ));
                             HarmonyMode::Driver
                         }
                     };
@@ -52,7 +55,7 @@ fn main() {
             }
             "--duration" => {
                 if i + 1 < args.len() {
-                    if let Ok(d) = args[i+1].parse::<u64>() {
+                    if let Ok(d) = args[i + 1].parse::<u64>() {
                         duration_secs = d;
                         i += 1;
                     }
@@ -60,12 +63,15 @@ fn main() {
             }
             "--poly-steps" | "-p" => {
                 if i + 1 < args.len() {
-                    if let Ok(s) = args[i+1].parse::<usize>() {
+                    if let Ok(s) = args[i + 1].parse::<usize>() {
                         // Valider: multiple de 4, entre 16 et 384
                         let valid = (s / 4) * 4;
                         poly_steps = valid.clamp(16, 384);
                         if valid != s {
-                            log::warn(&format!("Poly steps adjusted to {} (must be multiple of 4)", poly_steps));
+                            log::warn(&format!(
+                                "Poly steps adjusted to {} (must be multiple of 4)",
+                                poly_steps
+                            ));
                         }
                         i += 1;
                     }
@@ -73,12 +79,12 @@ fn main() {
             }
             "--backend" | "-b" => {
                 if i + 1 < args.len() {
-                    backend_type = match args[i+1].to_lowercase().as_str() {
+                    backend_type = match args[i + 1].to_lowercase().as_str() {
                         "fundsp" | "synth" | "default" => AudioBackendType::FundSP,
                         #[cfg(feature = "odin2")]
                         "odin2" | "odin" => AudioBackendType::Odin2,
                         _ => {
-                            log::warn(&format!("Unknown backend '{}', using default", args[i+1]));
+                            log::warn(&format!("Unknown backend '{}', using default", args[i + 1]));
                             AudioBackendType::default()
                         }
                     };
@@ -89,14 +95,20 @@ fn main() {
                 println!("Usage: harmonium [OPTIONS] [SOUNDFONT.sf2]");
                 println!();
                 println!("Options:");
-                println!("  --harmony-mode, -m <MODE>  Harmony engine: 'basic' or 'driver' (default: driver)");
-                println!("  --backend, -b <BACKEND>    Audio backend: 'fundsp' or 'odin2' (default: fundsp)");
+                println!(
+                    "  --harmony-mode, -m <MODE>  Harmony engine: 'basic' or 'driver' (default: driver)"
+                );
+                println!(
+                    "  --backend, -b <BACKEND>    Audio backend: 'fundsp' or 'odin2' (default: fundsp)"
+                );
                 println!("  --record-wav               Record to WAV file");
                 println!("  --record-midi              Record to MIDI file");
                 println!("  --record-abc               Record to ABC notation");
                 println!("  --osc                      Enable OSC control (UDP 8080)");
                 println!("  --duration <SECONDS>       Recording duration (0 = infinite)");
-                println!("  --poly-steps, -p <STEPS>   Polyrythm resolution: 48, 96, 192... (default: 48)");
+                println!(
+                    "  --poly-steps, -p <STEPS>   Polyrythm resolution: 48, 96, 192... (default: 48)"
+                );
                 println!("  --help, -h                 Show this help");
                 println!();
                 println!("Harmony Modes:");
@@ -122,7 +134,7 @@ fn main() {
             Ok(bytes) => {
                 log::info("SoundFont loaded successfully");
                 Some(bytes)
-            },
+            }
             Err(e) => {
                 log::warn(&format!("Failed to read SoundFont: {}", e));
                 None
@@ -169,7 +181,7 @@ fn main() {
                 Ok(s) => {
                     log::info(&format!("OSC Listener bound to {}", addr));
                     s
-                },
+                }
                 Err(e) => {
                     log::error(&format!("Failed to bind OSC socket: {}", e));
                     return;
@@ -183,19 +195,24 @@ fn main() {
                 let weights_path = "web/static/models/model.safetensors";
                 let tokenizer_path = "web/static/models/tokenizer.json";
 
-                if fs::metadata(config_path).is_ok() && fs::metadata(weights_path).is_ok() && fs::metadata(tokenizer_path).is_ok() {
+                if fs::metadata(config_path).is_ok()
+                    && fs::metadata(weights_path).is_ok()
+                    && fs::metadata(tokenizer_path).is_ok()
+                {
                     log::info("Loading AI Model for OSC...");
-                    match (fs::read(config_path), fs::read(weights_path), fs::read(tokenizer_path)) {
-                        (Ok(c), Ok(w), Ok(t)) => {
-                            match EmotionEngine::new(&c, &w, &t) {
-                                Ok(engine) => {
-                                    log::info("AI Model loaded successfully!");
-                                    Some(engine)
-                                },
-                                Err(e) => {
-                                    log::error(&format!("Failed to init AI engine: {:?}", e));
-                                    None
-                                }
+                    match (
+                        fs::read(config_path),
+                        fs::read(weights_path),
+                        fs::read(tokenizer_path),
+                    ) {
+                        (Ok(c), Ok(w), Ok(t)) => match EmotionEngine::new(&c, &w, &t) {
+                            Ok(engine) => {
+                                log::info("AI Model loaded successfully!");
+                                Some(engine)
+                            }
+                            Err(e) => {
+                                log::error(&format!("Failed to init AI engine: {:?}", e));
+                                None
                             }
                         },
                         _ => {
@@ -204,7 +221,9 @@ fn main() {
                         }
                     }
                 } else {
-                    log::warn("AI Model files not found in web/static/models. OSC will only accept raw params.");
+                    log::warn(
+                        "AI Model files not found in web/static/models. OSC will only accept raw params.",
+                    );
                     log::warn("Run 'make models/download' to enable AI features.");
                     None
                 }
@@ -222,33 +241,46 @@ fn main() {
                                 OscPacket::Message(msg) => {
                                     #[cfg(feature = "ai")]
                                     if msg.addr == "/harmonium/label" {
-                                         let args = msg.args.clone();
-                                         if let Some(OscType::String(label)) = args.get(0) {
+                                        let args = msg.args.clone();
+                                        if let Some(OscType::String(label)) = args.get(0) {
                                             log::info(&format!("OSC LABEL RECEIVED: {}", label));
 
                                             if let Some(engine) = &emotion_engine {
                                                 match engine.predict_native(label) {
                                                     Ok(predicted_params) => {
                                                         // Phase 3: Use triple buffer write (lock Input on UI side)
-                                                        if let Ok(mut input) = osc_params_input.lock() {
-                                                            let mut current = input.input_buffer_mut().clone();
-                                                            current.arousal = predicted_params.arousal;
-                                                            current.valence = predicted_params.valence;
-                                                            current.density = predicted_params.density;
-                                                            current.tension = predicted_params.tension;
+                                                        if let Ok(mut input) =
+                                                            osc_params_input.lock()
+                                                        {
+                                                            let mut current =
+                                                                input.input_buffer_mut().clone();
+                                                            current.arousal =
+                                                                predicted_params.arousal;
+                                                            current.valence =
+                                                                predicted_params.valence;
+                                                            current.density =
+                                                                predicted_params.density;
+                                                            current.tension =
+                                                                predicted_params.tension;
                                                             input.write(current);
                                                             log::info(&format!(
                                                                 "AI UPDATE: Arousal {:.2} | Valence {:.2} | Density {:.2} | Tension {:.2}",
-                                                                predicted_params.arousal, predicted_params.valence, predicted_params.density, predicted_params.tension
+                                                                predicted_params.arousal,
+                                                                predicted_params.valence,
+                                                                predicted_params.density,
+                                                                predicted_params.tension
                                                             ));
                                                         }
-                                                    },
-                                                    Err(e) => log::error(&format!("AI Prediction failed: {}", e)),
+                                                    }
+                                                    Err(e) => log::error(&format!(
+                                                        "AI Prediction failed: {}",
+                                                        e
+                                                    )),
                                                 }
                                             } else {
                                                 log::warn("AI Engine not loaded. Ignoring label.");
                                             }
-                                         }
+                                        }
                                     }
 
                                     if msg.addr == "/harmonium/params" {
@@ -308,10 +340,10 @@ fn main() {
                 if let Ok(mut input) = simulator_params_input.lock() {
                     let mut params = input.input_buffer_mut().clone();
                     // Simule un changement d'action/émotio
-                    params.arousal = rng.gen_range(0.15..0.95);   // Activation/Énergie
-                    params.valence = rng.gen_range(-0.8..0.8);    // Positif/Négatif
-                    params.density = rng.gen_range(0.15..0.95);   // Complexité rythmique
-                    params.tension = rng.gen_range(0.0..1.0);     // Dissonance
+                    params.arousal = rng.gen_range(0.15..0.95); // Activation/Énergie
+                    params.valence = rng.gen_range(-0.8..0.8); // Positif/Négatif
+                    params.density = rng.gen_range(0.15..0.95); // Complexité rythmique
+                    params.tension = rng.gen_range(0.0..1.0); // Dissonance
 
                     // Extract values for logging before moving params
                     let arousal = params.arousal;
@@ -332,10 +364,16 @@ fn main() {
 
     // === 3. Création du Stream Audio avec l'état partagé ===
     // Phase 3: Pass Output side of triple buffer to audio thread
-    let control_mode = std::sync::Arc::new(std::sync::Mutex::new(harmonium::ControlMode::default()));
+    let control_mode =
+        std::sync::Arc::new(std::sync::Mutex::new(harmonium::ControlMode::default()));
     let (_stream, config, _harmony_state, _event_queue, _font_queue, finished_recordings) =
-        audio::create_stream(target_params_output, control_mode, sf2_data.as_deref(), backend_type)
-            .expect("Failed to create audio stream");
+        audio::create_stream(
+            target_params_output,
+            control_mode,
+            sf2_data.as_deref(),
+            backend_type,
+        )
+        .expect("Failed to create audio stream");
 
     // Démarrage de l'enregistrement si demandé
     if record_wav || record_midi || record_abc {
@@ -390,7 +428,11 @@ fn main() {
                     harmonium::events::RecordFormat::Midi => "output.mid",
                     harmonium::events::RecordFormat::Abc => "output.abc",
                 };
-                log::info(&format!("Saving recording to {} ({} bytes)", filename, data.len()));
+                log::info(&format!(
+                    "Saving recording to {} ({} bytes)",
+                    filename,
+                    data.len()
+                ));
                 if let Err(e) = fs::write(filename, data) {
                     log::warn(&format!("Failed to write file: {}", e));
                 }

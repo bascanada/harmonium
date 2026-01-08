@@ -282,14 +282,20 @@ struct HatVoice {
     env: Adsr,
     velocity: f32,
     active: bool,
+
+    /// Contrôle dynamique du filtre (brillance)
+    current_cutoff: f32,
+    /// Modulation du decay (Closed vs Open)
+    decay_mod: f32,
 }
 
 impl HatVoice {
     fn new(sample_rate: f32) -> Self {
         let mut noise = NoiseOscillator::new(sample_rate);
-        // Highpass for hi-hat (less harsh range)
-        noise.set_lp_freq(12000.0);
-        noise.set_hp_freq(4000.0);
+        // Élargir la plage pour laisser le contrôle au code
+        // Était 4000.0 (trop restrictif), maintenant 1000.0 pour plus de flexibilité
+        noise.set_hp_freq(1000.0);
+        noise.set_lp_freq(16000.0);
 
         let mut env = Adsr::new(sample_rate);
         env.set_attack(0.001);
@@ -302,6 +308,9 @@ impl HatVoice {
             env,
             velocity: 0.0,
             active: false,
+            // Valeurs par défaut pour le contrôle dynamique
+            current_cutoff: 8000.0,
+            decay_mod: 0.05,
         }
     }
 
@@ -316,6 +325,14 @@ impl HatVoice {
             return (0.0, 0.0);
         }
 
+        // 1. FILTRE DYNAMIQUE
+        // On utilise le cutoff pour le filtre PASSE-HAUT (HP)
+        // C'est ce qui définit le caractère "métallique"
+        // Anger = 9000Hz (Très fin et aigu)
+        // Calm = 2000Hz (Plus de corps, moins agressif)
+        self.noise.set_hp_freq(self.current_cutoff * 0.5); // On divise pour garder du corps
+        self.noise.set_lp_freq(self.current_cutoff * 2.0); // Le LP suit le HP pour créer une bande
+
         let noise_out = self.noise.process();
         let amp = self.env.process();
 
@@ -323,8 +340,11 @@ impl HatVoice {
             self.active = false;
         }
 
-        let out = noise_out * amp * self.velocity * 0.25;
-        // Pan slightly right (subtle)
+        // 2. GAIN RÉDUIT
+        // Le Hat perce le mix très facilement. On baisse de 0.25 à 0.15
+        let out = noise_out * amp * self.velocity * 0.15;
+
+        // Panoramique léger
         (out * 0.9, out * 1.1)
     }
 }
@@ -647,12 +667,18 @@ impl Odin2Backend {
 
     /// Apply preset to hat voice
     fn apply_preset_to_hat(&mut self, preset: &SynthPreset) {
-        // Hat uses noise with highpass filter
-        // Envelope (HatVoice uses 'env' not 'amp_env')
+        // 1. Enveloppe de base
         self.hat.env.set_attack(preset.envelopes.amp.attack);
-        self.hat.env.set_decay(preset.envelopes.amp.decay);
-        self.hat.env.set_sustain(preset.envelopes.amp.sustain);
+        // On garde le decay du preset comme "base", mais on pourra le moduler
+        self.hat.decay_mod = preset.envelopes.amp.decay;
+        self.hat.env.set_decay(self.hat.decay_mod);
+        self.hat.env.set_sustain(0.0); // Toujours 0 pour un Hat
         self.hat.env.set_release(preset.envelopes.amp.release);
+
+        // 2. Filtre Dynamique
+        // Plus le cutoff est haut, plus le Hat est "tchik" (brillant)
+        // Plus il est bas, plus il est "tsst" (douceur)
+        self.hat.current_cutoff = preset.filter.cutoff;
     }
 
     /// Apply preset to poly voices
