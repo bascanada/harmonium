@@ -133,30 +133,36 @@ fn main() {
         None
     };
 
-    // === 1. État Partagé (Thread-safe) ===
-    let target_state = Arc::new(Mutex::new(EngineParams::default()));
+    // === 1. État Partagé (Lock-free avec Triple Buffer) ===
+    // Phase 3: Create triple buffer for lock-free UI→Audio parameter updates
+    let mut initial_params = EngineParams::default();
+    initial_params.harmony_mode = harmony_mode;
+    initial_params.poly_steps = poly_steps;
 
-    // Appliquer le mode d'harmonie et poly_steps choisis
-    if let Ok(mut params) = target_state.lock() {
-        params.harmony_mode = harmony_mode;
-        params.poly_steps = poly_steps;
-    }
+    let (target_params_input, target_params_output) = triple_buffer::triple_buffer(&initial_params);
+    // Wrap Input in Arc<Mutex> for sharing across UI threads (OSC, simulator, main)
+    // This is OK since Input is on UI side, not real-time audio side
+    let target_params_input = Arc::new(Mutex::new(target_params_input));
 
     log::info(&format!("🎵 Poly Steps: {}", poly_steps));
 
     // Si on a un SoundFont, on active le routing Oxisynth par défaut pour tester
     if sf2_data.is_some() {
-        if let Ok(mut params) = target_state.lock() {
+        // Phase 3: Use triple buffer write (lock Input on UI side)
+        if let Ok(mut input) = target_params_input.lock() {
+            let mut params = input.input_buffer_mut().clone();
             // Tout sur Oxisynth (Bank 0) sauf peut-être la batterie ?
             // Mettons tout sur Oxisynth pour l'instant pour tester le fichier
             params.channel_routing = vec![0; 16];
+            input.write(params);
             log::info("Routing set to Oxisynth (Bank 0) for all channels");
         }
     }
 
     // === 2. OSC Listener (UDP 8080) ===
     if use_osc {
-        let osc_state = target_state.clone();
+        // Phase 3: Clone Arc<Mutex<Input>> for OSC thread to write parameters
+        let osc_params_input = target_params_input.clone();
         thread::spawn(move || {
             let addr = "127.0.0.1:8080";
             let socket = match UdpSocket::bind(addr) {
@@ -222,15 +228,18 @@ fn main() {
 
                                             if let Some(engine) = &emotion_engine {
                                                 match engine.predict_native(label) {
-                                                    Ok(params) => {
-                                                        if let Ok(mut state) = osc_state.lock() {
-                                                            state.arousal = params.arousal;
-                                                            state.valence = params.valence;
-                                                            state.density = params.density;
-                                                            state.tension = params.tension;
+                                                    Ok(predicted_params) => {
+                                                        // Phase 3: Use triple buffer write (lock Input on UI side)
+                                                        if let Ok(mut input) = osc_params_input.lock() {
+                                                            let mut current = input.input_buffer_mut().clone();
+                                                            current.arousal = predicted_params.arousal;
+                                                            current.valence = predicted_params.valence;
+                                                            current.density = predicted_params.density;
+                                                            current.tension = predicted_params.tension;
+                                                            input.write(current);
                                                             log::info(&format!(
                                                                 "AI UPDATE: Arousal {:.2} | Valence {:.2} | Density {:.2} | Tension {:.2}",
-                                                                params.arousal, params.valence, params.density, params.tension
+                                                                predicted_params.arousal, predicted_params.valence, predicted_params.density, predicted_params.tension
                                                             ));
                                                         }
                                                     },
@@ -258,12 +267,15 @@ fn main() {
                                             let valence = get_float(&args[1]);
                                             let density = get_float(&args[2]);
                                             let tension = get_float(&args[3]);
-                                            
-                                            if let Ok(mut params) = osc_state.lock() {
-                                                params.arousal = arousal;
-                                                params.valence = valence;
-                                                params.density = density;
-                                                params.tension = tension;
+
+                                            // Phase 3: Use triple buffer write (lock Input on UI side)
+                                            if let Ok(mut input) = osc_params_input.lock() {
+                                                let mut current = input.input_buffer_mut().clone();
+                                                current.arousal = arousal;
+                                                current.valence = valence;
+                                                current.density = density;
+                                                current.tension = tension;
+                                                input.write(current);
                                             }
                                         }
                                     }
@@ -282,26 +294,36 @@ fn main() {
         log::info("OSC disabled. Use --osc to enable external control.");
 
         // === 2b. Thread Simulateur d'IA (Changements aléatoires toutes les 5 secondes) ===
-        let controller_state = target_state.clone();
+        // Phase 3: Clone Arc<Mutex<Input>> for simulator thread to write parameters
+        let simulator_params_input = target_params_input.clone();
         thread::spawn(move || {
             let mut rng = rand::thread_rng();
             thread::sleep(Duration::from_secs(3)); // Attendre le démarrage
-            
+
             log::info("Simulateur d'IA démarré (changements toutes les 5s)");
-            
+
             loop {
                 thread::sleep(Duration::from_secs(5));
-                if let Ok(mut params) = controller_state.lock() {
+                // Phase 3: Use triple buffer write (lock Input on UI side)
+                if let Ok(mut input) = simulator_params_input.lock() {
+                    let mut params = input.input_buffer_mut().clone();
                     // Simule un changement d'action/émotio
                     params.arousal = rng.gen_range(0.15..0.95);   // Activation/Énergie
                     params.valence = rng.gen_range(-0.8..0.8);    // Positif/Négatif
                     params.density = rng.gen_range(0.15..0.95);   // Complexité rythmique
                     params.tension = rng.gen_range(0.0..1.0);     // Dissonance
-                    
+
+                    // Extract values for logging before moving params
+                    let arousal = params.arousal;
+                    let valence = params.valence;
+                    let density = params.density;
+                    let tension = params.tension;
                     let bpm = params.compute_bpm();
+
+                    input.write(params);
                     log::info(&format!(
                         "EMOTION CHANGE: Arousal {:.2} (→ {:.0} BPM) | Valence {:.2} | Density {:.2} | Tension {:.2}",
-                        params.arousal, bpm, params.valence, params.density, params.tension
+                        arousal, bpm, valence, density, tension
                     ));
                 }
             }
@@ -309,17 +331,21 @@ fn main() {
     }
 
     // === 3. Création du Stream Audio avec l'état partagé ===
+    // Phase 3: Pass Output side of triple buffer to audio thread
     let control_mode = std::sync::Arc::new(std::sync::Mutex::new(harmonium::ControlMode::default()));
     let (_stream, config, _harmony_state, _event_queue, _font_queue, finished_recordings) =
-        audio::create_stream(target_state.clone(), control_mode, sf2_data.as_deref(), backend_type)
+        audio::create_stream(target_params_output, control_mode, sf2_data.as_deref(), backend_type)
             .expect("Failed to create audio stream");
 
     // Démarrage de l'enregistrement si demandé
     if record_wav || record_midi || record_abc {
-        if let Ok(mut params) = target_state.lock() {
+        // Phase 3: Use triple buffer write (lock Input on UI side)
+        if let Ok(mut input) = target_params_input.lock() {
+            let mut params = input.input_buffer_mut().clone();
             params.record_wav = record_wav;
             params.record_midi = record_midi;
             params.record_abc = record_abc;
+            input.write(params);
             log::info("Recording started...");
         }
     }
@@ -342,10 +368,13 @@ fn main() {
         if duration_secs > 0 && !recording_stopped {
             if start_time.elapsed().as_secs() >= duration_secs {
                 log::info("Duration reached. Stopping recording...");
-                if let Ok(mut params) = target_state.lock() {
+                // Phase 3: Use triple buffer write (lock Input on UI side)
+                if let Ok(mut input) = target_params_input.lock() {
+                    let mut params = input.input_buffer_mut().clone();
                     params.record_wav = false;
                     params.record_midi = false;
                     params.record_abc = false;
+                    input.write(params);
                 }
                 recording_stopped = true;
                 // Attendre un peu que le backend traite l'événement

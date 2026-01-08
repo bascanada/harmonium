@@ -39,11 +39,13 @@ pub fn create_editor(
     target_state: Arc<Mutex<EngineParams>>,
     control_mode: Arc<Mutex<ControlMode>>,
     params: Arc<HarmoniumParams>,
+    harmony_state_rx: Arc<Mutex<Option<rtrb::Consumer<crate::engine::HarmonyState>>>>,
 ) -> Option<Box<dyn Editor>> {
     // Clone for the event loop closure
     let target_state_clone = target_state.clone();
     let control_mode_clone = control_mode.clone();
     let params_clone = params.clone();
+    let harmony_state_rx_clone = harmony_state_rx.clone();
 
     // Frame counter for throttling state updates
     let frame_counter = Arc::new(std::sync::atomic::AtomicU32::new(0));
@@ -84,6 +86,33 @@ pub fn create_editor(
         while let Ok(msg) = ctx.next_event() {
             let msg_str = extract_message_string(&msg);
             handle_message(&msg_str, &target_state_clone, &control_mode_clone, &params_clone);
+        }
+
+        // Consume harmony state updates from the engine's lock-free queue
+        // and update ControlMode for UI visualization
+        if let Ok(mut rx_opt) = harmony_state_rx_clone.lock() {
+            if let Some(rx) = rx_opt.as_mut() {
+                // Drain all available states and keep only the latest
+                let mut latest: Option<crate::engine::HarmonyState> = None;
+                while let Ok(state) = rx.pop() {
+                    latest = Some(state);
+                }
+                // Update control_mode with latest harmony state
+                if let Some(harmony_state) = latest {
+                    if let Ok(mut mode) = control_mode_clone.lock() {
+                        mode.current_step = harmony_state.current_step as u32;
+                        mode.current_measure = harmony_state.measure_number as u32;
+                        mode.current_chord = harmony_state.chord_name.to_string();
+                        mode.is_minor_chord = harmony_state.chord_is_minor;
+                        mode.progression_name = harmony_state.progression_name.to_string();
+                        // Convert fixed-size arrays to Vec for UI
+                        let primary_len = harmony_state.primary_steps.min(192);
+                        mode.primary_pattern = harmony_state.primary_pattern[..primary_len].to_vec();
+                        let secondary_len = harmony_state.secondary_steps.min(192);
+                        mode.secondary_pattern = harmony_state.secondary_pattern[..secondary_len].to_vec();
+                    }
+                }
+            }
         }
 
         // Throttle state updates to ~30Hz (every 2 frames at 60fps)

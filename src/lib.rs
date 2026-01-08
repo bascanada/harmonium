@@ -3,6 +3,8 @@ use wasm_bindgen::prelude::*;
 
 #[cfg(feature = "standalone")]
 use std::sync::{Arc, Mutex};
+#[cfg(feature = "standalone")]
+use triple_buffer::Input;
 
 pub mod sequencer;
 pub mod harmony;
@@ -94,8 +96,10 @@ impl RecordedData {
 pub struct Handle {
     #[allow(dead_code)]
     stream: cpal::Stream,
-    /// État partagé pour contrôler le moteur en temps réel (mode émotion)
-    target_state: Arc<Mutex<engine::EngineParams>>,
+    /// Phase 3: Lock-free triple buffer for UI→Audio parameter updates
+    target_params_input: Input<engine::EngineParams>,
+    /// Phase 3: Local cache to avoid read-modify-write races
+    cached_params: engine::EngineParams,
     /// État partagé pour le mode de contrôle (émotion vs direct)
     control_mode: Arc<Mutex<params::ControlMode>>,
     /// Phase 2: Lock-free consumer for harmony state (Audio→UI)
@@ -160,67 +164,73 @@ impl Handle {
     /// Définir l'arousal (activation/énergie) qui contrôle le BPM (0.0 à 1.0)
     /// Low (0.0) = 70 BPM, High (1.0) = 180 BPM
     pub fn set_arousal(&mut self, arousal: f32) {
-        if let Ok(mut state) = self.target_state.lock() {
-            state.arousal = arousal.clamp(0.0, 1.0);
-        }
+        // Phase 3: Update local cache then write to triple buffer
+        self.cached_params.arousal = arousal.clamp(0.0, 1.0);
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définir la valence (positif/négatif) pour l'harmonie (-1.0 à 1.0)
     /// Negative = Minor/Sad, Positive = Major/Happy
     pub fn set_valence(&mut self, valence: f32) {
-        if let Ok(mut state) = self.target_state.lock() {
-            state.valence = valence.clamp(-1.0, 1.0);
-        }
+        // Phase 3: Update local cache then write to triple buffer
+
+        self.cached_params.valence = valence.clamp(-1.0, 1.0);
+
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définir la densité rythmique (0.0 = calme, 1.0 = dense)
     pub fn set_density(&mut self, density: f32) {
-        if let Ok(mut state) = self.target_state.lock() {
-            state.density = density.clamp(0.0, 1.0);
-        }
+        // Phase 3: Update local cache then write to triple buffer
+
+        self.cached_params.density = density.clamp(0.0, 1.0);
+
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définir la tension harmonique (0.0 = consonant, 1.0 = dissonant)
     pub fn set_tension(&mut self, tension: f32) {
-        if let Ok(mut state) = self.target_state.lock() {
-            state.tension = tension.clamp(0.0, 1.0);
-        }
+        // Phase 3: Update local cache then write to triple buffer
+
+        self.cached_params.tension = tension.clamp(0.0, 1.0);
+
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définir l'algorithme rythmique (0 = Euclidean, 1 = PerfectBalance, 2 = ClassicGroove)
     /// PerfectBalance: polyrythmes parfaits via polygones (XronoMorph)
     /// ClassicGroove: patterns de batterie réalistes avec ghost notes
     pub fn set_algorithm(&mut self, algorithm: u8) {
-        if let Ok(mut state) = self.target_state.lock() {
-            state.algorithm = match algorithm {
-                0 => RhythmMode::Euclidean,
-                1 => RhythmMode::PerfectBalance,
-                2 => RhythmMode::ClassicGroove,
-                _ => RhythmMode::Euclidean, // Fallback
-            };
-        }
+        
+        self.cached_params.algorithm = match algorithm {
+            0 => RhythmMode::Euclidean,
+            1 => RhythmMode::PerfectBalance,
+            2 => RhythmMode::ClassicGroove,
+            _ => RhythmMode::Euclidean, // Fallback
+        };
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Obtenir l'algorithme rythmique actuel (0 = Euclidean, 1 = PerfectBalance, 2 = ClassicGroove)
-    pub fn get_algorithm(&self) -> u8 {
-        self.target_state.lock().map(|s| match s.algorithm {
+    pub fn get_algorithm(&mut self) -> u8 {
+        match self.target_params_input.input_buffer_mut().algorithm {
             RhythmMode::Euclidean => 0,
             RhythmMode::PerfectBalance => 1,
             RhythmMode::ClassicGroove => 2,
-        }).unwrap_or(0)
+        }
     }
 
     /// Définir le mode d'harmonie (0 = Basic, 1 = Driver)
     /// Basic: Russell Circumplex quadrants (I-IV-vi-V progressions)
     /// Driver: Steedman Grammar + Neo-Riemannian PLR + LCC
     pub fn set_harmony_mode(&mut self, mode: u8) {
-        if let Ok(mut state) = self.target_state.lock() {
-            state.harmony_mode = match mode {
-                0 => HarmonyMode::Basic,
-                1 => HarmonyMode::Driver,
-                _ => HarmonyMode::Driver, // Fallback
-            };
-        }
+        
+        self.cached_params.harmony_mode = match mode {
+            0 => HarmonyMode::Basic,
+            1 => HarmonyMode::Driver,
+            _ => HarmonyMode::Driver, // Fallback
+        };
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Obtenir le mode d'harmonie actuel depuis l'état du moteur (0 = Basic, 1 = Driver)
@@ -235,38 +245,42 @@ impl Handle {
     // === Getters pour l'état actuel ===
 
     /// Obtenir l'arousal cible actuel
-    pub fn get_target_arousal(&self) -> f32 {
-        self.target_state.lock().map(|s| s.arousal).unwrap_or(0.5)
+    pub fn get_target_arousal(&mut self) -> f32 {
+        self.target_params_input.input_buffer_mut().arousal
     }
 
     /// Obtenir la valence cible actuelle
-    pub fn get_target_valence(&self) -> f32 {
-        self.target_state.lock().map(|s| s.valence).unwrap_or(0.0)
+    pub fn get_target_valence(&mut self) -> f32 {
+        self.target_params_input.input_buffer_mut().valence
     }
 
     /// Obtenir la densité cible actuelle
-    pub fn get_target_density(&self) -> f32 {
-        self.target_state.lock().map(|s| s.density).unwrap_or(0.5)
+    pub fn get_target_density(&mut self) -> f32 {
+        self.target_params_input.input_buffer_mut().density
     }
 
     /// Obtenir la tension cible actuelle
-    pub fn get_target_tension(&self) -> f32 {
-        self.target_state.lock().map(|s| s.tension).unwrap_or(0.5)
+    pub fn get_target_tension(&mut self) -> f32 {
+        self.target_params_input.input_buffer_mut().tension
     }
 
     /// Obtenir le BPM calculé depuis l'arousal
-    pub fn get_computed_bpm(&self) -> f32 {
-        self.target_state.lock().map(|s| s.compute_bpm()).unwrap_or(125.0)
+    pub fn get_computed_bpm(&mut self) -> f32 {
+        self.target_params_input.input_buffer_mut().compute_bpm()
     }
 
     /// Définir tous les paramètres émotionnels en une fois
     pub fn set_params(&mut self, arousal: f32, valence: f32, density: f32, tension: f32) {
-        if let Ok(mut state) = self.target_state.lock() {
-            state.arousal = arousal.clamp(0.0, 1.0);
-            state.valence = valence.clamp(-1.0, 1.0);
-            state.density = density.clamp(0.0, 1.0);
-            state.tension = tension.clamp(0.0, 1.0);
-        }
+        
+
+        
+            self.cached_params.arousal = arousal.clamp(0.0, 1.0);
+            self.cached_params.valence = valence.clamp(-1.0, 1.0);
+            self.cached_params.density = density.clamp(0.0, 1.0);
+            self.cached_params.tension = tension.clamp(0.0, 1.0);
+        
+
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     // === Getters pour l'état harmonique (UI Display) ===
@@ -398,114 +412,142 @@ impl Handle {
 
     /// Définir le routage d'un canal (-1 = FundSP, >=0 = Bank ID)
     pub fn set_channel_routing(&mut self, channel: usize, mode: i32) {
-        if let Ok(mut state) = self.target_state.lock() {
-            if channel < 16 {
-                if state.channel_routing.len() <= channel {
-                    state.channel_routing.resize(16, -1);
-                }
-                state.channel_routing[channel] = mode;
+        
+        if channel < 16 {
+            if self.cached_params.channel_routing.len() <= channel {
+                self.cached_params.channel_routing.resize(16, -1);
             }
+            self.cached_params.channel_routing[channel] = mode;
         }
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définir le mute d'un canal (true = Muted)
     pub fn set_channel_muted(&mut self, channel: usize, is_muted: bool) {
-        if let Ok(mut state) = self.target_state.lock() {
-            if channel < 16 {
-                if state.muted_channels.len() <= channel {
-                    state.muted_channels.resize(16, false);
-                }
-                state.muted_channels[channel] = is_muted;
+        
+        if channel < 16 {
+            if self.cached_params.muted_channels.len() <= channel {
+                self.cached_params.muted_channels.resize(16, false);
             }
+            self.cached_params.muted_channels[channel] = is_muted;
         }
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     // === Mixer Controls ===
 
     /// Set gain for lead instrument (0.0-1.0, default 1.0)
     pub fn set_gain_lead(&mut self, gain: f32) {
-        if let Ok(mut state) = self.target_state.lock() {
-            state.gain_lead = gain.clamp(0.0, 1.0);
-        }
+        
+
+        
+            self.cached_params.gain_lead = gain.clamp(0.0, 1.0);
+        
+
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Set gain for bass instrument (0.0-1.0, default 0.6)
     pub fn set_gain_bass(&mut self, gain: f32) {
-        if let Ok(mut state) = self.target_state.lock() {
-            state.gain_bass = gain.clamp(0.0, 1.0);
-        }
+        
+
+        
+            self.cached_params.gain_bass = gain.clamp(0.0, 1.0);
+        
+
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Set gain for snare (0.0-1.0, default 0.5)
     pub fn set_gain_snare(&mut self, gain: f32) {
-        if let Ok(mut state) = self.target_state.lock() {
-            state.gain_snare = gain.clamp(0.0, 1.0);
-        }
+        
+
+        
+            self.cached_params.gain_snare = gain.clamp(0.0, 1.0);
+        
+
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Set gain for hi-hat (0.0-1.0, default 0.4)
     pub fn set_gain_hat(&mut self, gain: f32) {
-        if let Ok(mut state) = self.target_state.lock() {
-            state.gain_hat = gain.clamp(0.0, 1.0);
-        }
+        
+
+        
+            self.cached_params.gain_hat = gain.clamp(0.0, 1.0);
+        
+
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Set base velocity for bass (0-127, default 85)
     pub fn set_vel_base_bass(&mut self, vel: u8) {
-        if let Ok(mut state) = self.target_state.lock() {
-            state.vel_base_bass = vel.min(127);
-        }
+        
+
+        
+            self.cached_params.vel_base_bass = vel.min(127);
+        
+
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Set base velocity for snare (0-127, default 70)
     pub fn set_vel_base_snare(&mut self, vel: u8) {
-        if let Ok(mut state) = self.target_state.lock() {
-            state.vel_base_snare = vel.min(127);
-        }
+        
+
+        
+            self.cached_params.vel_base_snare = vel.min(127);
+        
+
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Get current gain for lead
-    pub fn get_gain_lead(&self) -> f32 {
-        self.target_state.lock().map(|s| s.gain_lead).unwrap_or(1.0)
+    pub fn get_gain_lead(&mut self) -> f32 {
+        self.target_params_input.input_buffer_mut().gain_lead
     }
 
     /// Get current gain for bass
-    pub fn get_gain_bass(&self) -> f32 {
-        self.target_state.lock().map(|s| s.gain_bass).unwrap_or(0.6)
+    pub fn get_gain_bass(&mut self) -> f32 {
+        self.target_params_input.input_buffer_mut().gain_bass
     }
 
     /// Get current gain for snare
-    pub fn get_gain_snare(&self) -> f32 {
-        self.target_state.lock().map(|s| s.gain_snare).unwrap_or(0.5)
+    pub fn get_gain_snare(&mut self) -> f32 {
+        self.target_params_input.input_buffer_mut().gain_snare
     }
 
     /// Get current gain for hi-hat
-    pub fn get_gain_hat(&self) -> f32 {
-        self.target_state.lock().map(|s| s.gain_hat).unwrap_or(0.4)
+    pub fn get_gain_hat(&mut self) -> f32 {
+        self.target_params_input.input_buffer_mut().gain_hat
     }
 
     /// Get base velocity for bass
-    pub fn get_vel_base_bass(&self) -> u8 {
-        self.target_state.lock().map(|s| s.vel_base_bass).unwrap_or(85)
+    pub fn get_vel_base_bass(&mut self) -> u8 {
+        self.target_params_input.input_buffer_mut().vel_base_bass
     }
 
     /// Get base velocity for snare
-    pub fn get_vel_base_snare(&self) -> u8 {
-        self.target_state.lock().map(|s| s.vel_base_snare).unwrap_or(70)
+    pub fn get_vel_base_snare(&mut self) -> u8 {
+        self.target_params_input.input_buffer_mut().vel_base_snare
     }
 
     /// Set polyrythm steps (48, 96, 192...) - must be multiple of 4
     pub fn set_poly_steps(&mut self, steps: usize) {
-        if let Ok(mut state) = self.target_state.lock() {
+        
+
+        
             // Ensure it's a multiple of 4 and reasonable range
             let valid_steps = (steps / 4) * 4;
-            state.poly_steps = valid_steps.clamp(16, 384);
-        }
+            self.cached_params.poly_steps = valid_steps.clamp(16, 384);
+        
+
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Get current polyrythm steps
-    pub fn get_poly_steps(&self) -> usize {
-        self.target_state.lock().map(|s| s.poly_steps).unwrap_or(48)
+    pub fn get_poly_steps(&mut self) -> usize {
+        self.target_params_input.input_buffer_mut().poly_steps
     }
 
     /// Ajouter une SoundFont à un bank spécifique
@@ -541,40 +583,40 @@ impl Handle {
 
     // === Recording ===
 
-    pub fn start_recording_wav(&self) {
-        if let Ok(mut state) = self.target_state.lock() {
-            state.record_wav = true;
-        }
+    pub fn start_recording_wav(&mut self) {
+        
+        self.cached_params.record_wav = true;
+        self.target_params_input.write(self.cached_params.clone());
     }
 
-    pub fn stop_recording_wav(&self) {
-        if let Ok(mut state) = self.target_state.lock() {
-            state.record_wav = false;
-        }
+    pub fn stop_recording_wav(&mut self) {
+        
+        self.cached_params.record_wav = false;
+        self.target_params_input.write(self.cached_params.clone());
     }
 
-    pub fn start_recording_midi(&self) {
-        if let Ok(mut state) = self.target_state.lock() {
-            state.record_midi = true;
-        }
+    pub fn start_recording_midi(&mut self) {
+        
+        self.cached_params.record_midi = true;
+        self.target_params_input.write(self.cached_params.clone());
     }
 
-    pub fn stop_recording_midi(&self) {
-        if let Ok(mut state) = self.target_state.lock() {
-            state.record_midi = false;
-        }
-    }
-    
-    pub fn start_recording_abc(&self) {
-        if let Ok(mut state) = self.target_state.lock() {
-            state.record_abc = true;
-        }
+    pub fn stop_recording_midi(&mut self) {
+        
+        self.cached_params.record_midi = false;
+        self.target_params_input.write(self.cached_params.clone());
     }
 
-    pub fn stop_recording_abc(&self) {
-        if let Ok(mut state) = self.target_state.lock() {
-            state.record_abc = false;
-        }
+    pub fn start_recording_abc(&mut self) {
+        
+        self.cached_params.record_abc = true;
+        self.target_params_input.write(self.cached_params.clone());
+    }
+
+    pub fn stop_recording_abc(&mut self) {
+        
+        self.cached_params.record_abc = false;
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Récupère le dernier enregistrement terminé (WAV ou MIDI)
@@ -660,6 +702,27 @@ impl Handle {
     pub fn set_direct_enable_voicing(&self, enabled: bool) {
         if let Ok(mut mode) = self.control_mode.lock() {
             mode.enable_voicing = enabled;
+        }
+    }
+
+    /// Set all rhythm parameters at once (avoids read-modify-write race)
+    pub fn set_all_rhythm_params(&self, mode: u8, steps: usize, pulses: usize, rotation: usize, density: f32, tension: f32, secondary_steps: usize, secondary_pulses: usize, secondary_rotation: usize) {
+        if let Ok(mut m) = self.control_mode.lock() {
+            m.direct_params.rhythm_mode = match mode {
+                0 => RhythmMode::Euclidean,
+                1 => RhythmMode::PerfectBalance,
+                2 => RhythmMode::ClassicGroove,
+                _ => RhythmMode::Euclidean,
+            };
+            let valid_steps = (steps / 4) * 4;
+            m.direct_params.rhythm_steps = valid_steps.clamp(16, 384);
+            m.direct_params.rhythm_pulses = pulses.clamp(1, 32);
+            m.direct_params.rhythm_rotation = rotation;
+            m.direct_params.rhythm_density = density.clamp(0.0, 1.0);
+            m.direct_params.rhythm_tension = tension.clamp(0.0, 1.0);
+            m.direct_params.rhythm_secondary_steps = secondary_steps.clamp(4, 32);
+            m.direct_params.rhythm_secondary_pulses = secondary_pulses.clamp(1, 32);
+            m.direct_params.rhythm_secondary_rotation = secondary_rotation;
         }
     }
 
@@ -902,23 +965,26 @@ pub fn start_with_backend(sf2_bytes: Option<Box<[u8]>>, backend: &str) -> Result
         }
     };
 
-    // Créer les états partagés pour WASM
-    let target_state = Arc::new(Mutex::new(engine::EngineParams::default()));
+    // Phase 3: Create triple buffer for lock-free UI→Audio parameter updates
+    let (target_params_input, target_params_output) = triple_buffer::triple_buffer(&engine::EngineParams::default());
     let control_mode = Arc::new(Mutex::new(params::ControlMode::default()));
 
-    let target_state_clone = target_state.clone();
     let control_mode_clone = control_mode.clone();
 
     let (stream, config, harmony_state_rx, event_queue_rx, font_queue, finished_recordings) =
-        audio::create_stream(target_state, control_mode, sf2_bytes.as_deref(), backend_type)
+        audio::create_stream(target_params_output, control_mode, sf2_bytes.as_deref(), backend_type)
             .map_err(|e| JsValue::from_str(&e))?;
 
     // Phase 2: Create cached harmony state
     let cached_harmony_state = Arc::new(Mutex::new(engine::HarmonyState::default()));
 
+    // Phase 3: Initialize cached_params from the initial params written to triple buffer
+    let cached_params = engine::EngineParams::default();
+
     Ok(Handle {
         stream,
-        target_state: target_state_clone,
+        target_params_input,
+        cached_params,
         control_mode: control_mode_clone,
         harmony_state_rx,
         event_queue_rx,

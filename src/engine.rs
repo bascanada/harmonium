@@ -12,6 +12,7 @@ use rust_music_theory::note::PitchSymbol;
 use rust_music_theory::scale::ScaleType;
 use rand::Rng;
 use std::sync::{Arc, Mutex};
+use triple_buffer::Output;
 use serde::{Serialize, Deserialize};
 use arrayvec::ArrayString;
 
@@ -207,7 +208,8 @@ pub struct SessionConfig {
 
 pub struct HarmoniumEngine {
     pub config: SessionConfig,
-    pub target_state: Arc<Mutex<EngineParams>>,
+    // Phase 3: Lock-free triple buffer for UI→Audio parameter updates
+    target_params: Output<EngineParams>,
     // Lock-free queues for Audio→UI communication (Phase 2)
     harmony_state_tx: rtrb::Producer<HarmonyState>,     // Audio thread writes harmony state
     event_queue_tx: rtrb::Producer<VisualizationEvent>, // Audio thread writes visualization events
@@ -243,9 +245,6 @@ pub struct HarmoniumEngine {
     current_chord_type: ChordType,
     active_lead_notes: Vec<u8>,  // Notes actuellement jouées sur le channel Lead
 
-    // Optimization
-    cached_target: EngineParams,
-
     // === NOUVELLE ARCHITECTURE: Params Musicaux Découplés ===
     /// Mapper émotions → params musicaux
     emotion_mapper: EmotionMapper,
@@ -269,12 +268,12 @@ pub struct HarmoniumEngine {
 impl HarmoniumEngine {
     pub fn new(
         sample_rate: f64,
-        target_state: Arc<Mutex<EngineParams>>,
+        mut target_params: Output<EngineParams>,
         control_mode: Arc<Mutex<ControlMode>>,
         mut renderer: Box<dyn AudioRenderer>,
     ) -> (Self, rtrb::Consumer<HarmonyState>, rtrb::Consumer<VisualizationEvent>) {
         let mut rng = rand::thread_rng();
-        let initial_params = target_state.lock().unwrap().clone();
+        let initial_params = target_params.read().clone();
         let font_queue = Arc::new(Mutex::new(Vec::new()));
         let bpm = initial_params.compute_bpm();
         let steps = 16;
@@ -346,7 +345,7 @@ impl HarmoniumEngine {
 
         let engine = Self {
             config,
-            target_state,
+            target_params,
             harmony_state_tx,
             event_queue_tx,
             last_harmony_state,
@@ -374,7 +373,6 @@ impl HarmoniumEngine {
             current_chord_type: ChordType::Major,
             // Phase 2.5: Pre-allocate with capacity for max chord voicing (typically 4-5 notes)
             active_lead_notes: Vec::with_capacity(8),
-            cached_target: initial_params,
             // Nouvelle architecture
             emotion_mapper,
             musical_params,
@@ -468,6 +466,10 @@ impl HarmoniumEngine {
 
     fn update_controls(&mut self) {
         // === UPDATE MUSICAL PARAMS ===
+        // Phase 3: Read latest params from triple buffer (lock-free, non-blocking)
+        self.target_params.update();
+        let target_params = self.target_params.read();
+
         // Selon le mode, on obtient les params soit du mapper, soit directement
         let use_emotion_mode = self.control_mode.lock()
             .map(|m| m.use_emotion_mode)
@@ -475,22 +477,21 @@ impl HarmoniumEngine {
 
         if use_emotion_mode {
             // Mode émotionnel: EngineParams → EmotionMapper → MusicalParams
-            if let Ok(guard) = self.target_state.try_lock() {
-                self.cached_target = guard.clone();
-            }
-            self.musical_params = self.emotion_mapper.map(&self.cached_target);
+            self.musical_params = self.emotion_mapper.map(target_params);
         } else {
             // Mode direct: MusicalParams depuis l'état partagé
             if let Ok(guard) = self.control_mode.try_lock() {
                 self.musical_params = guard.direct_params.clone();
             }
-
-            // Apply mixer gains from target_state (they work in both modes)
-            self.musical_params.gain_lead = self.cached_target.gain_lead;
-            self.musical_params.gain_bass = self.cached_target.gain_bass;
-            self.musical_params.gain_snare = self.cached_target.gain_snare;
-            self.musical_params.gain_hat = self.cached_target.gain_hat;
         }
+
+        // Apply params from target_params (they work in BOTH modes)
+        self.musical_params.gain_lead = target_params.gain_lead;
+        self.musical_params.gain_bass = target_params.gain_bass;
+        self.musical_params.gain_snare = target_params.gain_snare;
+        self.musical_params.gain_hat = target_params.gain_hat;
+        self.musical_params.vel_base_bass = target_params.vel_base_bass;
+        self.musical_params.vel_base_snare = target_params.vel_base_snare;
 
         // Apply global enable overrides (work in BOTH modes)
         if let Ok(guard) = self.control_mode.try_lock() {
@@ -553,7 +554,7 @@ impl HarmoniumEngine {
 
         // === SYNTHESIS MORPHING (emotional timbre control) ===
         #[cfg(feature = "odin2")]
-        if self.cached_target.enable_synthesis_morphing {
+        if target_params.enable_synthesis_morphing {
             if let Some(odin2) = self.renderer.odin2_backend_mut() {
                 odin2.apply_emotional_morphing(
                     self.current_state.valence,
@@ -880,7 +881,7 @@ impl HarmoniumEngine {
             // Phase 2: Read from local cache (no lock needed)
             let root = self.last_harmony_state.chord_root_offset;
             let midi = 36 + root;
-            let vel = self.cached_target.vel_base_bass + (self.current_state.arousal * 25.0) as u8;
+            let vel = self.musical_params.vel_base_bass + (self.current_state.arousal * 25.0) as u8;
             self.events_buffer.push(AudioEvent::NoteOn { note: midi as u8, velocity: vel, channel: 0 });
         }
         
@@ -961,7 +962,7 @@ impl HarmoniumEngine {
 
         // Snare - part of Rhythm module
         if rhythm_enabled && trigger_primary.snare && !self.musical_params.muted_channels.get(2).copied().unwrap_or(false) {
-             let vel = self.cached_target.vel_base_snare + (self.current_state.arousal * 30.0) as u8;
+             let vel = self.musical_params.vel_base_snare + (self.current_state.arousal * 30.0) as u8;
              self.events_buffer.push(AudioEvent::NoteOn { note: 38, velocity: vel, channel: 2 });
         }
 
@@ -1009,10 +1010,10 @@ impl HarmoniumEngine {
         //     mode.progression_name = self.last_harmony_state.progression_name.clone();
         // }
 
-        // Phase 2: Push harmony state to queue ONLY when it changes
-        // NOTE: Pushing every tick causes String clones which allocate
-        // Only push on step 0 of each measure (chord changes, pattern updates)
-        if self.sequencer_primary.current_step == 0 {
+        // Phase 2: Push harmony state to queue for UI updates
+        // Push every 4 ticks to balance update frequency vs allocation cost
+        // This ensures smooth visualization while minimizing memory allocations
+        if self.sequencer_primary.current_step % 4 == 0 {
             let _ = self.harmony_state_tx.push(self.last_harmony_state.clone());
         }
     }

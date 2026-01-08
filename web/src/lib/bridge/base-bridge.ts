@@ -143,6 +143,11 @@ export abstract class BaseBridge implements HarmoniumBridge {
     this.sendCommand('set_direct_secondary_rotation', rotation);
   }
 
+  // Set all rhythm parameters at once (avoids read-modify-write race)
+  setAllRhythmParams(mode: number, steps: number, pulses: number, rotation: number, density: number, tension: number, secondarySteps: number, secondaryPulses: number, secondaryRotation: number): void {
+    this.sendCommand('set_all_rhythm_params', mode, steps, pulses, rotation, density, tension, secondarySteps, secondaryPulses, secondaryRotation);
+  }
+
   setDirectHarmonyTension(tension: number): void {
     this.sendCommand('set_direct_harmony_tension', tension);
   }

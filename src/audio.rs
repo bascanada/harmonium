@@ -23,7 +23,7 @@ pub enum AudioBackendType {
 }
 
 pub fn create_stream(
-    target_state: Arc<Mutex<EngineParams>>,
+    mut target_params: triple_buffer::Output<EngineParams>,
     control_mode: Arc<Mutex<ControlMode>>,
     sf2_bytes: Option<&[u8]>,
     backend_type: AudioBackendType,
@@ -55,7 +55,8 @@ pub fn create_stream(
 
     log::info(&format!("Sample rate: {}, Channels: {}", sample_rate, channels));
 
-    let initial_routing = target_state.lock().unwrap().channel_routing.clone();
+    // Phase 3: Read initial params from triple buffer
+    let initial_routing = target_params.read().channel_routing.clone();
 
     // Create the appropriate backend based on backend_type
     let inner_backend: Box<dyn AudioRenderer> = match backend_type {
@@ -73,8 +74,8 @@ pub fn create_stream(
     let finished_recordings = Arc::new(Mutex::new(Vec::new()));
     let recorder_backend = Box::new(RecorderBackend::new(inner_backend, finished_recordings.clone(), sample_rate as u32));
 
-    // Phase 2: Engine now returns consumers for lock-free queues
-    let (mut engine, harmony_state_rx, event_queue_rx) = HarmoniumEngine::new(sample_rate, target_state, control_mode, recorder_backend);
+    // Phase 2-3: Engine now returns consumers for lock-free queues
+    let (mut engine, harmony_state_rx, event_queue_rx) = HarmoniumEngine::new(sample_rate, target_params, control_mode, recorder_backend);
     let session_config = engine.config.clone();
 
     // Wrap consumers in Arc<Mutex<>> for backwards compatibility with existing API

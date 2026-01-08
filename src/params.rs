@@ -142,7 +142,7 @@ pub struct MusicalParams {
 
     /// Activer le voicing (accords harmonisés sur la mélodie)
     /// Quand désactivé, seule la note mélodique joue
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub enable_voicing: bool,
 
     // ═══════════════════════════════════════════════════════════════════
