@@ -57,11 +57,11 @@ impl Default for HarmonyState {
             current_chord_index: 0,
             chord_root_offset: 0,
             chord_is_minor: false,
-            chord_name: ArrayString::from("I").unwrap(),
+            chord_name: ArrayString::from("I").unwrap_or_default(),
             measure_number: 1,
             cycle_number: 1,
             current_step: 0,
-            progression_name: ArrayString::from("Folk Peaceful (I-IV-I-V)").unwrap(),
+            progression_name: ArrayString::from("Folk Peaceful (I-IV-I-V)").unwrap_or_default(),
             progression_length: 4,
             harmony_mode: HarmonyMode::Driver,
             primary_steps: 16,
@@ -735,12 +735,7 @@ impl HarmoniumEngine {
         // Skip harmony updates if disabled
         let harmony_enabled = self.musical_params.enable_harmony;
 
-        // PHASE 2.5 NOTE: Harmony chord changes temporarily disabled to test allocation-free audio
-        // The remaining allocations are in chord name generation (format_chord_name, .name())
-        // These only happen 1-2x per second but still violate RT safety
-        // TODO Phase 2.6: Pre-compute chord names or use numeric IDs
-        let _harmony_temporarily_disabled = true;
-        if harmony_enabled && self.sequencer_primary.current_step == 0 && !_harmony_temporarily_disabled {
+        if harmony_enabled && self.sequencer_primary.current_step == 0 {
             self.measure_counter += 1;
 
             match self.harmony_mode {
@@ -853,20 +848,18 @@ impl HarmoniumEngine {
             self.last_harmony_state.primary_pulses = self.sequencer_primary.pulses;
             self.last_harmony_state.primary_rotation = self.sequencer_primary.rotation;
             // Phase 2.5: Copy into fixed-size array instead of Vec::collect() (no heap allocation)
-            for (i, trigger) in self.sequencer_primary.pattern.iter().enumerate() {
-                if i < 192 {
-                    self.last_harmony_state.primary_pattern[i] = trigger.is_any();
-                }
+            let primary_len = self.sequencer_primary.pattern.len();
+            for i in 0..192 {
+                self.last_harmony_state.primary_pattern[i] = i < primary_len && self.sequencer_primary.pattern[i].is_any();
             }
 
             self.last_harmony_state.secondary_steps = self.sequencer_secondary.steps;
             self.last_harmony_state.secondary_pulses = self.sequencer_secondary.pulses;
             self.last_harmony_state.secondary_rotation = self.sequencer_secondary.rotation;
             // Phase 2.5: Copy into fixed-size array instead of Vec::collect() (no heap allocation)
-            for (i, trigger) in self.sequencer_secondary.pattern.iter().enumerate() {
-                if i < 192 {
-                    self.last_harmony_state.secondary_pattern[i] = trigger.is_any();
-                }
+            let secondary_len = self.sequencer_secondary.pattern.len();
+            for i in 0..192 {
+                self.last_harmony_state.secondary_pattern[i] = i < secondary_len && self.sequencer_secondary.pattern[i].is_any();
             }
             self.last_harmony_state.harmony_mode = self.harmony_mode;
         }

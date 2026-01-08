@@ -173,27 +173,21 @@ impl Handle {
     /// Negative = Minor/Sad, Positive = Major/Happy
     pub fn set_valence(&mut self, valence: f32) {
         // Phase 3: Update local cache then write to triple buffer
-
         self.cached_params.valence = valence.clamp(-1.0, 1.0);
-
         self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définir la densité rythmique (0.0 = calme, 1.0 = dense)
     pub fn set_density(&mut self, density: f32) {
         // Phase 3: Update local cache then write to triple buffer
-
         self.cached_params.density = density.clamp(0.0, 1.0);
-
         self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définir la tension harmonique (0.0 = consonant, 1.0 = dissonant)
     pub fn set_tension(&mut self, tension: f32) {
         // Phase 3: Update local cache then write to triple buffer
-
         self.cached_params.tension = tension.clamp(0.0, 1.0);
-
         self.target_params_input.write(self.cached_params.clone());
     }
 
@@ -201,7 +195,6 @@ impl Handle {
     /// PerfectBalance: polyrythmes parfaits via polygones (XronoMorph)
     /// ClassicGroove: patterns de batterie réalistes avec ghost notes
     pub fn set_algorithm(&mut self, algorithm: u8) {
-        
         self.cached_params.algorithm = match algorithm {
             0 => RhythmMode::Euclidean,
             1 => RhythmMode::PerfectBalance,
@@ -224,7 +217,6 @@ impl Handle {
     /// Basic: Russell Circumplex quadrants (I-IV-vi-V progressions)
     /// Driver: Steedman Grammar + Neo-Riemannian PLR + LCC
     pub fn set_harmony_mode(&mut self, mode: u8) {
-        
         self.cached_params.harmony_mode = match mode {
             0 => HarmonyMode::Basic,
             1 => HarmonyMode::Driver,
@@ -271,15 +263,10 @@ impl Handle {
 
     /// Définir tous les paramètres émotionnels en une fois
     pub fn set_params(&mut self, arousal: f32, valence: f32, density: f32, tension: f32) {
-        
-
-        
-            self.cached_params.arousal = arousal.clamp(0.0, 1.0);
-            self.cached_params.valence = valence.clamp(-1.0, 1.0);
-            self.cached_params.density = density.clamp(0.0, 1.0);
-            self.cached_params.tension = tension.clamp(0.0, 1.0);
-        
-
+        self.cached_params.arousal = arousal.clamp(0.0, 1.0);
+        self.cached_params.valence = valence.clamp(-1.0, 1.0);
+        self.cached_params.density = density.clamp(0.0, 1.0);
+        self.cached_params.tension = tension.clamp(0.0, 1.0);
         self.target_params_input.write(self.cached_params.clone());
     }
 
@@ -412,7 +399,6 @@ impl Handle {
 
     /// Définir le routage d'un canal (-1 = FundSP, >=0 = Bank ID)
     pub fn set_channel_routing(&mut self, channel: usize, mode: i32) {
-        
         if channel < 16 {
             if self.cached_params.channel_routing.len() <= channel {
                 self.cached_params.channel_routing.resize(16, -1);
@@ -424,7 +410,6 @@ impl Handle {
 
     /// Définir le mute d'un canal (true = Muted)
     pub fn set_channel_muted(&mut self, channel: usize, is_muted: bool) {
-        
         if channel < 16 {
             if self.cached_params.muted_channels.len() <= channel {
                 self.cached_params.muted_channels.resize(16, false);
@@ -438,67 +423,37 @@ impl Handle {
 
     /// Set gain for lead instrument (0.0-1.0, default 1.0)
     pub fn set_gain_lead(&mut self, gain: f32) {
-        
-
-        
-            self.cached_params.gain_lead = gain.clamp(0.0, 1.0);
-        
-
+        self.cached_params.gain_lead = gain.clamp(0.0, 1.0);
         self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Set gain for bass instrument (0.0-1.0, default 0.6)
     pub fn set_gain_bass(&mut self, gain: f32) {
-        
-
-        
-            self.cached_params.gain_bass = gain.clamp(0.0, 1.0);
-        
-
+        self.cached_params.gain_bass = gain.clamp(0.0, 1.0);
         self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Set gain for snare (0.0-1.0, default 0.5)
     pub fn set_gain_snare(&mut self, gain: f32) {
-        
-
-        
-            self.cached_params.gain_snare = gain.clamp(0.0, 1.0);
-        
-
+        self.cached_params.gain_snare = gain.clamp(0.0, 1.0);
         self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Set gain for hi-hat (0.0-1.0, default 0.4)
     pub fn set_gain_hat(&mut self, gain: f32) {
-        
-
-        
-            self.cached_params.gain_hat = gain.clamp(0.0, 1.0);
-        
-
+        self.cached_params.gain_hat = gain.clamp(0.0, 1.0);
         self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Set base velocity for bass (0-127, default 85)
     pub fn set_vel_base_bass(&mut self, vel: u8) {
-        
-
-        
-            self.cached_params.vel_base_bass = vel.min(127);
-        
-
+        self.cached_params.vel_base_bass = vel.min(127);
         self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Set base velocity for snare (0-127, default 70)
     pub fn set_vel_base_snare(&mut self, vel: u8) {
-        
-
-        
-            self.cached_params.vel_base_snare = vel.min(127);
-        
-
+        self.cached_params.vel_base_snare = vel.min(127);
         self.target_params_input.write(self.cached_params.clone());
     }
 
@@ -534,14 +489,9 @@ impl Handle {
 
     /// Set polyrythm steps (48, 96, 192...) - must be multiple of 4
     pub fn set_poly_steps(&mut self, steps: usize) {
-        
-
-        
-            // Ensure it's a multiple of 4 and reasonable range
-            let valid_steps = (steps / 4) * 4;
-            self.cached_params.poly_steps = valid_steps.clamp(16, 384);
-        
-
+        // Ensure it's a multiple of 4 and reasonable range
+        let valid_steps = (steps / 4) * 4;
+        self.cached_params.poly_steps = valid_steps.clamp(16, 384);
         self.target_params_input.write(self.cached_params.clone());
     }
 
@@ -584,37 +534,31 @@ impl Handle {
     // === Recording ===
 
     pub fn start_recording_wav(&mut self) {
-        
         self.cached_params.record_wav = true;
         self.target_params_input.write(self.cached_params.clone());
     }
 
     pub fn stop_recording_wav(&mut self) {
-        
         self.cached_params.record_wav = false;
         self.target_params_input.write(self.cached_params.clone());
     }
 
     pub fn start_recording_midi(&mut self) {
-        
         self.cached_params.record_midi = true;
         self.target_params_input.write(self.cached_params.clone());
     }
 
     pub fn stop_recording_midi(&mut self) {
-        
         self.cached_params.record_midi = false;
         self.target_params_input.write(self.cached_params.clone());
     }
 
     pub fn start_recording_abc(&mut self) {
-        
         self.cached_params.record_abc = true;
         self.target_params_input.write(self.cached_params.clone());
     }
 
     pub fn stop_recording_abc(&mut self) {
-        
         self.cached_params.record_abc = false;
         self.target_params_input.write(self.cached_params.clone());
     }

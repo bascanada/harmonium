@@ -55,7 +55,8 @@
 
   function update() {
     startEditing();
-    // Use combined method to avoid read-modify-write race condition
+    // Use combined method to atomically update all rhythm parameters with a single lock acquisition.
+    // Individual setters would each acquire/release a lock on shared state, creating potential race conditions.
     bridge.setAllRhythmParams(
       local.rhythmMode,
       local.rhythmSteps,
