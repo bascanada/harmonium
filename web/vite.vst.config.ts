@@ -32,6 +32,15 @@ export default defineConfig({
     // Minify for smaller bundle (using esbuild which is built-in)
     minify: 'esbuild',
   },
+  worker: {
+    // Use ES format for workers (compatible with inlineDynamicImports)
+    format: 'es',
+    rollupOptions: {
+      output: {
+        inlineDynamicImports: true,
+      },
+    },
+  },
   // No SvelteKit for VST build
   server: {
     fs: {

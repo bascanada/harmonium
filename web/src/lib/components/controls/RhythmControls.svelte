@@ -55,15 +55,19 @@
 
   function update() {
     startEditing();
-    bridge.setDirectRhythmMode(local.rhythmMode);
-    bridge.setDirectRhythmSteps(local.rhythmSteps);
-    bridge.setDirectRhythmPulses(local.rhythmPulses);
-    bridge.setDirectRhythmRotation(local.rhythmRotation);
-    bridge.setDirectRhythmDensity(local.rhythmDensity);
-    bridge.setDirectRhythmTension(local.rhythmTension);
-    bridge.setDirectSecondarySteps(local.secondarySteps);
-    bridge.setDirectSecondaryPulses(local.secondaryPulses);
-    bridge.setDirectSecondaryRotation(local.secondaryRotation);
+    // Use combined method to atomically update all rhythm parameters with a single lock acquisition.
+    // Individual setters would each acquire/release a lock on shared state, creating potential race conditions.
+    bridge.setAllRhythmParams(
+      local.rhythmMode,
+      local.rhythmSteps,
+      local.rhythmPulses,
+      local.rhythmRotation,
+      local.rhythmDensity,
+      local.rhythmTension,
+      local.secondarySteps,
+      local.secondaryPulses,
+      local.secondaryRotation
+    );
   }
 
   function setRhythmMode(mode: number) {

@@ -1818,11 +1818,13 @@ dependencies = [
 name = "harmonium"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "candle-core",
  "candle-nn",
  "candle-transformers",
  "console_error_panic_hook",
  "cpal",
+ "crossbeam-channel",
  "fundsp",
  "getrandom 0.2.16",
  "hound",
@@ -1835,12 +1837,14 @@ dependencies = [
  "oxisynth",
  "rand 0.8.5",
  "rosc",
+ "rtrb",
  "rust-music-theory",
  "serde",
  "serde-wasm-bindgen 0.6.5",
  "serde_json",
  "tokenizers",
  "toml 0.8.23",
+ "triple_buffer",
  "wasm-bindgen",
  "web-sys",
 ]
@@ -3470,6 +3474,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "rtrb"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad8388ea1a9e0ea807e442e8263a699e7edcb320ecbcd21b4fa8ff859acce3ba"
+
+[[package]]
 name = "rust-music-theory"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4437,6 +4447,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
+]
+
+[[package]]
+name = "triple_buffer"
+version = "8.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "420466259f9fa5decc654c490b9ab538400e5420df8237f84ecbe20368bcf72b"
+dependencies = [
+ "crossbeam-utils",
 ]
 
 [[package]]

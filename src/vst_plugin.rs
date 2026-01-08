@@ -21,7 +21,14 @@ use crate::harmony::HarmonyMode;
 pub struct HarmoniumPlugin {
     params: Arc<HarmoniumParams>,
     engine: Option<HarmoniumEngine>,
+    // Phase 2: Lock-free consumers for Audio→UI communication
+    harmony_state_rx_for_editor: Arc<Mutex<Option<rtrb::Consumer<crate::engine::HarmonyState>>>>,
+    event_queue_rx: Option<rtrb::Consumer<crate::engine::VisualizationEvent>>,
     midi_backend: Arc<Mutex<VstMidiBackend>>,
+    // Phase 3: Lock-free triple buffer for UI→Audio parameter updates
+    target_params_input: triple_buffer::Input<EngineParams>,
+    target_params_output: Option<triple_buffer::Output<EngineParams>>,
+    // Phase 3: Webview-accessible state (synced from triple buffer)
     target_state: Arc<Mutex<EngineParams>>,
     control_mode: Arc<Mutex<ControlMode>>,
     sample_rate: f32,
@@ -204,14 +211,21 @@ impl Default for HarmoniumParams {
 impl Default for HarmoniumPlugin {
     fn default() -> Self {
         let params = Arc::new(HarmoniumParams::default());
-        let target_state = Arc::new(Mutex::new(EngineParams::default()));
+        // Phase 3: Create triple buffer for lock-free UI→Audio parameter updates
+        let (target_params_input, target_params_output) = triple_buffer::triple_buffer(&EngineParams::default());
         let control_mode = Arc::new(Mutex::new(ControlMode::default()));
         let midi_backend = Arc::new(Mutex::new(VstMidiBackend::new()));
+        let target_state = Arc::new(Mutex::new(EngineParams::default()));
+        let harmony_state_rx_for_editor = Arc::new(Mutex::new(None));
 
         Self {
             params,
             engine: None,
+            harmony_state_rx_for_editor,  // Phase 2: Initialized in initialize()
+            event_queue_rx: None,    // Phase 2: Initialized in initialize()
             midi_backend,
+            target_params_input,
+            target_params_output: Some(target_params_output),  // Phase 3: Stored until activate()
             target_state,
             control_mode,
             sample_rate: 44100.0,
@@ -236,7 +250,7 @@ impl HarmoniumPlugin {
     }
 
     /// Sync plugin parameters to engine state
-    fn sync_params_to_engine(&self) {
+    fn sync_params_to_engine(&mut self) {
         let daw_emotion_mode = self.params.control_mode.value();
 
         // Check if webview is controlling
@@ -246,6 +260,21 @@ impl HarmoniumPlugin {
             } else {
                 (false, false, false)
             };
+
+        // Phase 3: Sync webview changes from target_state to triple buffer
+        // When webview controls emotions, copy target_state to triple buffer input
+        if webview_controls_emotions {
+            if let Ok(state) = self.target_state.lock() {
+                // Clone current state and update with webview's emotional params
+                let mut params = self.target_params_input.input_buffer_mut().clone();
+                params.arousal = state.arousal;
+                params.valence = state.valence;
+                params.density = state.density;
+                params.tension = state.tension;
+                // Publish to engine via triple buffer
+                self.target_params_input.write(params);
+            }
+        }
 
         // Get actual emotion mode (webview overrides DAW if controlling)
         let use_emotion_mode = if webview_controls_mode {
@@ -302,29 +331,30 @@ impl HarmoniumPlugin {
         // Only sync emotional params from DAW if webview is NOT controlling
         if use_emotion_mode && !webview_controls_emotions {
             // Emotional mode - update target state from DAW params
-            if let Ok(mut state) = self.target_state.lock() {
-                state.arousal = self.params.arousal.value();
-                state.valence = self.params.valence.value();
-                state.density = self.params.density.value();
-                state.tension = self.params.tension.value();
-                state.smoothness = self.params.smoothness.value();
-                state.algorithm = if self.params.rhythm_mode.value() {
-                    RhythmMode::PerfectBalance
-                } else {
-                    RhythmMode::Euclidean
-                };
-                state.harmony_mode = if self.params.harmony_mode.value() {
-                    HarmonyMode::Driver
-                } else {
-                    HarmonyMode::Basic
-                };
-                state.muted_channels = vec![
-                    self.params.mute_bass.value(),
-                    self.params.mute_lead.value(),
-                    self.params.mute_snare.value(),
-                    self.params.mute_hat.value(),
-                ];
-            }
+            // Phase 3: Use triple buffer write instead of lock
+            let mut params = self.target_params_input.input_buffer_mut().clone();
+            params.arousal = self.params.arousal.value();
+            params.valence = self.params.valence.value();
+            params.density = self.params.density.value();
+            params.tension = self.params.tension.value();
+            params.smoothness = self.params.smoothness.value();
+            params.algorithm = if self.params.rhythm_mode.value() {
+                RhythmMode::PerfectBalance
+            } else {
+                RhythmMode::Euclidean
+            };
+            params.harmony_mode = if self.params.harmony_mode.value() {
+                HarmonyMode::Driver
+            } else {
+                HarmonyMode::Basic
+            };
+            params.muted_channels = vec![
+                self.params.mute_bass.value(),
+                self.params.mute_lead.value(),
+                self.params.mute_snare.value(),
+                self.params.mute_hat.value(),
+            ];
+            self.target_params_input.write(params);
         }
     }
 }
@@ -376,13 +406,28 @@ impl Plugin for HarmoniumPlugin {
         // We need to create a new one because we can't clone Arc<Mutex<>> into Box<dyn>
         let engine_backend = Box::new(VstMidiBackend::new());
 
-        // Initialize the engine with the MIDI backend
-        self.engine = Some(HarmoniumEngine::new(
+        // Phase 3: Take Output from Option, or create new triple buffer if called again
+        let target_params_output = if let Some(output) = self.target_params_output.take() {
+            output
+        } else {
+            // Reinitialize case - create new triple buffer
+            let (new_input, new_output) = triple_buffer::triple_buffer(&EngineParams::default());
+            self.target_params_input = new_input;
+            new_output
+        };
+
+        // Phase 2-3: Engine now returns (engine, harmony_rx, event_rx) and takes Output<EngineParams>
+        let (engine, harmony_state_rx, event_queue_rx) = HarmoniumEngine::new(
             self.sample_rate as f64,
-            self.target_state.clone(),
+            target_params_output,
             self.control_mode.clone(),
             engine_backend,
-        ));
+        );
+
+        self.engine = Some(engine);
+        // Move harmony_state_rx to editor wrapper (not used by process())
+        *self.harmony_state_rx_for_editor.lock().unwrap() = Some(harmony_state_rx);
+        self.event_queue_rx = Some(event_queue_rx);
 
         true
     }
@@ -426,10 +471,10 @@ impl Plugin for HarmoniumPlugin {
         let mut temp_buffer = vec![0.0f32; num_samples * internal_channels];
         engine.process_buffer(&mut temp_buffer, internal_channels);
 
-        // Collect MIDI events from the engine's event_queue
+        // Phase 2: Collect MIDI events from the event_queue consumer
         // and convert those to MIDI output
-        if let Ok(mut queue) = engine.event_queue.lock() {
-            for event in queue.drain(..) {
+        if let Some(ref mut event_rx) = self.event_queue_rx {
+            while let Ok(event) = event_rx.pop() {
                 // Convert visualization event to MIDI output
                 // Channel mapping: 0=Bass/Kick, 1=Lead/Melody, 2=Snare, 3=Hat
                 //
@@ -476,6 +521,7 @@ impl Plugin for HarmoniumPlugin {
             self.target_state.clone(),
             self.control_mode.clone(),
             self.params.clone(),
+            self.harmony_state_rx_for_editor.clone(),
         )
     }
 }
