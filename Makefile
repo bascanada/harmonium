@@ -70,7 +70,7 @@ vst/uninstall: vst/clean
 vst/validate: vst
 	@echo "Validating VST3 plugin..."
 	@if [ -f "$(PLUGINVAL)" ]; then \
-		$(PLUGINVAL) --validate $(VST3_PATH) --strictness-level 1; \
+		$(PLUGINVAL) --validate $(VST3_PATH); \
 	else \
 		echo "pluginval not found. Install with: brew install --cask pluginval"; \
 	fi

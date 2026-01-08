@@ -74,6 +74,53 @@ impl PivotDetector {
         }
     }
 
+    /// Calcule les poids de crossfade à trois voies avec support d'hystérésis
+    /// Retourne (steedman_weight, parsimonious_weight, neo_riemannian_weight)
+    ///
+    /// Cette méthode utilise des zones d'hystérésis pour éviter les basculements chaotiques
+    /// entre les stratégies lorsque la tension fluctue autour des seuils.
+    ///
+    /// # Arguments
+    /// * `tension` - La tension actuelle (0.0 à 1.0)
+    /// * `steedman_lower` - Seuil inférieur pour Steedman (ex: 0.45)
+    /// * `steedman_upper` - Seuil supérieur pour Steedman (ex: 0.55)
+    /// * `neo_lower` - Seuil inférieur pour Neo-Riemannian (ex: 0.65)
+    /// * `neo_upper` - Seuil supérieur pour Neo-Riemannian (ex: 0.75)
+    ///
+    /// # Zones
+    /// 1. Pure Steedman: tension ≤ steedman_lower
+    /// 2. Hystérésis Steedman: steedman_lower < tension < steedman_upper
+    /// 3. Pure Parsimonious: steedman_upper ≤ tension ≤ neo_lower
+    /// 4. Hystérésis Neo-Riemannian: neo_lower < tension < neo_upper
+    /// 5. Pure Neo-Riemannian: tension ≥ neo_upper
+    pub fn crossfade_weight_three_hysteresis(
+        &self,
+        tension: f32,
+        steedman_lower: f32,
+        steedman_upper: f32,
+        neo_lower: f32,
+        neo_upper: f32,
+    ) -> (f32, f32, f32) {
+        if tension <= steedman_lower {
+            // Zone Steedman pure
+            (1.0, 0.0, 0.0)
+        } else if tension < steedman_upper {
+            // Zone d'hystérésis Steedman: fade Steedman → Parsimonious
+            let t = (tension - steedman_lower) / (steedman_upper - steedman_lower);
+            (1.0 - t, t, 0.0)
+        } else if tension <= neo_lower {
+            // Zone Parsimonious pure
+            (0.0, 1.0, 0.0)
+        } else if tension < neo_upper {
+            // Zone d'hystérésis Neo-Riemannian: fade Parsimonious → Neo-Riemannian
+            let t = (tension - neo_lower) / (neo_upper - neo_lower);
+            (0.0, 1.0 - t, t)
+        } else {
+            // Zone Neo-Riemannian pure
+            (0.0, 0.0, 1.0)
+        }
+    }
+
     /// Vérifie si on est dans la zone de transition
     pub fn is_in_transition_zone(&self, tension: f32) -> bool {
         tension >= STEEDMAN_THRESHOLD && tension <= NEO_RIEMANNIAN_THRESHOLD
