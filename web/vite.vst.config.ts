@@ -11,6 +11,7 @@ export default defineConfig({
   resolve: {
     alias: {
       $lib: resolve(__dirname, 'src/lib'),
+      harmonium: resolve(__dirname, '../pkg'),
     },
   },
   build: {
