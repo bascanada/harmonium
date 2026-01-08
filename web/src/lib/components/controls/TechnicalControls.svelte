@@ -69,8 +69,7 @@
 
   // Track if user is actively editing (prevent prop overwrite)
   let isEditing = false;
-  let editTimeout: ReturnType<typeof setTimeout> | null = null;
-
+  
   // Sync props to local ONLY when not editing
   $: if (!isEditing) {
     local = {
@@ -95,16 +94,16 @@
     };
   }
 
-  function startEditing() {
+  function onSliderStart() {
     isEditing = true;
-    if (editTimeout) clearTimeout(editTimeout);
-    editTimeout = setTimeout(() => {
-      isEditing = false;
-    }, 500);
+  }
+
+  function onSliderEnd() {
+    isEditing = false;
   }
 
   function update() {
-    startEditing();
+    // Only send Direct updates, do not set isEditing here
     bridge.setDirectBpm(local.bpm);
     bridge.setDirectEnableRhythm(local.enableRhythm);
     bridge.setDirectEnableHarmony(local.enableHarmony);
@@ -126,7 +125,9 @@
   }
 
   function toggleModule(module: 'rhythm' | 'harmony' | 'melody' | 'voicing') {
-    startEditing();
+    // Buttons are instant (click), so we don't need pointer locking usually, 
+    // but setting isEditing=true briefly protects against instant rebound if needed.
+    // simpler is direct update without locking:
     if (module === 'rhythm') local.enableRhythm = !local.enableRhythm;
     else if (module === 'harmony') local.enableHarmony = !local.enableHarmony;
     else if (module === 'melody') local.enableMelody = !local.enableMelody;
@@ -184,6 +185,9 @@
       step="1"
       bind:value={local.bpm}
       oninput={update}
+      onpointerdown={onSliderStart}
+      onpointerup={onSliderEnd}
+      onpointercancel={onSliderEnd}
       class="w-full h-3 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-cyan-600"
     />
   </div>

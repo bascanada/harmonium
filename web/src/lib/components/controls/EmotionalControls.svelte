@@ -19,8 +19,7 @@
 
   // Track which slider is being actively edited (prevent backend overwrite)
   let activeSlider: string | null = null;
-  let editTimeout: ReturnType<typeof setTimeout> | null = null;
-
+  
   // Sync props to local state ONLY when not actively editing
   $: if (activeSlider !== 'arousal') localArousal = arousal;
   $: if (activeSlider !== 'valence') localValence = valence;
@@ -34,33 +33,28 @@
   let aiInputText = '';
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Mark slider as active and reset timeout
-  function startEditing(slider: string) {
-    activeSlider = slider;
-    if (editTimeout) clearTimeout(editTimeout);
-    // Allow prop sync after 500ms of no input
-    editTimeout = setTimeout(() => {
-      activeSlider = null;
-    }, 500);
+  // Slider interaction handlers
+  function onSliderStart(name: string) {
+    activeSlider = name;
+  }
+
+  function onSliderEnd() {
+    activeSlider = null;
   }
 
   function updateArousal() {
-    startEditing('arousal');
     bridge.setArousal(localArousal);
   }
 
   function updateValence() {
-    startEditing('valence');
     bridge.setValence(localValence);
   }
 
   function updateDensity() {
-    startEditing('density');
     bridge.setDensity(localDensity);
   }
 
   function updateTension() {
-    startEditing('tension');
     bridge.setTension(localTension);
   }
 
@@ -146,6 +140,9 @@
       step="0.01"
       bind:value={localArousal}
       oninput={updateArousal}
+      onpointerdown={() => onSliderStart('arousal')}
+      onpointerup={onSliderEnd}
+      onpointercancel={onSliderEnd}
       class="w-full h-3 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-red-600"
     />
     <div class="text-sm text-neutral-500 mt-2 text-right">Energy / Tempo</div>
@@ -165,6 +162,9 @@
       step="0.01"
       bind:value={localValence}
       oninput={updateValence}
+      onpointerdown={() => onSliderStart('valence')}
+      onpointerup={onSliderEnd}
+      onpointercancel={onSliderEnd}
       class="w-full h-3 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-green-600"
     />
     <div class="text-sm text-neutral-500 mt-2 text-right">Emotion / Harmony</div>
@@ -184,6 +184,9 @@
       step="0.01"
       bind:value={localDensity}
       oninput={updateDensity}
+      onpointerdown={() => onSliderStart('density')}
+      onpointerup={onSliderEnd}
+      onpointercancel={onSliderEnd}
       class="w-full h-3 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
     />
     <div class="text-sm text-neutral-500 mt-2 text-right">Rhythm Complexity</div>
@@ -203,6 +206,9 @@
       step="0.01"
       bind:value={localTension}
       oninput={updateTension}
+      onpointerdown={() => onSliderStart('tension')}
+      onpointerup={onSliderEnd}
+      onpointercancel={onSliderEnd}
       class="w-full h-3 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-yellow-600"
     />
     <div class="text-sm text-neutral-500 mt-2 text-right">Dissonance / Rotation</div>

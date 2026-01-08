@@ -14,8 +14,7 @@
 
   // Track if user is actively editing (prevent prop overwrite)
   let isEditing = false;
-  let editTimeout: ReturnType<typeof setTimeout> | null = null;
-
+  
   // Sync props to local ONLY when not editing
   $: if (!isEditing) {
     local = {
@@ -24,16 +23,15 @@
     };
   }
 
-  function startEditing() {
+  function onSliderStart() {
     isEditing = true;
-    if (editTimeout) clearTimeout(editTimeout);
-    editTimeout = setTimeout(() => {
-      isEditing = false;
-    }, 500);
+  }
+
+  function onSliderEnd() {
+    isEditing = false;
   }
 
   function update() {
-    startEditing();
     bridge.setDirectMelodySmoothness(local.melodySmoothness);
     bridge.setDirectVoicingDensity(local.voicingDensity);
   }
@@ -52,6 +50,9 @@
         step="0.01"
         bind:value={local.melodySmoothness}
         oninput={update}
+        onpointerdown={onSliderStart}
+        onpointerup={onSliderEnd}
+        onpointercancel={onSliderEnd}
         class="w-full h-2.5 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
       />
       <div class="flex justify-between text-xs text-neutral-500 mt-2">
@@ -68,6 +69,9 @@
         step="0.01"
         bind:value={local.voicingDensity}
         oninput={update}
+        onpointerdown={onSliderStart}
+        onpointerup={onSliderEnd}
+        onpointercancel={onSliderEnd}
         class="w-full h-2.5 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
       />
       <div class="flex justify-between text-xs text-neutral-500 mt-2">

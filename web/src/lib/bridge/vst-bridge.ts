@@ -108,10 +108,41 @@ export class VstBridge extends BaseBridge {
       } else {
         params.value = args[1];
       }
+    } else {
+      // Catch-all for multi-argument commands like setAllRhythmParams
+      if (method === 'set_all_rhythm_params') {
+        params.mode = args[0];
+        params.steps = args[1];
+        params.pulses = args[2];
+        params.rotation = args[3];
+        params.density = args[4];
+        params.tension = args[5];
+        params.secondarySteps = args[6];
+        params.secondaryPulses = args[7];
+        params.secondaryRotation = args[8];
+      }
     }
 
     const message: VstRequest = { type: method.includes('use_') ? 'action' : 'set', method, params };
     this.postMessage(message);
+  }
+
+  // Atomic rhythm update proxy
+  setAllRhythmParams(
+    mode: number,
+    steps: number,
+    pulses: number,
+    rotation: number,
+    density: number,
+    tension: number,
+    secondarySteps: number,
+    secondaryPulses: number,
+    secondaryRotation: number
+  ): void {
+    this.sendCommand(
+      'set_all_rhythm_params',
+      mode, steps, pulses, rotation, density, tension, secondarySteps, secondaryPulses, secondaryRotation
+    );
   }
 
   private handleMessage = (msg: unknown) => {

@@ -27,9 +27,9 @@
   };
 
   // Track if user is actively editing (prevent prop overwrite)
+  // Track if user is actively editing (prevent prop overwrite)
   let isEditing = false;
-  let editTimeout: ReturnType<typeof setTimeout> | null = null;
-
+  
   // Sync props to local ONLY when not editing
   $: if (!isEditing) {
     local = {
@@ -45,18 +45,16 @@
     };
   }
 
-  function startEditing() {
+  function onSliderStart() {
     isEditing = true;
-    if (editTimeout) clearTimeout(editTimeout);
-    editTimeout = setTimeout(() => {
-      isEditing = false;
-    }, 500);
+  }
+
+  function onSliderEnd() {
+    isEditing = false;
   }
 
   function update() {
-    startEditing();
-    // Use combined method to atomically update all rhythm parameters with a single lock acquisition.
-    // Individual setters would each acquire/release a lock on shared state, creating potential race conditions.
+    // Direct update without timeout locking
     bridge.setAllRhythmParams(
       local.rhythmMode,
       local.rhythmSteps,
@@ -71,7 +69,6 @@
   }
 
   function setRhythmMode(mode: number) {
-    startEditing();
     local.rhythmMode = mode;
     // Default steps per mode: Euclidean=16, PerfectBalance=48, ClassicGroove=16
     local.rhythmSteps = mode === 1 ? 48 : 16;
@@ -79,7 +76,6 @@
   }
 
   function setPolySteps(steps: number) {
-    startEditing();
     local.rhythmSteps = steps;
     update();
   }
@@ -136,6 +132,9 @@
             step="1"
             bind:value={local.rhythmSteps}
             oninput={update}
+            onpointerdown={onSliderStart}
+            onpointerup={onSliderEnd}
+            onpointercancel={onSliderEnd}
             class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
           />
         </div>
@@ -148,6 +147,9 @@
             step="1"
             bind:value={local.rhythmPulses}
             oninput={update}
+            onpointerdown={onSliderStart}
+            onpointerup={onSliderEnd}
+            onpointercancel={onSliderEnd}
             class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
           />
         </div>
@@ -160,6 +162,9 @@
             step="1"
             bind:value={local.rhythmRotation}
             oninput={update}
+            onpointerdown={onSliderStart}
+            onpointerup={onSliderEnd}
+            onpointercancel={onSliderEnd}
             class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
           />
         </div>
@@ -179,6 +184,9 @@
             step="1"
             bind:value={local.secondarySteps}
             oninput={update}
+            onpointerdown={onSliderStart}
+            onpointerup={onSliderEnd}
+            onpointercancel={onSliderEnd}
             class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-green-500"
           />
         </div>
@@ -191,6 +199,9 @@
             step="1"
             bind:value={local.secondaryPulses}
             oninput={update}
+            onpointerdown={onSliderStart}
+            onpointerup={onSliderEnd}
+            onpointercancel={onSliderEnd}
             class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-green-500"
           />
         </div>
@@ -203,6 +214,9 @@
             step="1"
             bind:value={local.secondaryRotation}
             oninput={update}
+            onpointerdown={onSliderStart}
+            onpointerup={onSliderEnd}
+            onpointercancel={onSliderEnd}
             class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-green-500"
           />
         </div>
@@ -244,6 +258,9 @@
           step="0.01"
           bind:value={local.rhythmDensity}
           oninput={update}
+          onpointerdown={onSliderStart}
+          onpointerup={onSliderEnd}
+          onpointercancel={onSliderEnd}
           class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
         />
         <div class="flex justify-between text-xs text-neutral-600 mt-1">
@@ -260,6 +277,9 @@
           step="0.01"
           bind:value={local.rhythmTension}
           oninput={update}
+          onpointerdown={onSliderStart}
+          onpointerup={onSliderEnd}
+          onpointercancel={onSliderEnd}
           class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
         />
         <div class="flex justify-between text-xs text-neutral-600 mt-1">
@@ -283,6 +303,9 @@
           step="0.01"
           bind:value={local.rhythmDensity}
           oninput={update}
+          onpointerdown={onSliderStart}
+          onpointerup={onSliderEnd}
+          onpointercancel={onSliderEnd}
           class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-teal-500"
         />
         <div class="flex justify-between text-xs text-neutral-600 mt-1">
@@ -299,6 +322,9 @@
           step="0.01"
           bind:value={local.rhythmTension}
           oninput={update}
+          onpointerdown={onSliderStart}
+          onpointerup={onSliderEnd}
+          onpointercancel={onSliderEnd}
           class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-teal-500"
         />
         <div class="flex justify-between text-xs text-neutral-600 mt-1">

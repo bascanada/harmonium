@@ -328,6 +328,48 @@ fn handle_set(
             }
         }
 
+        "set_all_rhythm_params" => {
+            if let (
+                Some(mode_val),
+                Some(steps),
+                Some(pulses),
+                Some(rot),
+                Some(den),
+                Some(ten),
+                Some(sec_steps),
+                Some(sec_pulses),
+                Some(sec_rot)
+            ) = (
+                msg_params.and_then(|p| p.get("mode")).and_then(|v| v.as_i64()),
+                msg_params.and_then(|p| p.get("steps")).and_then(|v| v.as_i64()),
+                msg_params.and_then(|p| p.get("pulses")).and_then(|v| v.as_i64()),
+                msg_params.and_then(|p| p.get("rotation")).and_then(|v| v.as_i64()),
+                msg_params.and_then(|p| p.get("density")).and_then(|v| v.as_f64()),
+                msg_params.and_then(|p| p.get("tension")).and_then(|v| v.as_f64()),
+                msg_params.and_then(|p| p.get("secondarySteps")).and_then(|v| v.as_i64()),
+                msg_params.and_then(|p| p.get("secondaryPulses")).and_then(|v| v.as_i64()),
+                msg_params.and_then(|p| p.get("secondaryRotation")).and_then(|v| v.as_i64())
+            ) {
+                 if let Ok(mut mode) = control_mode.lock() {
+                    mode.webview_controls_direct = true;
+                    mode.direct_params.rhythm_mode = match mode_val {
+                        1 => RhythmMode::PerfectBalance,
+                        2 => RhythmMode::ClassicGroove,
+                        _ => RhythmMode::Euclidean,
+                    };
+                    mode.direct_params.rhythm_steps = steps as usize;
+                    mode.direct_params.rhythm_pulses = pulses as usize;
+                    mode.direct_params.rhythm_rotation = rot as usize;
+                    mode.direct_params.rhythm_density = den as f32;
+                    mode.direct_params.rhythm_tension = ten as f32;
+                    mode.direct_params.rhythm_secondary_steps = sec_steps as usize;
+                    mode.direct_params.rhythm_secondary_pulses = sec_pulses as usize;
+                    mode.direct_params.rhythm_secondary_rotation = sec_rot as usize;
+                }
+                return true;
+            }
+        }
+
         _ => {}
     }
 
@@ -357,6 +399,8 @@ fn handle_action(
             if let Ok(mut mode) = control_mode.lock() {
                 mode.use_emotion_mode = false;
                 mode.webview_controls_mode = true;
+                // EXPLICITLY set this to true to prevent DAW from overwriting params immediately
+                mode.webview_controls_direct = true;
             }
             true
         }
