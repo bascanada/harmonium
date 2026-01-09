@@ -48,7 +48,7 @@ arrayvec = "0.7"                # Fixed-capacity Vec and String (no heap allocat
 crossbeam-channel = "0.5"       # MPSC channels for font loading
 
 # Odin2 synthesizer (optional - alternative to fundsp)
-odin2-core = { git = "https://github.com/bascanada/odin-rs", features = ["std"], optional = true }
+odin2-core = { path = "../odin2-rs/crates/odin2-core", features = ["std"], optional = true }
 
 # WASM bindings (optional - only for web builds)
 wasm-bindgen = { version = "0.2", optional = true }

@@ -1,28 +1,35 @@
 <script lang="ts">
   import type { HarmoniumBridge, EngineState } from '$lib/bridge';
+  import Card from '$lib/components/ui/card.svelte';
+  import Slider from '$lib/components/ui/slider.svelte';
+  import ToggleGroup from '$lib/components/ui/toggle-group.svelte';
+  import ToggleGroupItem from '$lib/components/ui/toggle-group-item.svelte';
 
   // Props
-  export let bridge: HarmoniumBridge;
-  export let state: EngineState; // For reading harmonyMode
-  export let harmonyValence: number;
-  export let harmonyTension: number;
+  let { 
+    bridge, 
+    state: engineState,
+    harmonyValence = $bindable(), 
+    harmonyTension = $bindable() 
+  }: {
+    bridge: HarmoniumBridge;
+    state: EngineState; // For reading harmonyMode
+    harmonyValence: number;
+    harmonyTension: number;
+  } = $props();
 
-  // Local state for controls - decoupled during active editing
-  let local = {
-    harmonyValence,
-    harmonyTension,
-  };
+  // Local state for controls
+  let isEditing = $state(false);
+  let localValence = $state(harmonyValence);
+  let localTension = $state(harmonyTension);
 
-  // Track if user is actively editing (prevent prop overwrite)
-  let isEditing = false;
-  
   // Sync props to local ONLY when not editing
-  $: if (!isEditing) {
-    local = {
-      harmonyValence,
-      harmonyTension,
-    };
-  }
+  $effect(() => {
+    if (!isEditing) {
+      localValence = harmonyValence;
+      localTension = harmonyTension;
+    }
+  });
 
   function onSliderStart() {
     isEditing = true;
@@ -30,60 +37,55 @@
 
   function onSliderEnd() {
     isEditing = false;
+    // Commit back
+    harmonyValence = localValence;
+    harmonyTension = localTension;
   }
 
   function update() {
-    bridge.setDirectHarmonyValence(local.harmonyValence);
-    bridge.setDirectHarmonyTension(local.harmonyTension);
+    bridge.setDirectHarmonyValence(localValence);
+    bridge.setDirectHarmonyTension(localTension);
   }
 
-  function setHarmonyMode(mode: number) {
+  function setHarmonyMode(value: string | undefined) {
+    if (value === undefined) return;
+    const mode = parseInt(value);
     bridge.setHarmonyMode(mode);
   }
+
+  let harmonyModeString = $derived(engineState.harmonyMode.toString());
 </script>
 
-<div class="p-5 bg-neutral-900/50 rounded-lg border-l-4 border-green-500">
-  <h3 class="text-lg font-semibold text-green-400 mb-4">Harmony</h3>
-
+<Card 
+  title="Harmony" 
+  class="border-l-4 border-l-green-500"
+>
   <!-- Harmony Engine Mode -->
-  <div class="flex rounded-lg bg-neutral-800 p-1.5 mb-4">
-    <button
-      onclick={() => setHarmonyMode(0)}
-      class="flex-1 py-2.5 px-4 rounded-md text-sm font-semibold transition-all duration-200
-        {state.harmonyMode === 0
-          ? 'bg-green-600 text-white shadow-lg'
-          : 'text-neutral-400 hover:text-neutral-200'}"
+  <div class="mb-4">
+    <ToggleGroup 
+      type="single" 
+      value={harmonyModeString} 
+      onValueChange={setHarmonyMode}
+      class="bg-neutral-800 w-full justify-stretch"
     >
-      Basic
-    </button>
-    <button
-      onclick={() => setHarmonyMode(1)}
-      class="flex-1 py-2.5 px-4 rounded-md text-sm font-semibold transition-all duration-200
-        {state.harmonyMode === 1
-          ? 'bg-cyan-600 text-white shadow-lg'
-          : 'text-neutral-400 hover:text-neutral-200'}"
-    >
-      Driver
-    </button>
+      <ToggleGroupItem value="0" class="flex-1 data-[state=on]:bg-green-600">Basic</ToggleGroupItem>
+      <ToggleGroupItem value="1" class="flex-1 data-[state=on]:bg-cyan-600">Driver</ToggleGroupItem>
+    </ToggleGroup>
   </div>
+  
   <p class="text-xs text-neutral-500 mb-4 text-center">
-    {state.harmonyMode === 0 ? 'Russell Circumplex (I-IV-vi-V)' : 'Steedman + Neo-Riemannian + LCC'}
+    {engineState.harmonyMode === 0 ? 'Russell Circumplex (I-IV-vi-V)' : 'Steedman + Neo-Riemannian + LCC'}
   </p>
 
   <div class="grid grid-cols-2 gap-6">
     <div>
-      <span class="text-sm text-neutral-400 mb-2 block">Valence: {local.harmonyValence.toFixed(2)}</span>
-      <input
-        type="range"
-        min="-1"
-        max="1"
-        step="0.01"
-        bind:value={local.harmonyValence}
-        oninput={update}
-        onpointerdown={onSliderStart}
-        onpointerup={onSliderEnd}
-        onpointercancel={onSliderEnd}
-        class="w-full h-2.5 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-green-500"
+      <Slider
+        label={`Valence: ${localValence.toFixed(2)}`}
+        min={-1} max={1} step={0.01}
+        bind:value={localValence}
+        onValueChange={update}
+        onpointerdown={onSliderStart} onpointerup={onSliderEnd} onpointercancel={onSliderEnd}
+        class="accent-green-500"
       />
       <div class="flex justify-between text-xs text-neutral-500 mt-2">
         <span>Minor</span>
@@ -91,18 +93,13 @@
       </div>
     </div>
     <div>
-      <span class="text-sm text-neutral-400 mb-2 block">Tension: {local.harmonyTension.toFixed(2)}</span>
-      <input
-        type="range"
-        min="0"
-        max="1"
-        step="0.01"
-        bind:value={local.harmonyTension}
-        oninput={update}
-        onpointerdown={onSliderStart}
-        onpointerup={onSliderEnd}
-        onpointercancel={onSliderEnd}
-        class="w-full h-2.5 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-green-500"
+      <Slider
+        label={`Tension: ${localTension.toFixed(2)}`}
+        min={0} max={1} step={0.01}
+        bind:value={localTension}
+        onValueChange={update}
+        onpointerdown={onSliderStart} onpointerup={onSliderEnd} onpointercancel={onSliderEnd}
+        class="accent-green-500"
       />
       <div class="flex justify-between text-xs text-neutral-500 mt-2">
         <span>Consonant</span>
@@ -110,4 +107,4 @@
       </div>
     </div>
   </div>
-</div>
+</Card>

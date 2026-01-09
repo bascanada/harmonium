@@ -1,27 +1,31 @@
 <script lang="ts">
   import type { HarmoniumBridge } from '$lib/bridge';
+  import Card from '$lib/components/ui/card.svelte';
+  import Slider from '$lib/components/ui/slider.svelte';
 
   // Props
-  export let bridge: HarmoniumBridge;
-  export let melodySmoothness: number;
-  export let voicingDensity: number;
+  let { 
+    bridge, 
+    melodySmoothness = $bindable(), 
+    voicingDensity = $bindable() 
+  }: {
+    bridge: HarmoniumBridge;
+    melodySmoothness: number;
+    voicingDensity: number;
+  } = $props();
 
-  // Local state for controls - decoupled during active editing
-  let local = {
-    melodySmoothness,
-    voicingDensity,
-  };
+  // Local state for controls - logic to decouple changes while dragging
+  let isEditing = $state(false);
+  let localSmoothness = $state(melodySmoothness);
+  let localDensity = $state(voicingDensity);
 
-  // Track if user is actively editing (prevent prop overwrite)
-  let isEditing = false;
-  
   // Sync props to local ONLY when not editing
-  $: if (!isEditing) {
-    local = {
-      melodySmoothness,
-      voicingDensity,
-    };
-  }
+  $effect(() => {
+    if (!isEditing) {
+      localSmoothness = melodySmoothness;
+      localDensity = voicingDensity;
+    }
+  });
 
   function onSliderStart() {
     isEditing = true;
@@ -29,31 +33,35 @@
 
   function onSliderEnd() {
     isEditing = false;
+    // Commit local changes back to bindable props (optional, depends on if we want 2-way sync strictly)
+    melodySmoothness = localSmoothness;
+    voicingDensity = localDensity;
   }
 
   function update() {
-    bridge.setDirectMelodySmoothness(local.melodySmoothness);
-    bridge.setDirectVoicingDensity(local.voicingDensity);
+    bridge.setDirectMelodySmoothness(localSmoothness);
+    bridge.setDirectVoicingDensity(localDensity);
   }
 </script>
 
-<div class="p-5 bg-neutral-900/50 rounded-lg border-l-4 border-blue-500">
-  <h3 class="text-lg font-semibold text-blue-400 mb-4">Melody & Voicing</h3>
-  <p class="text-xs text-neutral-500 mb-4">MIDI note generation (backend-agnostic)</p>
+<Card 
+  title="Melody & Voicing" 
+  description="MIDI note generation (backend-agnostic)"
+  class="border-l-4 border-l-blue-500"
+>
   <div class="grid grid-cols-2 gap-5">
     <div>
-      <span class="text-sm text-neutral-400 mb-2 block">Smoothness</span>
-      <input
-        type="range"
-        min="0"
-        max="1"
-        step="0.01"
-        bind:value={local.melodySmoothness}
-        oninput={update}
+      <Slider
+        label="Smoothness"
+        min={0}
+        max={1}
+        step={0.01}
+        bind:value={localSmoothness}
+        onValueChange={update}
         onpointerdown={onSliderStart}
         onpointerup={onSliderEnd}
         onpointercancel={onSliderEnd}
-        class="w-full h-2.5 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+        class="accent-blue-500"
       />
       <div class="flex justify-between text-xs text-neutral-500 mt-2">
         <span>Erratic</span>
@@ -61,18 +69,17 @@
       </div>
     </div>
     <div>
-      <span class="text-sm text-neutral-400 mb-2 block">Density</span>
-      <input
-        type="range"
-        min="0"
-        max="1"
-        step="0.01"
-        bind:value={local.voicingDensity}
-        oninput={update}
+      <Slider
+        label="Density"
+        min={0}
+        max={1}
+        step={0.01}
+        bind:value={localDensity}
+        onValueChange={update}
         onpointerdown={onSliderStart}
         onpointerup={onSliderEnd}
         onpointercancel={onSliderEnd}
-        class="w-full h-2.5 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+        class="accent-blue-500"
       />
       <div class="flex justify-between text-xs text-neutral-500 mt-2">
         <span>Sparse</span>
@@ -80,4 +87,4 @@
       </div>
     </div>
   </div>
-</div>
+</Card>

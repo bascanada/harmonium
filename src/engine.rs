@@ -244,6 +244,7 @@ pub struct HarmoniumEngine {
     lcc: LydianChromaticConcept,
     current_chord_type: ChordType,
     active_lead_notes: Vec<u8>,  // Notes actuellement jouées sur le channel Lead
+    active_bass_note: Option<u8>, // Note de basse actuellement jouée
 
     // === NOUVELLE ARCHITECTURE: Params Musicaux Découplés ===
     /// Mapper émotions → params musicaux
@@ -373,6 +374,7 @@ impl HarmoniumEngine {
             current_chord_type: ChordType::Major,
             // Phase 2.5: Pre-allocate with capacity for max chord voicing (typically 4-5 notes)
             active_lead_notes: Vec::with_capacity(8),
+            active_bass_note: None,
             // Nouvelle architecture
             emotion_mapper,
             musical_params,
@@ -870,12 +872,19 @@ impl HarmoniumEngine {
         let rhythm_enabled = self.musical_params.enable_rhythm;
 
         // Bass (Kick) - part of Rhythm module
+        // Always stop previous bass note (Staccato / Note Switching) to prevent infinite sustain
+        if let Some(old_note) = self.active_bass_note {
+            self.events_buffer.push(AudioEvent::NoteOff { note: old_note, channel: 0 });
+            self.active_bass_note = None;
+        }
+
         if rhythm_enabled && trigger_primary.kick && !self.musical_params.muted_channels.get(0).copied().unwrap_or(false) {
             // Phase 2: Read from local cache (no lock needed)
             let root = self.last_harmony_state.chord_root_offset;
             let midi = 36 + root;
             let vel = self.musical_params.vel_base_bass + (self.current_state.arousal * 25.0) as u8;
             self.events_buffer.push(AudioEvent::NoteOn { note: midi as u8, velocity: vel, channel: 0 });
+            self.active_bass_note = Some(midi as u8);
         }
         
         // Lead (avec Voicing) - Skip if melody disabled

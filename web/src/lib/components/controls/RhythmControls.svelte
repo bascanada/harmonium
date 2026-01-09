@@ -1,49 +1,66 @@
 <script lang="ts">
   import type { HarmoniumBridge } from '$lib/bridge';
+  import Card from '$lib/components/ui/card.svelte';
+  import Slider from '$lib/components/ui/slider.svelte';
+  import ToggleGroup from '$lib/components/ui/toggle-group.svelte';
+  import ToggleGroupItem from '$lib/components/ui/toggle-group-item.svelte';
 
   // Props
-  export let bridge: HarmoniumBridge;
-  export let rhythmMode: number;
-  export let rhythmSteps: number;
-  export let rhythmPulses: number;
-  export let rhythmRotation: number;
-  export let rhythmDensity: number;
-  export let rhythmTension: number;
-  export let secondarySteps: number;
-  export let secondaryPulses: number;
-  export let secondaryRotation: number;
+  let { 
+    bridge, 
+    rhythmMode = $bindable(),
+    rhythmSteps = $bindable(),
+    rhythmPulses = $bindable(),
+    rhythmRotation = $bindable(),
+    rhythmDensity = $bindable(),
+    rhythmTension = $bindable(),
+    secondarySteps = $bindable(),
+    secondaryPulses = $bindable(),
+    secondaryRotation = $bindable()
+  }: {
+    bridge: HarmoniumBridge;
+    rhythmMode: number;
+    rhythmSteps: number;
+    rhythmPulses: number;
+    rhythmRotation: number;
+    rhythmDensity: number;
+    rhythmTension: number;
+    secondarySteps: number;
+    secondaryPulses: number;
+    secondaryRotation: number;
+  } = $props();
 
-  // Local state for controls - decoupled during active editing
-  let local = {
-    rhythmMode,
-    rhythmSteps,
-    rhythmPulses,
-    rhythmRotation,
-    rhythmDensity,
-    rhythmTension,
-    secondarySteps,
-    secondaryPulses,
-    secondaryRotation,
-  };
-
-  // Track if user is actively editing (prevent prop overwrite)
-  // Track if user is actively editing (prevent prop overwrite)
-  let isEditing = false;
+  // Local state for controls
+  let isEditing = $state(false);
   
+  // Local state variables
+  let localMode = $state(rhythmMode);
+  // We need to type the toggle group value as string (it returns string by default) then convert
+  let localModeString = $derived(localMode.toString());
+
+  let localSteps = $state(rhythmSteps);
+  let localPulses = $state(rhythmPulses);
+  let localRotation = $state(rhythmRotation);
+  let localDensity = $state(rhythmDensity);
+  let localTension = $state(rhythmTension);
+  let localSecSteps = $state(secondarySteps);
+  let localSecPulses = $state(secondaryPulses);
+  let localSecRotation = $state(secondaryRotation);
+
   // Sync props to local ONLY when not editing
-  $: if (!isEditing) {
-    local = {
-      rhythmMode,
-      rhythmSteps,
-      rhythmPulses,
-      rhythmRotation,
-      rhythmDensity,
-      rhythmTension,
-      secondarySteps,
-      secondaryPulses,
-      secondaryRotation,
-    };
-  }
+  $effect(() => {
+    if (!isEditing) {
+      localMode = rhythmMode;
+      localSteps = rhythmSteps;
+      localPulses = rhythmPulses;
+      localRotation = rhythmRotation;
+      localDensity = rhythmDensity;
+      localTension = rhythmTension;
+      localSecSteps = secondarySteps;
+      localSecPulses = secondaryPulses;
+      localSecRotation = secondaryRotation;
+    }
+  });
 
   function onSliderStart() {
     isEditing = true;
@@ -51,71 +68,76 @@
 
   function onSliderEnd() {
     isEditing = false;
+    // Commit back
+    rhythmSteps = localSteps;
+    rhythmPulses = localPulses;
+    rhythmRotation = localRotation;
+    rhythmDensity = localDensity;
+    rhythmTension = localTension;
+    secondarySteps = localSecSteps;
+    secondaryPulses = localSecPulses;
+    secondaryRotation = localSecRotation;
   }
 
   function update() {
-    // Direct update without timeout locking
     bridge.setAllRhythmParams(
-      local.rhythmMode,
-      local.rhythmSteps,
-      local.rhythmPulses,
-      local.rhythmRotation,
-      local.rhythmDensity,
-      local.rhythmTension,
-      local.secondarySteps,
-      local.secondaryPulses,
-      local.secondaryRotation
+      localMode,
+      localSteps,
+      localPulses,
+      localRotation,
+      localDensity,
+      localTension,
+      localSecSteps,
+      localSecPulses,
+      localSecRotation
     );
   }
 
-  function setRhythmMode(mode: number) {
-    local.rhythmMode = mode;
-    // Default steps per mode: Euclidean=16, PerfectBalance=48, ClassicGroove=16
-    local.rhythmSteps = mode === 1 ? 48 : 16;
+  function handleModeChange(value: string | undefined) {
+    if (value === undefined) return;
+    const newMode = parseInt(value);
+    
+    localMode = newMode;
+    rhythmMode = newMode;
+
+    // Default steps per mode
+    if (newMode === 1) { // PerfectBalance
+        localSteps = 48;
+    } else if (newMode === 2) { // ClassicGroove
+        localSteps = 16;
+    } else { // Euclidean
+         // Keep current or reset to something standard? Leaving as is for now to match old logic mostly
+         // Old logic: local.rhythmSteps = mode === 1 ? 48 : 16;
+         // It seems it forced 16 for Euclidean/ClassicGroove
+        localSteps = 16;
+    }
+    
+    rhythmSteps = localSteps;
     update();
   }
 
+  // Helper for Poly Steps buttons
   function setPolySteps(steps: number) {
-    local.rhythmSteps = steps;
+    localSteps = steps;
+    rhythmSteps = steps;
     update();
   }
 </script>
 
-<div class="p-5 bg-neutral-900/50 rounded-lg border-l-4 border-orange-500">
-  <h3 class="text-lg font-semibold text-orange-400 mb-4">Rhythm</h3>
-
+<Card
+  title="Rhythm"
+  class="border-l-4 border-l-orange-500"
+>
   <!-- Mode Toggle -->
-  <div class="flex rounded-lg bg-neutral-800 p-1.5 mb-5">
-    <button
-      onclick={() => setRhythmMode(0)}
-      class="flex-1 py-2.5 px-4 rounded-md text-sm font-semibold transition-all duration-200
-        {local.rhythmMode === 0
-          ? 'bg-orange-600 text-white shadow-lg'
-          : 'text-neutral-400 hover:text-neutral-200'}"
-    >
-      Euclidean
-    </button>
-    <button
-      onclick={() => setRhythmMode(1)}
-      class="flex-1 py-2.5 px-4 rounded-md text-sm font-semibold transition-all duration-200
-        {local.rhythmMode === 1
-          ? 'bg-purple-600 text-white shadow-lg'
-          : 'text-neutral-400 hover:text-neutral-200'}"
-    >
-      PerfectBalance
-    </button>
-    <button
-      onclick={() => setRhythmMode(2)}
-      class="flex-1 py-2.5 px-4 rounded-md text-sm font-semibold transition-all duration-200
-        {local.rhythmMode === 2
-          ? 'bg-teal-600 text-white shadow-lg'
-          : 'text-neutral-400 hover:text-neutral-200'}"
-    >
-      ClassicGroove
-    </button>
+  <div class="mb-5">
+     <ToggleGroup type="single" value={localModeString} onValueChange={handleModeChange} class="bg-neutral-800 w-full justify-stretch">
+        <ToggleGroupItem value="0" class="flex-1 data-[state=on]:bg-orange-600">Euclidean</ToggleGroupItem>
+        <ToggleGroupItem value="1" class="flex-1 data-[state=on]:bg-purple-600">PerfectBalance</ToggleGroupItem>
+        <ToggleGroupItem value="2" class="flex-1 data-[state=on]:bg-teal-600">ClassicGroove</ToggleGroupItem>
+     </ToggleGroup>
   </div>
 
-  {#if local.rhythmMode === 0}
+  {#if localMode === 0}
     <!-- EUCLIDEAN MODE -->
     <p class="text-xs text-neutral-500 mb-4">Bjorklund algorithm - Classic polyrhythms</p>
 
@@ -123,51 +145,30 @@
     <div class="mb-4 p-3 bg-neutral-800/50 rounded-lg">
       <div class="text-xs text-orange-300 font-semibold mb-2">Primary (Kick)</div>
       <div class="grid grid-cols-3 gap-3">
-        <div>
-          <span class="text-xs text-neutral-400">Steps: {local.rhythmSteps}</span>
-          <input
-            type="range"
-            min="4"
-            max="32"
-            step="1"
-            bind:value={local.rhythmSteps}
-            oninput={update}
-            onpointerdown={onSliderStart}
-            onpointerup={onSliderEnd}
-            onpointercancel={onSliderEnd}
-            class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
-          />
-        </div>
-        <div>
-          <span class="text-xs text-neutral-400">Pulses: {local.rhythmPulses}</span>
-          <input
-            type="range"
-            min="1"
-            max={local.rhythmSteps}
-            step="1"
-            bind:value={local.rhythmPulses}
-            oninput={update}
-            onpointerdown={onSliderStart}
-            onpointerup={onSliderEnd}
-            onpointercancel={onSliderEnd}
-            class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
-          />
-        </div>
-        <div>
-          <span class="text-xs text-neutral-400">Rotation: {local.rhythmRotation}</span>
-          <input
-            type="range"
-            min="0"
-            max={local.rhythmSteps - 1}
-            step="1"
-            bind:value={local.rhythmRotation}
-            oninput={update}
-            onpointerdown={onSliderStart}
-            onpointerup={onSliderEnd}
-            onpointercancel={onSliderEnd}
-            class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
-          />
-        </div>
+        <Slider
+            label={`Steps: ${localSteps}`}
+            min={4} max={32} step={1}
+            bind:value={localSteps}
+            onValueChange={update}
+            onpointerdown={onSliderStart} onpointerup={onSliderEnd} onpointercancel={onSliderEnd}
+            class="accent-orange-500"
+        />
+        <Slider
+            label={`Pulses: ${localPulses}`}
+            min={1} max={localSteps} step={1}
+            bind:value={localPulses}
+            onValueChange={update}
+            onpointerdown={onSliderStart} onpointerup={onSliderEnd} onpointercancel={onSliderEnd}
+            class="accent-orange-500"
+        />
+        <Slider
+            label={`Rotation: ${localRotation}`}
+            min={0} max={localSteps - 1} step={1}
+            bind:value={localRotation}
+            onValueChange={update}
+            onpointerdown={onSliderStart} onpointerup={onSliderEnd} onpointercancel={onSliderEnd}
+            class="accent-orange-500"
+        />
       </div>
     </div>
 
@@ -175,57 +176,36 @@
     <div class="p-3 bg-neutral-800/50 rounded-lg border border-green-500/30">
       <div class="text-xs text-green-300 font-semibold mb-2">Secondary (Snare) - Polyrhythm</div>
       <div class="grid grid-cols-3 gap-3">
-        <div>
-          <span class="text-xs text-neutral-400">Steps: {local.secondarySteps}</span>
-          <input
-            type="range"
-            min="4"
-            max="32"
-            step="1"
-            bind:value={local.secondarySteps}
-            oninput={update}
-            onpointerdown={onSliderStart}
-            onpointerup={onSliderEnd}
-            onpointercancel={onSliderEnd}
-            class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-green-500"
-          />
-        </div>
-        <div>
-          <span class="text-xs text-neutral-400">Pulses: {local.secondaryPulses}</span>
-          <input
-            type="range"
-            min="1"
-            max={local.secondarySteps}
-            step="1"
-            bind:value={local.secondaryPulses}
-            oninput={update}
-            onpointerdown={onSliderStart}
-            onpointerup={onSliderEnd}
-            onpointercancel={onSliderEnd}
-            class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-green-500"
-          />
-        </div>
-        <div>
-          <span class="text-xs text-neutral-400">Rotation: {local.secondaryRotation}</span>
-          <input
-            type="range"
-            min="0"
-            max={local.secondarySteps - 1}
-            step="1"
-            bind:value={local.secondaryRotation}
-            oninput={update}
-            onpointerdown={onSliderStart}
-            onpointerup={onSliderEnd}
-            onpointercancel={onSliderEnd}
-            class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-green-500"
-          />
-        </div>
+        <Slider
+            label={`Steps: ${localSecSteps}`}
+            min={4} max={32} step={1}
+            bind:value={localSecSteps}
+            onValueChange={update}
+            onpointerdown={onSliderStart} onpointerup={onSliderEnd} onpointercancel={onSliderEnd}
+            class="accent-green-500"
+        />
+        <Slider
+            label={`Pulses: ${localSecPulses}`}
+            min={1} max={localSecSteps} step={1}
+            bind:value={localSecPulses}
+            onValueChange={update}
+            onpointerdown={onSliderStart} onpointerup={onSliderEnd} onpointercancel={onSliderEnd}
+            class="accent-green-500"
+        />
+        <Slider
+            label={`Rotation: ${localSecRotation}`}
+            min={0} max={localSecSteps - 1} step={1}
+            bind:value={localSecRotation}
+            onValueChange={update}
+            onpointerdown={onSliderStart} onpointerup={onSliderEnd} onpointercancel={onSliderEnd}
+            class="accent-green-500"
+        />
       </div>
       <p class="text-xs text-neutral-600 mt-2">
-        {local.rhythmSteps}:{local.secondarySteps} polyrhythm
+        {localSteps}:{localSecSteps} polyrhythm
       </p>
     </div>
-  {:else if local.rhythmMode === 1}
+  {:else if localMode === 1}
     <!-- PERFECTBALANCE MODE -->
     <p class="text-xs text-neutral-500 mb-4">XronoMorph style - Regular polygons</p>
 
@@ -237,7 +217,7 @@
           <button
             onclick={() => setPolySteps(s)}
             class="flex-1 py-2 px-3 rounded font-mono text-sm transition-colors
-              {local.rhythmSteps === s
+              {localSteps === s
                 ? 'bg-purple-600 text-white'
                 : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}"
           >
@@ -250,18 +230,13 @@
     <!-- Density & Tension -->
     <div class="grid grid-cols-2 gap-4">
       <div>
-        <span class="text-xs text-neutral-400">Density: {local.rhythmDensity.toFixed(2)}</span>
-        <input
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          bind:value={local.rhythmDensity}
-          oninput={update}
-          onpointerdown={onSliderStart}
-          onpointerup={onSliderEnd}
-          onpointercancel={onSliderEnd}
-          class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+        <Slider
+            label={`Density: ${localDensity.toFixed(2)}`}
+            min={0} max={1} step={0.01}
+            bind:value={localDensity}
+            onValueChange={update}
+            onpointerdown={onSliderStart} onpointerup={onSliderEnd} onpointercancel={onSliderEnd}
+            class="accent-purple-500"
         />
         <div class="flex justify-between text-xs text-neutral-600 mt-1">
           <span>Sparse</span>
@@ -269,18 +244,13 @@
         </div>
       </div>
       <div>
-        <span class="text-xs text-neutral-400">Tension: {local.rhythmTension.toFixed(2)}</span>
-        <input
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          bind:value={local.rhythmTension}
-          oninput={update}
-          onpointerdown={onSliderStart}
-          onpointerup={onSliderEnd}
-          onpointercancel={onSliderEnd}
-          class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+        <Slider
+            label={`Tension: ${localTension.toFixed(2)}`}
+            min={0} max={1} step={0.01}
+            bind:value={localTension}
+            onValueChange={update}
+            onpointerdown={onSliderStart} onpointerup={onSliderEnd} onpointercancel={onSliderEnd}
+            class="accent-purple-500"
         />
         <div class="flex justify-between text-xs text-neutral-600 mt-1">
           <span>Simple</span>
@@ -295,18 +265,13 @@
     <!-- Density & Tension -->
     <div class="grid grid-cols-2 gap-4">
       <div>
-        <span class="text-xs text-neutral-400">Density: {local.rhythmDensity.toFixed(2)}</span>
-        <input
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          bind:value={local.rhythmDensity}
-          oninput={update}
-          onpointerdown={onSliderStart}
-          onpointerup={onSliderEnd}
-          onpointercancel={onSliderEnd}
-          class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-teal-500"
+        <Slider
+            label={`Density: ${localDensity.toFixed(2)}`}
+            min={0} max={1} step={0.01}
+            bind:value={localDensity}
+            onValueChange={update}
+            onpointerdown={onSliderStart} onpointerup={onSliderEnd} onpointercancel={onSliderEnd}
+            class="accent-teal-500"
         />
         <div class="flex justify-between text-xs text-neutral-600 mt-1">
           <span>Half-time</span>
@@ -314,18 +279,13 @@
         </div>
       </div>
       <div>
-        <span class="text-xs text-neutral-400">Tension: {local.rhythmTension.toFixed(2)}</span>
-        <input
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          bind:value={local.rhythmTension}
-          oninput={update}
-          onpointerdown={onSliderStart}
-          onpointerup={onSliderEnd}
-          onpointercancel={onSliderEnd}
-          class="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-teal-500"
+        <Slider
+            label={`Tension: ${localTension.toFixed(2)}`}
+            min={0} max={1} step={0.01}
+            bind:value={localTension}
+            onValueChange={update}
+            onpointerdown={onSliderStart} onpointerup={onSliderEnd} onpointercancel={onSliderEnd}
+            class="accent-teal-500"
         />
         <div class="flex justify-between text-xs text-neutral-600 mt-1">
           <span>Clean</span>
@@ -334,4 +294,4 @@
       </div>
     </div>
   {/if}
-</div>
+</Card>

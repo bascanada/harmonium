@@ -1,37 +1,44 @@
 <script lang="ts">
   import type { HarmoniumBridge } from '$lib/bridge';
   import { ai, aiStatus, aiError } from '$lib/ai';
+  import Card from '$lib/components/ui/card.svelte';
+  import Slider from '$lib/components/ui/slider.svelte';
+  import Input from '$lib/components/ui/input.svelte';
 
   // Props - bridge passed from parent
-  export let bridge: HarmoniumBridge;
-
   // Props for initial/backend values
-  export let arousal = 0.5;
-  export let valence = 0.3;
-  export let density = 0.5;
-  export let tension = 0.3;
+  let {
+    bridge,
+    arousal = $bindable(0.5),
+    valence = $bindable(0.3),
+    density = $bindable(0.5),
+    tension = $bindable(0.3)
+  } = $props();
 
   // Local state for sliders - decoupled from props during active editing
-  let localArousal = arousal;
-  let localValence = valence;
-  let localDensity = density;
-  let localTension = tension;
+  let localArousal = $state(arousal);
+  let localValence = $state(valence);
+  let localDensity = $state(density);
+  let localTension = $state(tension);
 
   // Track which slider is being actively edited (prevent backend overwrite)
-  let activeSlider: string | null = null;
+  let activeSlider = $state<string | null>(null);
   
   // Sync props to local state ONLY when not actively editing
-  $: if (activeSlider !== 'arousal') localArousal = arousal;
-  $: if (activeSlider !== 'valence') localValence = valence;
-  $: if (activeSlider !== 'density') localDensity = density;
-  $: if (activeSlider !== 'tension') localTension = tension;
+  $effect(() => {
+    if (activeSlider !== 'arousal') localArousal = arousal;
+    if (activeSlider !== 'valence') localValence = valence;
+    if (activeSlider !== 'density') localDensity = density;
+    if (activeSlider !== 'tension') localTension = tension;
+  });
 
   // Calculated BPM from local arousal (for display)
-  $: bpm = 70 + localArousal * 110;
+  let bpm = $derived(70 + localArousal * 110);
 
   // AI Input
-  let aiInputText = '';
+  let aiInputText = $state('');
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let isLoading = $derived($aiStatus === 'loading');
 
   // Slider interaction handlers
   function onSliderStart(name: string) {
@@ -39,6 +46,11 @@
   }
 
   function onSliderEnd() {
+    // Commit adjustments if needed
+    if (activeSlider === 'arousal') arousal = localArousal;
+    if (activeSlider === 'valence') valence = localValence;
+    if (activeSlider === 'density') density = localDensity;
+    if (activeSlider === 'tension') tension = localTension;
     activeSlider = null;
   }
 
@@ -63,6 +75,7 @@
 
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(async () => {
+      // Logic from ancient runes version
       if ($aiStatus === 'idle' || $aiStatus === 'error') {
         await ai.init();
       }
@@ -75,10 +88,16 @@
           localValence = params.valence;
           localTension = params.tension;
           localDensity = params.density;
+          
           bridge.setArousal(localArousal);
           bridge.setValence(localValence);
           bridge.setTension(localTension);
           bridge.setDensity(localDensity);
+          
+          arousal = localArousal;
+          valence = localValence;
+          tension = localTension;
+          density = localDensity;
         } else {
           console.warn('AI could not determine parameters for this input.');
         }
@@ -87,24 +106,21 @@
   }
 </script>
 
-<div class="emotional-controls space-y-6">
+<div class="space-y-6">
   <!-- AI Director -->
-  <div class="p-4 bg-neutral-800 rounded-lg border border-neutral-700">
-    <h3 class="text-lg font-semibold mb-3">AI Director</h3>
+  <Card title="AI Director" class="border-neutral-700 bg-neutral-800">
     <div class="flex gap-2">
-      <input
-        type="text"
+      <Input
         bind:value={aiInputText}
         placeholder="Enter words to describe emotions (e.g. 'battle fire danger')"
-        class="flex-1 bg-neutral-900 border border-neutral-600 rounded px-3 py-2 text-white text-sm"
-        onkeydown={(e) => e.key === 'Enter' && analyzeText()}
+        onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && analyzeText()}
       />
       <button
         onclick={analyzeText}
-        disabled={$aiStatus === 'loading'}
+        disabled={isLoading}
         class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded disabled:opacity-50 text-sm font-medium"
       >
-        {$aiStatus === 'loading' ? '...' : 'Set'}
+        {isLoading ? '...' : 'Set'}
       </button>
     </div>
     {#if $aiError}
@@ -113,7 +129,7 @@
     {#if $aiStatus === 'ready' && !aiInputText}
       <div class="text-green-400 text-xs mt-2">AI Engine Ready</div>
     {/if}
-  </div>
+  </Card>
 
   <!-- BPM Display (calculated from Arousal) -->
   <div class="p-5 bg-neutral-900 rounded-lg border-l-4 border-purple-600">
@@ -125,92 +141,78 @@
     </div>
     <p class="text-sm text-neutral-500 mt-2">Calculated from Arousal</p>
   </div>
+  
+  <Card class="space-y-6">
+    <!-- Arousal -->
+     <div>
+       <div class="flex justify-between mb-3">
+        <label for="arousal" class="text-xl font-semibold">Arousal</label>
+        <span class="text-lg text-purple-400 font-mono">{localArousal.toFixed(2)}</span>
+      </div>
+      <Slider
+        min={0} max={1} step={0.01}
+        bind:value={localArousal}
+        onValueChange={updateArousal}
+        onpointerdown={() => onSliderStart('arousal')}
+        onpointerup={onSliderEnd}
+        onpointercancel={onSliderEnd}
+        class="accent-red-600"
+      />
+      <div class="text-sm text-neutral-500 mt-2 text-right">Energy / Tempo</div>
+     </div>
+  
+    <!-- Valence -->
+     <div>
+      <div class="flex justify-between mb-3">
+        <label for="valence" class="text-xl font-semibold">Valence</label>
+        <span class="text-lg text-purple-400 font-mono">{localValence.toFixed(2)}</span>
+      </div>
+      <Slider
+        min={-1} max={1} step={0.01}
+        bind:value={localValence}
+        onValueChange={updateValence}
+        onpointerdown={() => onSliderStart('valence')}
+        onpointerup={onSliderEnd}
+        onpointercancel={onSliderEnd}
+        class="accent-green-600"
+      />
+      <div class="text-sm text-neutral-500 mt-2 text-right">Emotion / Harmony</div>
+     </div>
 
-  <!-- Arousal -->
-  <div class="py-2">
-    <div class="flex justify-between mb-3">
-      <label for="arousal" class="text-xl font-semibold">Arousal</label>
-      <span class="text-lg text-purple-400 font-mono">{localArousal.toFixed(2)}</span>
-    </div>
-    <input
-      id="arousal"
-      type="range"
-      min="0"
-      max="1"
-      step="0.01"
-      bind:value={localArousal}
-      oninput={updateArousal}
-      onpointerdown={() => onSliderStart('arousal')}
-      onpointerup={onSliderEnd}
-      onpointercancel={onSliderEnd}
-      class="w-full h-3 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-red-600"
-    />
-    <div class="text-sm text-neutral-500 mt-2 text-right">Energy / Tempo</div>
-  </div>
+    <!-- Density -->
+     <div>
+      <div class="flex justify-between mb-3">
+        <label for="density" class="text-xl font-semibold">Density</label>
+        <span class="text-lg text-purple-400 font-mono">{localDensity.toFixed(2)}</span>
+      </div>
+      <Slider
+        min={0} max={1} step={0.01}
+        bind:value={localDensity}
+        onValueChange={updateDensity}
+        onpointerdown={() => onSliderStart('density')}
+        onpointerup={onSliderEnd}
+        onpointercancel={onSliderEnd}
+        class="accent-blue-600"
+      />
+      <div class="text-sm text-neutral-500 mt-2 text-right">Rhythm Complexity</div>
+     </div>
 
-  <!-- Valence -->
-  <div class="py-2">
-    <div class="flex justify-between mb-3">
-      <label for="valence" class="text-xl font-semibold">Valence</label>
-      <span class="text-lg text-purple-400 font-mono">{localValence.toFixed(2)}</span>
-    </div>
-    <input
-      id="valence"
-      type="range"
-      min="-1"
-      max="1"
-      step="0.01"
-      bind:value={localValence}
-      oninput={updateValence}
-      onpointerdown={() => onSliderStart('valence')}
-      onpointerup={onSliderEnd}
-      onpointercancel={onSliderEnd}
-      class="w-full h-3 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-green-600"
-    />
-    <div class="text-sm text-neutral-500 mt-2 text-right">Emotion / Harmony</div>
-  </div>
-
-  <!-- Density -->
-  <div class="py-2">
-    <div class="flex justify-between mb-3">
-      <label for="density" class="text-xl font-semibold">Density</label>
-      <span class="text-lg text-purple-400 font-mono">{localDensity.toFixed(2)}</span>
-    </div>
-    <input
-      id="density"
-      type="range"
-      min="0"
-      max="1"
-      step="0.01"
-      bind:value={localDensity}
-      oninput={updateDensity}
-      onpointerdown={() => onSliderStart('density')}
-      onpointerup={onSliderEnd}
-      onpointercancel={onSliderEnd}
-      class="w-full h-3 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
-    />
-    <div class="text-sm text-neutral-500 mt-2 text-right">Rhythm Complexity</div>
-  </div>
-
-  <!-- Tension -->
-  <div class="py-2">
-    <div class="flex justify-between mb-3">
-      <label for="tension" class="text-xl font-semibold">Tension</label>
-      <span class="text-lg text-purple-400 font-mono">{localTension.toFixed(2)}</span>
-    </div>
-    <input
-      id="tension"
-      type="range"
-      min="0"
-      max="1"
-      step="0.01"
-      bind:value={localTension}
-      oninput={updateTension}
-      onpointerdown={() => onSliderStart('tension')}
-      onpointerup={onSliderEnd}
-      onpointercancel={onSliderEnd}
-      class="w-full h-3 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-yellow-600"
-    />
-    <div class="text-sm text-neutral-500 mt-2 text-right">Dissonance / Rotation</div>
-  </div>
+    <!-- Tension -->
+     <div>
+      <div class="flex justify-between mb-3">
+        <label for="tension" class="text-xl font-semibold">Tension</label>
+        <span class="text-lg text-purple-400 font-mono">{localTension.toFixed(2)}</span>
+      </div>
+      <Slider
+        min={0} max={1} step={0.01}
+        bind:value={localTension}
+        onValueChange={updateTension}
+        onpointerdown={() => onSliderStart('tension')}
+        onpointerup={onSliderEnd}
+        onpointercancel={onSliderEnd}
+        class="accent-yellow-600"
+      />
+      <div class="text-sm text-neutral-500 mt-2 text-right">Dissonance / Rotation</div>
+     </div>
+  </Card>
 </div>
