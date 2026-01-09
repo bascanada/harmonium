@@ -8,6 +8,7 @@
 use rust_music_theory::scale::{Scale, ScaleType, Direction};
 use rust_music_theory::note::{PitchSymbol, Pitch, Notes};
 use rand::distributions::{Distribution, WeightedIndex};
+use rand::Rng; // Added for gen_bool
 use super::basic::ChordQuality;
 use crate::fractal::PinkNoise;
 
@@ -23,6 +24,10 @@ pub struct HarmonyNavigator {
     // === FRACTAL NOISE ===
     pink_noise: PinkNoise,
     hurst_factor: f32,
+    // === MOTIF MEMORY ===
+    motif_buffer: Vec<i32>,
+    motif_index: usize,
+    playing_motif: bool,
 }
 
 impl HarmonyNavigator {
@@ -45,6 +50,9 @@ impl HarmonyNavigator {
             global_key_root,
             pink_noise: PinkNoise::new(5), // 5 octaves de profondeur
             hurst_factor: 0.7, // Valeur par défaut pour une mélodie "chantante"
+            motif_buffer: Vec::new(),
+            motif_index: 0,
+            playing_motif: false,
         }
     }
 
@@ -163,43 +171,33 @@ impl HarmonyNavigator {
         self.get_frequency()
     }
 
-    /// GÉNÉRATION HYBRIDE : Le Bruit Rose (GPS) guide les choix de Markov (Conducteur).
-    /// is_strong_beat : Permet de favoriser les notes de l'accord sur les temps forts
-    pub fn next_note_hybrid(&mut self, is_strong_beat: bool) -> f32 {
+    /// Génère un intervalle mélodique basé sur la logique Hybride (Markov + Fractal)
+    /// Retourne le saut (step) en degrés, pas la fréquence
+    fn generate_hybrid_step(&mut self, is_strong_beat: bool) -> i32 {
         let mut rng = rand::thread_rng();
 
         // 1. LE GPS (Bruit Fractal) : Quelle est la "tendance" globale ?
-        // On récupère la valeur cible idéale dictée par le 1/f
         let fractal_drift = self.pink_noise.next();
-        let center_index = 0; // Tonique centrale
-        // Amplitude de ±12 degrés (environ 2 octaves) pour la cible
+        let center_index = 0;
         let target_index = center_index + (fractal_drift * 12.0) as i32;
 
         // 2. LE CONDUCTEUR (Markov) : Quels sont les mouvements musicaux valides ?
-        // On récupère les probabilités basées sur la théorie (tonique, sensible, etc.)
         let normalized_index = self.current_index.rem_euclid(self.scale_len as i32);
         let (steps, original_weights) = self.get_weighted_steps(normalized_index, is_strong_beat);
 
         // 3. LA FUSION : On biaise les poids vers la cible fractale
         let mut final_weights = Vec::with_capacity(original_weights.len());
         let current_dist = (target_index - self.current_index).abs();
-
-        // Facteur d'influence du fractal (lié au paramètre smoothness/Hurst)
-        // Hurst bas (0.1) = peu d'influence, on suit surtout Markov (local)
-        // Hurst haut (1.0) = forte influence, on court vers la cible (global)
         let fractal_influence = 0.5 + (self.hurst_factor * 3.0);
 
         for (i, &step) in steps.iter().enumerate() {
             let predicted_index = self.current_index + step;
             let new_dist = (target_index - predicted_index).abs();
-
             let mut weight = original_weights[i] as f32;
 
-            // Si ce pas nous rapproche de la cible fractale, on booste son poids
             if new_dist < current_dist {
                 weight *= fractal_influence;
             } else {
-                // Si on s'éloigne, on réduit légèrement le poids (mais on ne l'interdit pas !)
                 weight *= 0.8;
             }
 
@@ -207,26 +205,24 @@ impl HarmonyNavigator {
         }
 
         // 4. SÉLECTION PONDÉRÉE
-        // On recrée une distribution avec les nouveaux poids
         let dist = WeightedIndex::new(&final_weights).unwrap_or_else(|_| {
-            // Fallback de sécurité si tous les poids sont 0 (rare)
             WeightedIndex::new(vec![1.0; final_weights.len()]).unwrap()
         });
 
         let chosen_step = steps[dist.sample(&mut rng)];
 
         // === Gap Fill (Temperley) ===
-        // Sécurité supplémentaire : si on vient de faire un grand saut,
-        // on évite d'en refaire un dans la même direction
-        let final_step = if self.last_step.abs() > 2 && chosen_step.abs() > 2 && chosen_step.signum() == self.last_step.signum() {
-            // On force un petit mouvement ou un retour
+        if self.last_step.abs() > 2 && chosen_step.abs() > 2 && chosen_step.signum() == self.last_step.signum() {
             if chosen_step > 0 { -1 } else { 1 }
         } else {
             chosen_step
-        };
+        }
+    }
 
-        self.last_step = final_step;
-        self.current_index += final_step;
+    /// Applique le saut mélodique, met à jour l'historique et calcule la fréquence finale
+    fn apply_step_and_get_freq(&mut self, step: i32) -> f32 {
+        self.last_step = step;
+        self.current_index += step;
 
         // Contraintes physiques (Tessiture)
         self.current_index = self.current_index.clamp(
@@ -235,6 +231,43 @@ impl HarmonyNavigator {
         );
 
         self.get_frequency()
+    }
+
+    /// Version structurée avec mémoire de motifs (Call & Response, Répétition)
+    pub fn next_note_structured(&mut self, is_strong_beat: bool, is_new_measure: bool) -> f32 {
+        let mut rng = rand::thread_rng();
+
+        // Au début d'une mesure, on décide si on réutilise le motif précédent
+        if is_new_measure {
+            // 50% de chance de répéter le motif (cohérence), 50% de générer du nouveau
+            self.playing_motif = rng.gen_bool(0.5) && !self.motif_buffer.is_empty();
+            self.motif_index = 0;
+            if !self.playing_motif {
+                self.motif_buffer.clear(); // On part sur du neuf
+            }
+        }
+
+        let step = if self.playing_motif && self.motif_index < self.motif_buffer.len() {
+            // RÉPÉTITION : On rejoue le même intervalle relatif
+            self.motif_buffer[self.motif_index]
+        } else {
+            // GÉNÉRATION : On utilise la logique Markov existante
+            let generated_step = self.generate_hybrid_step(is_strong_beat);
+            if !self.playing_motif {
+                 self.motif_buffer.push(generated_step);
+            }
+            generated_step
+        };
+
+        self.motif_index += 1;
+        self.apply_step_and_get_freq(step)
+    }
+
+    /// GÉNÉRATION HYBRIDE : Le Bruit Rose (GPS) guide les choix de Markov (Conducteur).
+    /// is_strong_beat : Permet de favoriser les notes de l'accord sur les temps forts
+    pub fn next_note_hybrid(&mut self, is_strong_beat: bool) -> f32 {
+        let step = self.generate_hybrid_step(is_strong_beat);
+        self.apply_step_and_get_freq(step)
     }
 
     /// Calcule les probabilités de mouvement selon la théorie musicale

@@ -1025,11 +1025,8 @@ impl HarmoniumEngine {
         }
 
         let play_lead = melody_enabled
-            && (trigger_primary.kick
-                || trigger_primary.snare
-                || trigger_secondary.kick
-                || trigger_secondary.snare
-                || trigger_secondary.hat)
+            && (trigger_primary.kick || trigger_primary.snare) // Filtrage rythmique: Kick/Snare only
+            && !(is_high_tension && is_in_fill_zone) // Call & Response: Silence pendant les fills intenses
             && !self
                 .musical_params
                 .muted_channels
@@ -1038,7 +1035,9 @@ impl HarmoniumEngine {
                 .unwrap_or(false);
         if play_lead {
             let is_strong = trigger_primary.kick;
-            let freq = self.harmony.next_note_hybrid(is_strong);
+            let is_new_measure = self.sequencer_primary.current_step == 0;
+            // Utilisation du générateur structuré (Motifs + Variations)
+            let freq = self.harmony.next_note_structured(is_strong, is_new_measure);
             let melody_midi = (69.0 + 12.0 * (freq / 440.0).log2()).round() as u8;
             let base_vel = 90 + (self.current_state.arousal * 30.0) as u8;
 
