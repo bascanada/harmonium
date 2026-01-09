@@ -88,6 +88,7 @@
       enableHarmony={state.enableHarmony}
       enableMelody={state.enableMelody}
       enableVoicing={state.enableVoicing}
+      fixedKick={state.fixedKick}
       bpm={state.bpm}
       rhythmMode={state.rhythmMode}
       rhythmSteps={state.primarySteps}

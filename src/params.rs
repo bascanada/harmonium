@@ -35,6 +35,8 @@ pub struct ControlMode {
     pub enable_melody: bool,
     /// Enable voicing (harmonized chords) - global override
     pub enable_voicing: bool,
+    /// Mode Drum Kit (kick fixe sur C1/36)
+    pub fixed_kick: bool,
 
     // === WEBVIEW CONTROL FLAGS ===
     /// When true, the webview is the source of truth for emotional params
@@ -77,6 +79,7 @@ impl Default for ControlMode {
             enable_harmony: true,
             enable_melody: true,
             enable_voicing: false,
+            fixed_kick: false,
             // Start with DAW params as source of truth
             webview_controls_emotions: false,
             webview_controls_mode: false,
@@ -186,6 +189,12 @@ pub struct MusicalParams {
     /// Rotation du séquenceur secondaire
     #[serde(default)]
     pub rhythm_secondary_rotation: usize,
+
+    /// Mode du Kick : true = Note fixe 36 (Drum Kit), false = Harmonisé (Synth Bass)
+    /// - true: Idéal pour VST Drums, Samplers, Percussions
+    /// - false: Idéal pour Synthwave, Basses mélodiques (Odin2)
+    #[serde(default)]
+    pub fixed_kick: bool,
 
     // ═══════════════════════════════════════════════════════════════════
     // HARMONIE
@@ -343,6 +352,7 @@ impl Default for MusicalParams {
             rhythm_secondary_steps: default_secondary_steps(),
             rhythm_secondary_pulses: default_secondary_pulses(),
             rhythm_secondary_rotation: 0,
+            fixed_kick: false,
 
             // Harmonie
             harmony_mode: HarmonyMode::Driver,

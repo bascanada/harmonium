@@ -2813,6 +2813,7 @@ dependencies = [
 [[package]]
 name = "odin2-core"
 version = "0.1.0"
+source = "git+https://github.com/bascanada/odin-rs#0e8f08b3c62930158ad2ad35427ba210d37b7d16"
 dependencies = [
  "hound",
  "libm",

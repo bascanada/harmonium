@@ -107,6 +107,10 @@ export abstract class BaseBridge implements HarmoniumBridge {
     this.sendCommand('set_direct_enable_voicing', enabled);
   }
 
+  setDirectFixedKick(enabled: boolean): void {
+    this.sendCommand('set_direct_fixed_kick', enabled);
+  }
+
   setDirectRhythmMode(mode: number): void {
     this.sendCommand('set_direct_rhythm_mode', mode);
   }

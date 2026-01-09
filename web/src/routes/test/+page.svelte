@@ -5,6 +5,7 @@
     import ControlPanel from '$lib/components/controls/ControlPanel.svelte';
     import RhythmVisualizer from '$lib/components/visualizations/RhythmVisualizer.svelte';
     import ChordProgression from '$lib/components/visualizations/ChordProgression.svelte';
+    import MorphVisualization from '$lib/components/visualizations/MorphVisualization.svelte';
     import abcjs from 'abcjs';
     import init, { get_available_backends } from 'harmonium';
 
@@ -490,6 +491,12 @@
                         {progressionChords}
                         harmonyMode={state.harmonyMode}
                     />
+
+                    {#if bridge}
+                        {#key bridge}
+                            <MorphVisualization {bridge} {state} />
+                        {/key}
+                    {/if}
                 </div>
 
                 <!-- Right: Controls -->

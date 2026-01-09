@@ -43,6 +43,7 @@ export interface EngineState {
   enableHarmony: boolean;
   enableMelody: boolean;
   enableVoicing: boolean;
+  fixedKick: boolean;
 
   // Direct rhythm params
   rhythmDensity: number;
@@ -96,6 +97,7 @@ export interface HarmoniumBridge {
   setDirectEnableHarmony(enabled: boolean): void;
   setDirectEnableMelody(enabled: boolean): void;
   setDirectEnableVoicing(enabled: boolean): void;
+  setDirectFixedKick(enabled: boolean): void;
   setDirectRhythmMode(mode: number): void;
   setDirectRhythmSteps(steps: number): void;
   setDirectRhythmPulses(pulses: number): void;
@@ -176,6 +178,7 @@ export function createEmptyState(): EngineState {
     enableHarmony: true,
     enableMelody: true,
     enableVoicing: false,
+    fixedKick: false,
 
     rhythmDensity: 0.5,
     rhythmTension: 0.3,

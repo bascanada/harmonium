@@ -175,6 +175,9 @@ impl EmotionMapper {
         params.record_midi = emotions.record_midi;
         params.record_abc = emotions.record_abc;
 
+        // Mode Drum Kit (passthrough)
+        params.fixed_kick = emotions.fixed_kick;
+
         params
     }
 

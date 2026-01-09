@@ -1,20 +1,22 @@
-use crate::sequencer::{Sequencer, RhythmMode, StepTrigger};
-use crate::harmony::{HarmonyNavigator, Progression, ChordStep, ChordQuality, HarmonyMode, HarmonicDriver};
+use crate::backend::AudioRenderer;
+use crate::events::AudioEvent;
 use crate::harmony::chord::ChordType;
 use crate::harmony::lydian_chromatic::LydianChromaticConcept;
-use crate::voicing::{Voicer, BlockChordVoicer, VoicerContext};
+use crate::harmony::{
+    ChordQuality, ChordStep, HarmonicDriver, HarmonyMode, HarmonyNavigator, Progression,
+};
 use crate::log;
-use crate::events::AudioEvent;
-use crate::backend::AudioRenderer;
-use crate::params::{MusicalParams, ControlMode};
 use crate::mapper::EmotionMapper;
+use crate::params::{ControlMode, MusicalParams};
+use crate::sequencer::{RhythmMode, Sequencer, StepTrigger};
+use crate::voicing::{BlockChordVoicer, Voicer, VoicerContext};
+use arrayvec::ArrayString;
+use rand::Rng;
 use rust_music_theory::note::PitchSymbol;
 use rust_music_theory::scale::ScaleType;
-use rand::Rng;
+use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use triple_buffer::Output;
-use serde::{Serialize, Deserialize};
-use arrayvec::ArrayString;
 
 #[derive(Clone, Debug)]
 pub struct VisualizationEvent {
@@ -40,14 +42,14 @@ pub struct HarmonyState {
     pub progression_length: usize,   // Longueur de la progression (2-4 accords)
     pub harmony_mode: HarmonyMode,   // Mode harmonique actuel (Basic ou Driver)
     // Visualisation Rythmique
-    pub primary_steps: usize,        // Nombre de steps (16 ou 48)
+    pub primary_steps: usize, // Nombre de steps (16 ou 48)
     pub primary_pulses: usize,
-    pub secondary_steps: usize,      // Nombre de steps secondaire (12)
+    pub secondary_steps: usize, // Nombre de steps secondaire (12)
     pub secondary_pulses: usize,
     pub primary_rotation: usize,
     pub secondary_rotation: usize,
     // Patterns réels pour visualisation - fixed-size arrays (max 192 steps)
-    pub primary_pattern: [bool; 192],   // Pattern du séquenceur primaire - no heap allocation
+    pub primary_pattern: [bool; 192], // Pattern du séquenceur primaire - no heap allocation
     pub secondary_pattern: [bool; 192], // Pattern du séquenceur secondaire - no heap allocation
 }
 
@@ -80,10 +82,10 @@ impl Default for HarmonyState {
 /// Basé sur le modèle dimensionnel des émotions (Russell's Circumplex Model)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EngineParams {
-    pub arousal: f32,   // 0.0 à 1.0 - Activation/Énergie → contrôle BPM
-    pub valence: f32,   // -1.0 à 1.0 - Positif/Négatif → contrôle Harmonie (Majeur/Mineur)
-    pub density: f32,   // 0.0 à 1.0 - Complexité rythmique
-    pub tension: f32,   // 0.0 à 1.0 - Dissonance harmonique
+    pub arousal: f32,    // 0.0 à 1.0 - Activation/Énergie → contrôle BPM
+    pub valence: f32,    // -1.0 à 1.0 - Positif/Négatif → contrôle Harmonie (Majeur/Mineur)
+    pub density: f32,    // 0.0 à 1.0 - Complexité rythmique
+    pub tension: f32,    // 0.0 à 1.0 - Dissonance harmonique
     pub smoothness: f32, // 0.0 à 1.0 - Lissage mélodique (Hurst)
     #[serde(default)]
     pub algorithm: RhythmMode, // Euclidean (16 steps) ou PerfectBalance (48 steps)
@@ -125,24 +127,44 @@ pub struct EngineParams {
     // Polyrythm Steps (48, 96, 192...)
     #[serde(default = "default_poly_steps")]
     pub poly_steps: usize,
+
+    /// Mode Drum Kit: kick fixe sur C1 (36) au lieu d'harmonisé
+    #[serde(default)]
+    pub fixed_kick: bool,
 }
 
-fn default_gain_lead() -> f32 { 1.0 }
-fn default_gain_bass() -> f32 { 0.6 }
-fn default_gain_snare() -> f32 { 0.5 }
-fn default_gain_hat() -> f32 { 0.3 }
-fn default_vel_bass() -> u8 { 85 }
-fn default_vel_snare() -> u8 { 70 }
-fn default_poly_steps() -> usize { 48 }
-fn default_true() -> bool { true }
+fn default_gain_lead() -> f32 {
+    1.0
+}
+fn default_gain_bass() -> f32 {
+    0.6
+}
+fn default_gain_snare() -> f32 {
+    0.5
+}
+fn default_gain_hat() -> f32 {
+    0.3
+}
+fn default_vel_bass() -> u8 {
+    85
+}
+fn default_vel_snare() -> u8 {
+    70
+}
+fn default_poly_steps() -> usize {
+    48
+}
+fn default_true() -> bool {
+    true
+}
 
 impl Default for EngineParams {
     fn default() -> Self {
         EngineParams {
-            arousal: 0.5,   // Énergie moyenne
-            valence: 0.3,   // Légèrement positif
-            density: 0.2,   // < 0.3 = Carré (4 côtés), > 0.3 = Hexagone (6 côtés)
-            tension: 0.4,   // > 0.3 active le Triangle → polyrythme 4:3
+            arousal: 0.5,                      // Énergie moyenne
+            valence: 0.3,                      // Légèrement positif
+            density: 0.2,    // < 0.3 = Carré (4 côtés), > 0.3 = Hexagone (6 côtés)
+            tension: 0.4,    // > 0.3 active le Triangle → polyrythme 4:3
             smoothness: 0.7, // Mélodie assez lisse par défaut
             algorithm: RhythmMode::Euclidean, // Mode classique par défaut
             channel_routing: vec![-1; 16], // Tout en FundSP par défaut
@@ -160,6 +182,7 @@ impl Default for EngineParams {
             vel_base_bass: default_vel_bass(),
             vel_base_snare: default_vel_snare(),
             poly_steps: default_poly_steps(),
+            fixed_kick: false,
         }
     }
 }
@@ -181,7 +204,7 @@ pub struct CurrentState {
     pub density: f32,
     pub tension: f32,
     pub smoothness: f32,
-    pub bpm: f32,  // Calculé à partir de arousal
+    pub bpm: f32, // Calculé à partir de arousal
 }
 
 impl Default for CurrentState {
@@ -192,7 +215,7 @@ impl Default for CurrentState {
             density: 0.4,
             tension: 0.2,
             smoothness: 0.7,
-            bpm: 125.0,  // (0.5 * 110) + 70
+            bpm: 125.0, // (0.5 * 110) + 70
         }
     }
 }
@@ -211,29 +234,29 @@ pub struct HarmoniumEngine {
     // Phase 3: Lock-free triple buffer for UI→Audio parameter updates
     target_params: Output<EngineParams>,
     // Lock-free queues for Audio→UI communication (Phase 2)
-    harmony_state_tx: rtrb::Producer<HarmonyState>,     // Audio thread writes harmony state
+    harmony_state_tx: rtrb::Producer<HarmonyState>, // Audio thread writes harmony state
     event_queue_tx: rtrb::Producer<VisualizationEvent>, // Audio thread writes visualization events
     last_harmony_state: HarmonyState, // Cache to avoid sending duplicate harmony states
     pub font_queue: Arc<Mutex<Vec<(u32, Vec<u8>)>>>, // Queue de chargement de SoundFonts (Phase 5 will replace)
     current_state: CurrentState,
     // === POLYRYTHMIE: Plusieurs séquenceurs avec cycles différents ===
-    sequencer_primary: Sequencer,    // Cycle principal (16 steps)
-    sequencer_secondary: Sequencer,  // Cycle secondaire (12 steps) - déphasage de Steve Reich
+    sequencer_primary: Sequencer,   // Cycle principal (16 steps)
+    sequencer_secondary: Sequencer, // Cycle secondaire (12 steps) - déphasage de Steve Reich
     harmony: HarmonyNavigator,
-    
+
     renderer: Box<dyn AudioRenderer>,
     sample_rate: f64,
 
     sample_counter: usize,
     samples_per_step: usize,
     last_pulse_count: usize,
-    last_rotation: usize,  // Pour détecter les changements de rotation
+    last_rotation: usize, // Pour détecter les changements de rotation
     // === PROGRESSION HARMONIQUE ADAPTATIVE ===
-    measure_counter: usize,               // Compte les mesures (16 steps = 1 mesure)
-    current_progression: Vec<ChordStep>,  // Progression chargée (dépend de valence/tension)
-    progression_index: usize,             // Position dans la progression actuelle
-    last_valence_choice: f32,             // Hystérésis: valence qui a déclenché le dernier choix
-    last_tension_choice: f32,             // Hystérésis: tension qui a déclenché le dernier choix
+    measure_counter: usize, // Compte les mesures (16 steps = 1 mesure)
+    current_progression: Vec<ChordStep>, // Progression chargée (dépend de valence/tension)
+    progression_index: usize, // Position dans la progression actuelle
+    last_valence_choice: f32, // Hystérésis: valence qui a déclenché le dernier choix
+    last_tension_choice: f32, // Hystérésis: tension qui a déclenché le dernier choix
 
     // === HARMONIC DRIVER (Mode avancé) ===
     harmonic_driver: Option<HarmonicDriver>,
@@ -243,7 +266,7 @@ pub struct HarmoniumEngine {
     voicer: Box<dyn Voicer>,
     lcc: LydianChromaticConcept,
     current_chord_type: ChordType,
-    active_lead_notes: Vec<u8>,  // Notes actuellement jouées sur le channel Lead
+    active_lead_notes: Vec<u8>, // Notes actuellement jouées sur le channel Lead
     active_bass_note: Option<u8>, // Note de basse actuellement jouée
 
     // === NOUVELLE ARCHITECTURE: Params Musicaux Découplés ===
@@ -272,14 +295,26 @@ impl HarmoniumEngine {
         mut target_params: Output<EngineParams>,
         control_mode: Arc<Mutex<ControlMode>>,
         mut renderer: Box<dyn AudioRenderer>,
-    ) -> (Self, rtrb::Consumer<HarmonyState>, rtrb::Consumer<VisualizationEvent>) {
+    ) -> (
+        Self,
+        rtrb::Consumer<HarmonyState>,
+        rtrb::Consumer<VisualizationEvent>,
+    ) {
         let mut rng = rand::thread_rng();
         let initial_params = target_params.read().clone();
         let font_queue = Arc::new(Mutex::new(Vec::new()));
         let bpm = initial_params.compute_bpm();
         let steps = 16;
         let initial_pulses = std::cmp::min((initial_params.density * 11.0) as usize + 1, 16);
-        let keys = [PitchSymbol::C, PitchSymbol::D, PitchSymbol::E, PitchSymbol::F, PitchSymbol::G, PitchSymbol::A, PitchSymbol::B];
+        let keys = [
+            PitchSymbol::C,
+            PitchSymbol::D,
+            PitchSymbol::E,
+            PitchSymbol::F,
+            PitchSymbol::G,
+            PitchSymbol::A,
+            PitchSymbol::B,
+        ];
         let scales = [ScaleType::PentatonicMinor, ScaleType::PentatonicMajor];
         let random_key = keys[rng.gen_range(0..keys.len())];
         let random_scale = scales[rng.gen_range(0..scales.len())];
@@ -292,7 +327,10 @@ impl HarmoniumEngine {
             steps,
         };
 
-        log::info(&format!("Session: {} {} | BPM: {:.1}", config.key, config.scale, bpm));
+        log::info(&format!(
+            "Session: {} {} | BPM: {:.1}",
+            config.key, config.scale, bpm
+        ));
 
         // Phase 2: Create lock-free SPSC queues for Audio→UI communication
         // harmony_state: 256 slots (~64 seconds buffer at 120 BPM, 4 updates/sec)
@@ -305,16 +343,18 @@ impl HarmoniumEngine {
         let sequencer_primary = Sequencer::new(steps, initial_pulses, bpm);
         let secondary_pulses = std::cmp::min((initial_params.density * 8.0) as usize + 1, 12);
         let sequencer_secondary = Sequencer::new_with_rotation(12, secondary_pulses, bpm, 0);
-        
+
         let harmony = HarmonyNavigator::new(random_key, random_scale, 4);
         let samples_per_step = (sample_rate * 60.0 / (bpm as f64) / 4.0) as usize;
-        
+
         // Initialize renderer timing
         renderer.handle_event(AudioEvent::TimingUpdate { samples_per_step });
 
         // Progression initiale
-        let current_progression = Progression::get_palette(initial_params.valence, initial_params.tension);
-        let _progression_name = Progression::get_progression_name(initial_params.valence, initial_params.tension);
+        let current_progression =
+            Progression::get_palette(initial_params.valence, initial_params.tension);
+        let _progression_name =
+            Progression::get_progression_name(initial_params.valence, initial_params.tension);
 
         // HarmonicDriver (toujours créé pour permettre le switch dynamique)
         let harmony_mode = initial_params.harmony_mode;
@@ -415,8 +455,6 @@ impl HarmoniumEngine {
         &mut self.emotion_mapper
     }
 
-
-
     pub fn process_buffer(&mut self, output: &mut [f32], channels: usize) {
         // Mark the beginning of real-time audio processing context
         // Any allocations after this point will panic in debug builds
@@ -473,7 +511,9 @@ impl HarmoniumEngine {
         let target_params = self.target_params.read();
 
         // Selon le mode, on obtient les params soit du mapper, soit directement
-        let use_emotion_mode = self.control_mode.lock()
+        let use_emotion_mode = self
+            .control_mode
+            .lock()
             .map(|m| m.use_emotion_mode)
             .unwrap_or(true);
 
@@ -508,14 +548,18 @@ impl HarmoniumEngine {
         // === LOAD FONTS ===
         if let Ok(mut queue) = self.font_queue.try_lock() {
             while let Some((id, bytes)) = queue.pop() {
-                self.renderer.handle_event(AudioEvent::LoadFont { id, bytes });
+                self.renderer
+                    .handle_event(AudioEvent::LoadFont { id, bytes });
             }
         }
 
         // === SYNC ROUTING (from MusicalParams) ===
         for (i, &mode) in mp.channel_routing.iter().enumerate() {
             if i < 16 {
-                self.renderer.handle_event(AudioEvent::SetChannelRoute { channel: i as u8, bank: mode });
+                self.renderer.handle_event(AudioEvent::SetChannelRoute {
+                    channel: i as u8,
+                    bank: mode,
+                });
             }
         }
 
@@ -524,7 +568,8 @@ impl HarmoniumEngine {
             if i < 16 && i < self.last_muted_channels.len() {
                 if is_muted && !self.last_muted_channels[i] {
                     // Changed from Unmuted to Muted -> Kill sound
-                    self.renderer.handle_event(AudioEvent::AllNotesOff { channel: i as u8 });
+                    self.renderer
+                        .handle_event(AudioEvent::AllNotesOff { channel: i as u8 });
                 }
                 self.last_muted_channels[i] = is_muted;
             }
@@ -545,14 +590,19 @@ impl HarmoniumEngine {
         // Pour compatibilité avec le reste du code qui utilise current_state
         // on morphe vers les valeurs des MusicalParams
         self.current_state.bpm += (mp.bpm - self.current_state.bpm) * morph_factor;
-        self.current_state.density += (mp.rhythm_density - self.current_state.density) * morph_factor;
-        self.current_state.tension += (mp.harmony_tension - self.current_state.tension) * morph_factor;
-        self.current_state.smoothness += (mp.melody_smoothness - self.current_state.smoothness) * morph_factor;
-        self.current_state.valence += (mp.harmony_valence - self.current_state.valence) * morph_factor;
+        self.current_state.density +=
+            (mp.rhythm_density - self.current_state.density) * morph_factor;
+        self.current_state.tension +=
+            (mp.harmony_tension - self.current_state.tension) * morph_factor;
+        self.current_state.smoothness +=
+            (mp.melody_smoothness - self.current_state.smoothness) * morph_factor;
+        self.current_state.valence +=
+            (mp.harmony_valence - self.current_state.valence) * morph_factor;
         // Arousal n'existe plus directement dans MusicalParams (c'est le BPM)
         // On le recalcule pour compatibilité avec l'affichage UI
         let arousal_from_bpm = (mp.bpm - 70.0) / 110.0;
-        self.current_state.arousal += (arousal_from_bpm - self.current_state.arousal) * morph_factor;
+        self.current_state.arousal +=
+            (arousal_from_bpm - self.current_state.arousal) * morph_factor;
 
         // === SYNTHESIS MORPHING (emotional timbre control) ===
         #[cfg(feature = "odin2")]
@@ -573,7 +623,8 @@ impl HarmoniumEngine {
 
         // === VOICING DENSITY → Comping Pattern ===
         // Met à jour le pattern de comping si la densité change significativement
-        self.voicer.on_density_change(mp.voicing_density, self.sequencer_primary.steps);
+        self.voicer
+            .on_density_change(mp.voicing_density, self.sequencer_primary.steps);
 
         // === MIXER GAINS (from MusicalParams) ===
         self.renderer.handle_event(AudioEvent::SetMixerGains {
@@ -587,27 +638,39 @@ impl HarmoniumEngine {
         if mp.record_wav != self.is_recording_wav {
             self.is_recording_wav = mp.record_wav;
             if self.is_recording_wav {
-                self.renderer.handle_event(AudioEvent::StartRecording { format: crate::events::RecordFormat::Wav });
+                self.renderer.handle_event(AudioEvent::StartRecording {
+                    format: crate::events::RecordFormat::Wav,
+                });
             } else {
-                self.renderer.handle_event(AudioEvent::StopRecording { format: crate::events::RecordFormat::Wav });
+                self.renderer.handle_event(AudioEvent::StopRecording {
+                    format: crate::events::RecordFormat::Wav,
+                });
             }
         }
 
         if mp.record_midi != self.is_recording_midi {
             self.is_recording_midi = mp.record_midi;
             if self.is_recording_midi {
-                self.renderer.handle_event(AudioEvent::StartRecording { format: crate::events::RecordFormat::Midi });
+                self.renderer.handle_event(AudioEvent::StartRecording {
+                    format: crate::events::RecordFormat::Midi,
+                });
             } else {
-                self.renderer.handle_event(AudioEvent::StopRecording { format: crate::events::RecordFormat::Midi });
+                self.renderer.handle_event(AudioEvent::StopRecording {
+                    format: crate::events::RecordFormat::Midi,
+                });
             }
         }
 
         if mp.record_abc != self.is_recording_abc {
             self.is_recording_abc = mp.record_abc;
             if self.is_recording_abc {
-                self.renderer.handle_event(AudioEvent::StartRecording { format: crate::events::RecordFormat::Abc });
+                self.renderer.handle_event(AudioEvent::StartRecording {
+                    format: crate::events::RecordFormat::Abc,
+                });
             } else {
-                self.renderer.handle_event(AudioEvent::StopRecording { format: crate::events::RecordFormat::Abc });
+                self.renderer.handle_event(AudioEvent::StopRecording {
+                    format: crate::events::RecordFormat::Abc,
+                });
             }
         }
 
@@ -617,29 +680,33 @@ impl HarmoniumEngine {
         self.renderer.handle_event(AudioEvent::ControlChange {
             ctrl: 1,
             value: (mp.voicing_tension * 127.0) as u8,
-            channel: 0
+            channel: 0,
         });
         // CC 11: Expression/Distortion - lié à l'énergie
         self.renderer.handle_event(AudioEvent::ControlChange {
             ctrl: 11,
             value: (self.current_state.arousal * 127.0) as u8,
-            channel: 0
+            channel: 0,
         });
         // CC 91: Reverb - lié à la valence (émotions positives = plus de reverb)
         self.renderer.handle_event(AudioEvent::ControlChange {
             ctrl: 91,
             value: (self.current_state.valence.abs() * 127.0) as u8,
-            channel: 0
+            channel: 0,
         });
 
         // === SKIP RHYTHM IF DISABLED ===
         if !mp.enable_rhythm {
             // Timing only (pour garder le moteur synchronisé)
             let steps_per_beat = (self.sequencer_primary.steps / 4) as f64;
-            let new_samples_per_step = (self.sample_rate * 60.0 / (self.current_state.bpm as f64) / steps_per_beat) as usize;
+            let new_samples_per_step = (self.sample_rate * 60.0
+                / (self.current_state.bpm as f64)
+                / steps_per_beat) as usize;
             if new_samples_per_step != self.samples_per_step {
                 self.samples_per_step = new_samples_per_step;
-                self.renderer.handle_event(AudioEvent::TimingUpdate { samples_per_step: new_samples_per_step });
+                self.renderer.handle_event(AudioEvent::TimingUpdate {
+                    samples_per_step: new_samples_per_step,
+                });
             }
             return; // Skip sequencer logic when rhythm disabled
         }
@@ -676,12 +743,13 @@ impl HarmoniumEngine {
         };
 
         // Regeneration Logic
-        let needs_regen = mode_changed || if self.sequencer_primary.mode == RhythmMode::Euclidean {
-            target_pulses != self.last_pulse_count
-        } else {
-            (mp.rhythm_density - self.sequencer_primary.density).abs() > 0.05 ||
-            (mp.rhythm_tension - self.sequencer_primary.tension).abs() > 0.05
-        };
+        let needs_regen = mode_changed
+            || if self.sequencer_primary.mode == RhythmMode::Euclidean {
+                target_pulses != self.last_pulse_count
+            } else {
+                (mp.rhythm_density - self.sequencer_primary.density).abs() > 0.05
+                    || (mp.rhythm_tension - self.sequencer_primary.tension).abs() > 0.05
+            };
 
         if needs_regen {
             self.sequencer_primary.tension = mp.rhythm_tension;
@@ -701,10 +769,9 @@ impl HarmoniumEngine {
         let secondary_pulses = mp.rhythm_secondary_pulses.min(secondary_steps);
         let secondary_rotation = mp.rhythm_secondary_rotation;
 
-        let secondary_changed =
-            secondary_steps != self.sequencer_secondary.steps ||
-            secondary_pulses != self.sequencer_secondary.pulses ||
-            secondary_rotation != self.sequencer_secondary.rotation;
+        let secondary_changed = secondary_steps != self.sequencer_secondary.steps
+            || secondary_pulses != self.sequencer_secondary.pulses
+            || secondary_rotation != self.sequencer_secondary.rotation;
 
         if secondary_changed {
             if secondary_steps != self.sequencer_secondary.steps {
@@ -718,10 +785,13 @@ impl HarmoniumEngine {
 
         // Timing
         let steps_per_beat = (self.sequencer_primary.steps / 4) as f64;
-        let new_samples_per_step = (self.sample_rate * 60.0 / (self.current_state.bpm as f64) / steps_per_beat) as usize;
+        let new_samples_per_step =
+            (self.sample_rate * 60.0 / (self.current_state.bpm as f64) / steps_per_beat) as usize;
         if new_samples_per_step != self.samples_per_step {
             self.samples_per_step = new_samples_per_step;
-            self.renderer.handle_event(AudioEvent::TimingUpdate { samples_per_step: new_samples_per_step });
+            self.renderer.handle_event(AudioEvent::TimingUpdate {
+                samples_per_step: new_samples_per_step,
+            });
         }
     }
 
@@ -745,30 +815,46 @@ impl HarmoniumEngine {
                     // === MODE BASIC: Progressions par quadrants émotionnels ===
                     // Palette Selection (Hysteresis)
                     if self.measure_counter % 4 == 0 {
-                        let valence_delta = (self.current_state.valence - self.last_valence_choice).abs();
-                        let tension_delta = (self.current_state.tension - self.last_tension_choice).abs();
+                        let valence_delta =
+                            (self.current_state.valence - self.last_valence_choice).abs();
+                        let tension_delta =
+                            (self.current_state.tension - self.last_tension_choice).abs();
 
                         if valence_delta > 0.4 || tension_delta > 0.4 {
-                            self.current_progression = Progression::get_palette(self.current_state.valence, self.current_state.tension);
+                            self.current_progression = Progression::get_palette(
+                                self.current_state.valence,
+                                self.current_state.tension,
+                            );
                             self.progression_index = 0;
                             self.last_valence_choice = self.current_state.valence;
                             self.last_tension_choice = self.current_state.tension;
 
-                            let prog_name = Progression::get_progression_name(self.current_state.valence, self.current_state.tension);
+                            let prog_name = Progression::get_progression_name(
+                                self.current_state.valence,
+                                self.current_state.tension,
+                            );
                             // Phase 2: Update local cache (no lock needed)
                             // Phase 2.5: Use ArrayString::from (no heap allocation)
-                            self.last_harmony_state.progression_name = ArrayString::from(prog_name).unwrap_or_default();
-                            self.last_harmony_state.progression_length = self.current_progression.len();
+                            self.last_harmony_state.progression_name =
+                                ArrayString::from(prog_name).unwrap_or_default();
+                            self.last_harmony_state.progression_length =
+                                self.current_progression.len();
                         }
                     }
 
                     // Chord Progression
-                    let measures_per_chord = if self.current_state.tension > 0.6 { 1 } else { 2 };
+                    let measures_per_chord = if self.current_state.tension > 0.6 {
+                        1
+                    } else {
+                        2
+                    };
                     if self.measure_counter % measures_per_chord == 0 {
-                        self.progression_index = (self.progression_index + 1) % self.current_progression.len();
+                        self.progression_index =
+                            (self.progression_index + 1) % self.current_progression.len();
                         let chord = &self.current_progression[self.progression_index];
 
-                        self.harmony.set_chord_context(chord.root_offset, chord.quality);
+                        self.harmony
+                            .set_chord_context(chord.root_offset, chord.quality);
                         let chord_name = self.format_chord_name(chord.root_offset, chord.quality);
 
                         // Mettre à jour le type d'accord pour le voicer
@@ -783,16 +869,22 @@ impl HarmoniumEngine {
                         // Phase 2: Update local cache (no lock needed)
                         self.last_harmony_state.current_chord_index = self.progression_index;
                         self.last_harmony_state.chord_root_offset = chord.root_offset;
-                        self.last_harmony_state.chord_is_minor = matches!(chord.quality, ChordQuality::Minor);
+                        self.last_harmony_state.chord_is_minor =
+                            matches!(chord.quality, ChordQuality::Minor);
                         // Phase 2.5: Convert String to ArrayString (unavoidable allocation once per chord change)
-                        self.last_harmony_state.chord_name = ArrayString::from(&chord_name).unwrap_or_default();
+                        self.last_harmony_state.chord_name =
+                            ArrayString::from(&chord_name).unwrap_or_default();
                         self.last_harmony_state.measure_number = self.measure_counter;
                     }
                 }
 
                 HarmonyMode::Driver => {
                     // === MODE DRIVER: Steedman Grammar + Neo-Riemannian + LCC ===
-                    let measures_per_chord = if self.current_state.tension > 0.6 { 1 } else { 2 };
+                    let measures_per_chord = if self.current_state.tension > 0.6 {
+                        1
+                    } else {
+                        2
+                    };
                     if self.measure_counter % measures_per_chord == 0 {
                         if let Some(ref mut driver) = self.harmonic_driver {
                             let mut rng = rand::thread_rng();
@@ -830,9 +922,11 @@ impl HarmoniumEngine {
                             self.last_harmony_state.chord_root_offset = root_offset;
                             self.last_harmony_state.chord_is_minor = driver.is_minor();
                             // Phase 2.5: Convert String to ArrayString (unavoidable allocation once per chord change)
-                            self.last_harmony_state.chord_name = ArrayString::from(&chord_name).unwrap_or_default();
+                            self.last_harmony_state.chord_name =
+                                ArrayString::from(&chord_name).unwrap_or_default();
                             self.last_harmony_state.measure_number = self.measure_counter;
-                            self.last_harmony_state.progression_name = ArrayString::from("Driver").unwrap();
+                            self.last_harmony_state.progression_name =
+                                ArrayString::from("Driver").unwrap();
                             self.last_harmony_state.progression_length = 0; // Driver n'a pas de longueur fixe
                         }
                     }
@@ -852,7 +946,8 @@ impl HarmoniumEngine {
             // Phase 2.5: Copy into fixed-size array instead of Vec::collect() (no heap allocation)
             let primary_len = self.sequencer_primary.pattern.len();
             for i in 0..192 {
-                self.last_harmony_state.primary_pattern[i] = i < primary_len && self.sequencer_primary.pattern[i].is_any();
+                self.last_harmony_state.primary_pattern[i] =
+                    i < primary_len && self.sequencer_primary.pattern[i].is_any();
             }
 
             self.last_harmony_state.secondary_steps = self.sequencer_secondary.steps;
@@ -861,7 +956,8 @@ impl HarmoniumEngine {
             // Phase 2.5: Copy into fixed-size array instead of Vec::collect() (no heap allocation)
             let secondary_len = self.sequencer_secondary.pattern.len();
             for i in 0..192 {
-                self.last_harmony_state.secondary_pattern[i] = i < secondary_len && self.sequencer_secondary.pattern[i].is_any();
+                self.last_harmony_state.secondary_pattern[i] =
+                    i < secondary_len && self.sequencer_secondary.pattern[i].is_any();
             }
             self.last_harmony_state.harmony_mode = self.harmony_mode;
         }
@@ -871,34 +967,75 @@ impl HarmoniumEngine {
         self.events_buffer.clear();
         let rhythm_enabled = self.musical_params.enable_rhythm;
 
+        // === BATTEUR VIRTUEL (CONTEXTE) ===
+        // Analyse des émotions pour humaniser le jeu
+        let is_high_tension = self.current_state.tension > 0.6;
+        let is_high_density = self.current_state.density > 0.6;
+        let is_high_energy = self.current_state.arousal > 0.7;
+        let is_low_energy = self.current_state.arousal < 0.4;
+
+        // Détection de la "Fill Zone" (les 4 derniers steps de la mesure)
+        // C'est là que les batteurs font leurs roulements pour annoncer la suite
+        let fill_zone_start = self.sequencer_primary.steps.saturating_sub(4);
+        let is_in_fill_zone = self.sequencer_primary.current_step >= fill_zone_start;
+
         // Bass (Kick) - part of Rhythm module
         // Always stop previous bass note (Staccato / Note Switching) to prevent infinite sustain
         if let Some(old_note) = self.active_bass_note {
-            self.events_buffer.push(AudioEvent::NoteOff { note: old_note, channel: 0 });
+            self.events_buffer.push(AudioEvent::NoteOff {
+                note: old_note,
+                channel: 0,
+            });
             self.active_bass_note = None;
         }
 
-        if rhythm_enabled && trigger_primary.kick && !self.musical_params.muted_channels.get(0).copied().unwrap_or(false) {
-            // Phase 2: Read from local cache (no lock needed)
-            let root = self.last_harmony_state.chord_root_offset;
-            let midi = 36 + root;
+        if rhythm_enabled
+            && trigger_primary.kick
+            && !self
+                .musical_params
+                .muted_channels
+                .get(0)
+                .copied()
+                .unwrap_or(false)
+        {
+            // LOGIQUE HYBRIDE : Mode Drum Kit (fixe) ou Synth (harmonisé)
+            let midi_note = if self.musical_params.fixed_kick {
+                36 // Mode Drum Kit (C1 fixe)
+            } else {
+                // Mode Synth/Bass (Harmonisé)
+                (36 + self.last_harmony_state.chord_root_offset) as u8
+            };
             let vel = self.musical_params.vel_base_bass + (self.current_state.arousal * 25.0) as u8;
-            self.events_buffer.push(AudioEvent::NoteOn { note: midi as u8, velocity: vel, channel: 0 });
-            self.active_bass_note = Some(midi as u8);
+            self.events_buffer.push(AudioEvent::NoteOn {
+                note: midi_note,
+                velocity: vel,
+                channel: 0,
+            });
+            self.active_bass_note = Some(midi_note);
         }
-        
+
         // Lead (avec Voicing) - Skip if melody disabled
         let melody_enabled = self.musical_params.enable_melody;
 
         // If melody just got disabled, stop all lead notes
         if !melody_enabled && !self.active_lead_notes.is_empty() {
-            self.events_buffer.push(AudioEvent::AllNotesOff { channel: 1 });
+            self.events_buffer
+                .push(AudioEvent::AllNotesOff { channel: 1 });
             self.active_lead_notes.clear();
         }
 
         let play_lead = melody_enabled
-                        && (trigger_primary.kick || trigger_primary.snare || trigger_secondary.kick || trigger_secondary.snare || trigger_secondary.hat)
-                        && !self.musical_params.muted_channels.get(1).copied().unwrap_or(false);
+            && (trigger_primary.kick
+                || trigger_primary.snare
+                || trigger_secondary.kick
+                || trigger_secondary.snare
+                || trigger_secondary.hat)
+            && !self
+                .musical_params
+                .muted_channels
+                .get(1)
+                .copied()
+                .unwrap_or(false);
         if play_lead {
             let is_strong = trigger_primary.kick;
             let freq = self.harmony.next_note_hybrid(is_strong);
@@ -912,7 +1049,7 @@ impl HarmoniumEngine {
             // Calculer la gamme LCC courante
             let chord = crate::harmony::chord::Chord::new(
                 (chord_root_offset as u8) % 12,
-                self.current_chord_type
+                self.current_chord_type,
             );
             let lcc_level = self.lcc.level_for_tension(self.current_state.tension);
             let parent = self.lcc.parent_lydian(&chord);
@@ -933,7 +1070,8 @@ impl HarmoniumEngine {
             // D'abord: couper toutes les notes précédentes sur le channel Lead
             // Utilise AllNotesOff pour aussi couper le sustain des samples
             if !self.active_lead_notes.is_empty() {
-                self.events_buffer.push(AudioEvent::AllNotesOff { channel: 1 });
+                self.events_buffer
+                    .push(AudioEvent::AllNotesOff { channel: 1 });
                 self.active_lead_notes.clear();
             }
 
@@ -962,16 +1100,85 @@ impl HarmoniumEngine {
             }
         }
 
-        // Snare - part of Rhythm module
-        if rhythm_enabled && trigger_primary.snare && !self.musical_params.muted_channels.get(2).copied().unwrap_or(false) {
-             let vel = self.musical_params.vel_base_snare + (self.current_state.arousal * 30.0) as u8;
-             self.events_buffer.push(AudioEvent::NoteOn { note: 38, velocity: vel, channel: 2 });
+        // Snare - part of Rhythm module (avec Ghost Notes et Tom Fills)
+        if rhythm_enabled
+            && trigger_primary.snare
+            && !self
+                .musical_params
+                .muted_channels
+                .get(2)
+                .copied()
+                .unwrap_or(false)
+        {
+            let mut snare_note = 38u8; // D1 - Snare standard
+            let mut vel =
+                self.musical_params.vel_base_snare + (self.current_state.arousal * 30.0) as u8;
+
+            // A. Ghost Notes (Humanisation)
+            // Si le pattern rythmique indique un coup faible (< 0.7), on joue une ghost note
+            if trigger_primary.velocity < 0.7 {
+                vel = (vel as f32 * 0.65) as u8;
+                if is_low_energy {
+                    snare_note = 37; // Side Stick (Rimshot) pour ambiances calmes
+                }
+            }
+
+            // B. Tom Fills (Tension)
+            // Si haute tension en fin de mesure -> Roulement de Toms
+            if is_high_tension && is_in_fill_zone {
+                // Sélectionne un Tom (Low 41, Mid 45, High 50) selon le step
+                snare_note = match self.sequencer_primary.current_step % 3 {
+                    0 => 41, // Low Tom
+                    1 => 45, // Mid Tom
+                    _ => 50, // High Tom
+                };
+                vel = (vel as f32 * 1.1).min(127.0) as u8; // Accentue le fill
+            }
+
+            self.events_buffer.push(AudioEvent::NoteOn {
+                note: snare_note,
+                velocity: vel,
+                channel: 2,
+            });
         }
 
-        // Hat - part of Rhythm module
-        if rhythm_enabled && (trigger_primary.hat || trigger_secondary.hat) && !self.musical_params.muted_channels.get(3).copied().unwrap_or(false) {
-             let vel = 70 + (self.current_state.arousal * 30.0) as u8;
-             self.events_buffer.push(AudioEvent::NoteOn { note: 42, velocity: vel, channel: 3 });
+        // Hat - part of Rhythm module (avec Cymbales & Variations)
+        let play_hat = trigger_primary.hat || trigger_secondary.hat;
+        if rhythm_enabled
+            && play_hat
+            && !self
+                .musical_params
+                .muted_channels
+                .get(3)
+                .copied()
+                .unwrap_or(false)
+        {
+            let mut hat_note = 42u8; // F#1 - Closed Hi-Hat par défaut
+            let mut vel = 70 + (self.current_state.arousal * 30.0) as u8;
+
+            // A. Crash sur le "One" (Explosion d'énergie)
+            if self.sequencer_primary.current_step == 0 && is_high_energy {
+                hat_note = 49; // Crash Cymbal
+                vel = 110;
+            }
+            // B. Variation Ride / Open Hat (Densité)
+            else if is_high_density {
+                if self.current_state.tension > 0.7 {
+                    hat_note = 51; // Ride Cymbal (Section intense)
+                } else if self.sequencer_primary.current_step % 2 != 0 {
+                    hat_note = 46; // Open Hi-Hat (Off-beat)
+                }
+            }
+            // C. Pedal Hat (Calme)
+            else if is_low_energy {
+                hat_note = 44; // Pedal Hi-Hat (Chick fermé)
+            }
+
+            self.events_buffer.push(AudioEvent::NoteOn {
+                note: hat_note,
+                velocity: vel,
+                channel: 3,
+            });
         }
 
         // Send events to renderer
@@ -1035,7 +1242,7 @@ impl HarmoniumEngine {
             11 => "vii",
             _ => "?",
         };
-        
+
         let quality_symbol = match quality {
             ChordQuality::Major => "",
             ChordQuality::Minor => "m",
@@ -1043,7 +1250,7 @@ impl HarmoniumEngine {
             ChordQuality::Diminished => "°",
             ChordQuality::Sus2 => "sus2",
         };
-        
+
         format!("{}{}", roman, quality_symbol)
     }
 }

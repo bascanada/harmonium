@@ -29,6 +29,7 @@ fn main() {
     let mut harmony_mode = HarmonyMode::Driver; // Default to Driver
     let mut poly_steps: usize = 48; // Default polyrythm steps
     let mut backend_type = AudioBackendType::Odin2;
+    let mut fixed_kick = false; // Mode Drum Kit (kick fixe sur C1)
 
     let mut i = 1;
     while i < args.len() {
@@ -37,6 +38,7 @@ fn main() {
             "--record-midi" => record_midi = true,
             "--record-abc" => record_abc = true,
             "--osc" => use_osc = true,
+            "--drum-kit" | "--fixed-kick" => fixed_kick = true,
             "--harmony-mode" | "-m" => {
                 if i + 1 < args.len() {
                     harmony_mode = match args[i + 1].to_lowercase().as_str() {
@@ -109,6 +111,7 @@ fn main() {
                 println!(
                     "  --poly-steps, -p <STEPS>   Polyrythm resolution: 48, 96, 192... (default: 48)"
                 );
+                println!("  --drum-kit                 Fixed kick on C1 (for VST drums/samplers)");
                 println!("  --help, -h                 Show this help");
                 println!();
                 println!("Harmony Modes:");
@@ -127,6 +130,9 @@ fn main() {
 
     log::info(&format!("🎹 Harmony Mode: {:?}", harmony_mode));
     log::info(&format!("🎛️ Audio Backend: {:?}", backend_type));
+    if fixed_kick {
+        log::info("🥁 Drum Kit Mode: ON (Kick fixed on C1)");
+    }
 
     let sf2_data = if let Some(path) = sf2_path {
         log::info(&format!("📂 Loading SoundFont: {}", path));
@@ -150,6 +156,7 @@ fn main() {
     let mut initial_params = EngineParams::default();
     initial_params.harmony_mode = harmony_mode;
     initial_params.poly_steps = poly_steps;
+    initial_params.fixed_kick = fixed_kick;
 
     let (target_params_input, target_params_output) = triple_buffer::triple_buffer(&initial_params);
     // Wrap Input in Arc<Mutex> for sharing across UI threads (OSC, simulator, main)

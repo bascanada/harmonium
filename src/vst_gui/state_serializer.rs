@@ -48,6 +48,7 @@ pub struct EngineState {
     pub enable_harmony: bool,
     pub enable_melody: bool,
     pub enable_voicing: bool,
+    pub fixed_kick: bool,
 
     // Direct rhythm params
     pub rhythm_density: f32,
@@ -105,6 +106,7 @@ impl Default for EngineState {
             enable_harmony: true,
             enable_melody: true,
             enable_voicing: false,
+            fixed_kick: false,
 
             rhythm_density: 0.5,
             rhythm_tension: 0.3,
@@ -139,6 +141,7 @@ pub fn collect_state(
         state.enable_harmony = mode.enable_harmony;
         state.enable_melody = mode.enable_melody;
         state.enable_voicing = mode.enable_voicing;
+        state.fixed_kick = mode.fixed_kick;
 
         // Live state from engine (updated by tick())
         state.current_step = mode.current_step;

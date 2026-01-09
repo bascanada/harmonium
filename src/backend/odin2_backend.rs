@@ -9,13 +9,9 @@
 
 use crate::backend::AudioRenderer;
 use crate::events::AudioEvent;
-// EmotionalMorpher and others are no longer needed for synthesis, but might be kept for compatibility if referenced elsewhere
-// But we are replacing the mechanism, so we can likely drop them or keep them minimal.
-// keeping apply_tension_density_modulation if we want to add extra modulation later, but for now we rely on pure preset morphing.
-
-use odin2_core::engine::{OdinEngine, SynthEngine, PresetConfig};
+use odin2_core::engine::{OdinEngine, PresetConfig};
+use odin2_core::SynthEngine;
 use odin2_core::preset::OdinPreset;
-// use std::collections::HashMap;
 
 #[allow(dead_code)]
 const NUM_CHANNELS: usize = 16;
@@ -39,16 +35,6 @@ impl InstrumentType {
             InstrumentType::Snare => 2,
             InstrumentType::Hat => 3,
             InstrumentType::Poly => 4,
-        }
-    }
-
-    fn from_index(idx: usize) -> Self {
-        match idx {
-            0 => InstrumentType::Bass,
-            1 => InstrumentType::Lead,
-            2 => InstrumentType::Snare,
-            3 => InstrumentType::Hat,
-            _ => InstrumentType::Poly,
         }
     }
 
@@ -135,15 +121,8 @@ impl QuadrantConfigs {
              crate::log::error(&format!("Failed to load preset: {}/{}.odin - Using Fallback", category, name));
              
              // Manual Fallback: Simple Saw Wave
-             // We can't rely on OdinPreset::default() being audible.
              let mut config = PresetConfig::from_preset(&OdinPreset::default());
-             config.osc_volumes[0] = 0.8; // Osc 1 loud
-             config.osc_volumes[1] = 0.0;
-             config.osc_volumes[2] = 0.0;
-             config.filter_frequency = 1.0; // Filter Open
-             config.amp_sustain = 1.0;      // Full Sustain
-             config.amp_decay = 0.5;
-             config.amp_release = 0.2;
+             config.osc_volumes[0] = 0.8; 
              config.master_volume = 0.5;
              config
         };
@@ -158,33 +137,28 @@ impl QuadrantConfigs {
     
     pub fn morph(&self, x: f32, y: f32) -> PresetConfig {
         // Bilinear interpolation of PresetConfig fields
-        // Since PresetConfig is POD, we can interpolate fields manually
-        // avoiding OdinPreset allocation.
         
         // Calculate weights
-        // x, y are in [-1, 1]
-        // mapped to u, v in [0, 1]
         let u = (x + 1.0) * 0.5;
         let v = (y + 1.0) * 0.5;
         
         // Weights:
-        // TL (-1, 1)  -> u=0, v=1
-        // TR (1, 1)   -> u=1, v=1
-        // BL (-1, -1) -> u=0, v=0
-        // BR (1, -1)  -> u=1, v=0
-        
-        let w_tl = (1.0 - u) * v;
-        let w_tr = u * v;
-        let w_bl = (1.0 - u) * (1.0 - v);
-        let w_br = u * (1.0 - v);
+        let w_tl = (1.0 - u) * v;          // Angry
+        let w_tr = u * v;                  // Joy
+        let w_bl = (1.0 - u) * (1.0 - v);  // Sad
+        let w_br = u * (1.0 - v);          // Calm
         
         // Helper for linear mixing 4 values
         let mix = |a: f32, b: f32, c: f32, d: f32| -> f32 {
             a * w_tl + b * w_tr + c * w_bl + d * w_br
         };
 
-        let mix_i32 = |a: i32, b: i32, c: i32, d: i32| -> i32 {
-            (a as f32 * w_tl + b as f32 * w_tr + c as f32 * w_bl + d as f32 * w_br).round() as i32
+        // Helper for discrete selection (Nearest Neighbor) to avoid out-of-tune slides
+        let select_i32 = |a: i32, b: i32, c: i32, d: i32| -> i32 {
+            if w_tl >= w_tr && w_tl >= w_bl && w_tl >= w_br { a }
+            else if w_tr >= w_bl && w_tr >= w_br { b }
+            else if w_bl >= w_br { c }
+            else { d }
         };
         
         let p1 = &self.top_left;
@@ -198,15 +172,16 @@ impl QuadrantConfigs {
                 mix(p1.osc_volumes[1], p2.osc_volumes[1], p3.osc_volumes[1], p4.osc_volumes[1]),
                 mix(p1.osc_volumes[2], p2.osc_volumes[2], p3.osc_volumes[2], p4.osc_volumes[2]),
             ],
+            // Use Discrete selection for Octaves and Semitones to prevent dissonance
             osc_octaves: [
-                mix_i32(p1.osc_octaves[0], p2.osc_octaves[0], p3.osc_octaves[0], p4.osc_octaves[0]),
-                mix_i32(p1.osc_octaves[1], p2.osc_octaves[1], p3.osc_octaves[1], p4.osc_octaves[1]),
-                mix_i32(p1.osc_octaves[2], p2.osc_octaves[2], p3.osc_octaves[2], p4.osc_octaves[2]),
+                select_i32(p1.osc_octaves[0], p2.osc_octaves[0], p3.osc_octaves[0], p4.osc_octaves[0]),
+                select_i32(p1.osc_octaves[1], p2.osc_octaves[1], p3.osc_octaves[1], p4.osc_octaves[1]),
+                select_i32(p1.osc_octaves[2], p2.osc_octaves[2], p3.osc_octaves[2], p4.osc_octaves[2]),
             ],
             osc_semitones: [
-                mix_i32(p1.osc_semitones[0], p2.osc_semitones[0], p3.osc_semitones[0], p4.osc_semitones[0]),
-                mix_i32(p1.osc_semitones[1], p2.osc_semitones[1], p3.osc_semitones[1], p4.osc_semitones[1]),
-                mix_i32(p1.osc_semitones[2], p2.osc_semitones[2], p3.osc_semitones[2], p4.osc_semitones[2]),
+                select_i32(p1.osc_semitones[0], p2.osc_semitones[0], p3.osc_semitones[0], p4.osc_semitones[0]),
+                select_i32(p1.osc_semitones[1], p2.osc_semitones[1], p3.osc_semitones[1], p4.osc_semitones[1]),
+                select_i32(p1.osc_semitones[2], p2.osc_semitones[2], p3.osc_semitones[2], p4.osc_semitones[2]),
             ],
             osc_detune: mix(p1.osc_detune, p2.osc_detune, p3.osc_detune, p4.osc_detune),
             
@@ -229,28 +204,11 @@ impl QuadrantConfigs {
     }
 }
 
-
-
-// ============================================================================
-// ODIN2 BACKEND
-// ============================================================================
-
-
-
-/// Odin2 Audio Backend implementing AudioRenderer
 pub struct Odin2Backend {
-    // One engine per instrument channel (Bass, Lead, Snare, Hat, Poly)
     engines: [Option<OdinEngine>; 5],
-    
-    // Canvas/Quadrant configs for morphing
     presets: [Option<QuadrantConfigs>; 5],
-    
-    // Post-mix gains
     gains: [f32; 5],
-    
-    // Scratch buffer for engine mixing to avoid allocation in process loop
     scratch_buffer: Vec<f32>,
-
     #[allow(dead_code)]
     sample_rate: f32,
     samples_per_step: usize,
@@ -260,23 +218,23 @@ impl Odin2Backend {
     pub fn new(sample_rate: f64) -> Self {
         let sr = sample_rate as f32;
         
-        // Initialize arrays manually to avoid clone/default issues with Option<non-Copy>
-        // Start with None/0.0
         let mut engines: [Option<OdinEngine>; 5] = [None, None, None, None, None];
         let mut presets: [Option<QuadrantConfigs>; 5] = [None, None, None, None, None];
-        let mut gains: [f32; 5] = [1.0; 5]; // Default gain 1.0
+        let mut gains: [f32; 5] = [1.0; 5];
         
         // Define preset quadrants
         let keys_names = ["Synth Piano", "Toy Piano", "Pianet", "Piano Ballad 3"];
-        let drums_names = ["Kick-1 [Photonic]", "Snare-1 [Photonic]", "Drum Machine", "HiHat-closed [Photonic]"];
+        // Separated lists for stability:
+        let snare_names = ["Snare-1 [Photonic]", "Snare-1 [Photonic]", "Snare-1 [Photonic]", "Snare-1 [Photonic]"];
+        let hat_names = ["HiHat-closed [Photonic]", "HiHat-closed [Photonic]", "HiHat-closed [Photonic]", "HiHat-closed [Photonic]"];
         let bass_names = ["Bass Crusher [RM]", "Bass Simple PM [RS]", "DeepBass [Photonic]", "Analog Bass [tx]"];
         
         // Map instruments
         let instruments = [
             (InstrumentType::Bass, "Bass", bass_names, 0.6),
             (InstrumentType::Lead, "Keys", keys_names, 0.8),
-            (InstrumentType::Snare, "Drums", drums_names, 0.5),
-            (InstrumentType::Hat, "Drums", drums_names, 0.3),
+            (InstrumentType::Snare, "Drums", snare_names, 0.5),
+            (InstrumentType::Hat, "Drums", hat_names, 0.3),
             (InstrumentType::Poly, "Keys", keys_names, 0.7),
         ];
         
@@ -284,11 +242,9 @@ impl Odin2Backend {
             let idx = inst.index();
             let mut engine = OdinEngine::new(sr);
             
-            // Load presets
             println!("Loading presets for {:?}", inst);
             let quadrant = QuadrantConfigs::load_defaults(category, names);
             
-            // Initial load (Center)
             let initial = quadrant.morph(0.0, 0.0);
             engine.load_config(initial);
             
@@ -301,13 +257,12 @@ impl Odin2Backend {
             engines,
             presets,
             gains,
-            scratch_buffer: vec![0.0f32; 2048], // Pre-allocate sensible size (e.g. 1024 frames stereo)
+            scratch_buffer: vec![0.0f32; 2048],
             sample_rate: sr,
             samples_per_step: 0,
         }
     }
 
-    /// Set mixer gains
     pub fn set_gains(&mut self, lead: f32, bass: f32, snare: f32, hat: f32) {
         self.gains[InstrumentType::Lead.index()] = lead;
         self.gains[InstrumentType::Bass.index()] = bass;
@@ -315,13 +270,9 @@ impl Odin2Backend {
         self.gains[InstrumentType::Hat.index()] = hat;
     }
 
-    /// Apply emotional morphing to synthesis parameters
-    ///
-    /// Performs 2D morphing on the quadrant presets using POD config (no allocation)
     pub fn apply_emotional_morphing(&mut self, valence: f32, arousal: f32, _tension: f32, _density: f32) {
-        // Map arousal (0.0..1.0) to Y axis (-1.0..1.0)
         let y = arousal * 2.0 - 1.0;
-        let x = valence; // Already -1.0..1.0
+        let x = valence;
 
         for i in 0..5 {
             if let Some(quadrant) = &self.presets[i] {
@@ -354,12 +305,6 @@ impl AudioRenderer for Odin2Backend {
             AudioEvent::AllNotesOff { channel } => {
                 let inst = InstrumentType::from_channel(channel);
                 if let Some(engine) = &mut self.engines[inst.index()] {
-                    // OdinEngine might need an all_notes_off method, or we iterate active notes?
-                    // For now, assuming standard MIDI behavior isn't fully exposed or we just rely on note_off loops elsewhere.
-                    // But wait, OdinEngine has stop_all? 
-                    // Let's check api. If not, ignore for now or send note off for all keys.
-                    // We'll just ignore for now as OdinEngine doesn't seem to expose all_notes_off in the example.
-                    // Actually we can just do nothing or implement iterate 0..127 off.
                     for n in 0..128 {
                         engine.note_off(n);
                     }
@@ -374,12 +319,9 @@ impl AudioRenderer for Odin2Backend {
                 self.samples_per_step = samples_per_step;
             }
 
-            // Controls
             AudioEvent::ControlChange { ctrl: _, value: _, channel } => {
                 let inst = InstrumentType::from_channel(channel);
-                 // Map CC to engine params if needed. 
                  if let Some(_engine) = &mut self.engines[inst.index()] {
-                     // _engine.midi_cc(ctrl, value);
                  }
             }
 
@@ -388,38 +330,30 @@ impl AudioRenderer for Odin2Backend {
     }
 
     fn process_buffer(&mut self, output: &mut [f32], channels: usize) {
-        // Clear output
         output.fill(0.0);
         
         let buf_len = output.len();
         
-        // Ensure scratch buffer is large enough (resize only if needed, should stabilize quickly)
         if self.scratch_buffer.len() < buf_len {
              self.scratch_buffer.resize(buf_len, 0.0);
         }
-        
-        // We reuse self.scratch_buffer for mixing
         
         for i in 0..5 {
              if let Some(engine) = &mut self.engines[i] {
                  let gain = self.gains[i];
                  if gain < 0.001 { continue; }
                  
-                 // Use slice of scratch buffer matching output length
                  let mix_slice = &mut self.scratch_buffer[0..buf_len];
                  mix_slice.fill(0.0);
                  
-                 // Process engine
                  engine.process(mix_slice, channels);
                  
-                 // Accumulate
                  for k in 0..buf_len {
                      output[k] += mix_slice[k] * gain;
                  }
              }
         }
         
-        // Hard clipper / limiter at the end
         for s in output.iter_mut() {
             *s = s.tanh();
         }
