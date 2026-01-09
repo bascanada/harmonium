@@ -125,6 +125,10 @@ pub struct EngineParams {
     // Polyrythm Steps (48, 96, 192...)
     #[serde(default = "default_poly_steps")]
     pub poly_steps: usize,
+
+    /// Mode Drum Kit: kick fixe sur C1 (36) au lieu d'harmonisé
+    #[serde(default)]
+    pub fixed_kick: bool,
 }
 
 fn default_gain_lead() -> f32 { 1.0 }
@@ -160,6 +164,7 @@ impl Default for EngineParams {
             vel_base_bass: default_vel_bass(),
             vel_base_snare: default_vel_snare(),
             poly_steps: default_poly_steps(),
+            fixed_kick: false,
         }
     }
 }
@@ -869,13 +874,29 @@ impl HarmoniumEngine {
         self.events_buffer.clear();
         let rhythm_enabled = self.musical_params.enable_rhythm;
 
+        // === BATTEUR VIRTUEL (CONTEXTE) ===
+        // Analyse des émotions pour humaniser le jeu
+        let is_high_tension = self.current_state.tension > 0.6;
+        let is_high_density = self.current_state.density > 0.6;
+        let is_high_energy = self.current_state.arousal > 0.7;
+        let is_low_energy = self.current_state.arousal < 0.4;
+
+        // Détection de la "Fill Zone" (les 4 derniers steps de la mesure)
+        // C'est là que les batteurs font leurs roulements pour annoncer la suite
+        let fill_zone_start = self.sequencer_primary.steps.saturating_sub(4);
+        let is_in_fill_zone = self.sequencer_primary.current_step >= fill_zone_start;
+
         // Bass (Kick) - part of Rhythm module
         if rhythm_enabled && trigger_primary.kick && !self.musical_params.muted_channels.get(0).copied().unwrap_or(false) {
-            // Phase 2: Read from local cache (no lock needed)
-            let root = self.last_harmony_state.chord_root_offset;
-            let midi = 36 + root;
+            // LOGIQUE HYBRIDE : Mode Drum Kit (fixe) ou Synth (harmonisé)
+            let midi_note = if self.musical_params.fixed_kick {
+                36  // Mode Drum Kit (C1 fixe)
+            } else {
+                // Mode Synth/Bass (Harmonisé)
+                (36 + self.last_harmony_state.chord_root_offset) as u8
+            };
             let vel = self.musical_params.vel_base_bass + (self.current_state.arousal * 25.0) as u8;
-            self.events_buffer.push(AudioEvent::NoteOn { note: midi as u8, velocity: vel, channel: 0 });
+            self.events_buffer.push(AudioEvent::NoteOn { note: midi_note, velocity: vel, channel: 0 });
         }
         
         // Lead (avec Voicing) - Skip if melody disabled
@@ -953,16 +974,60 @@ impl HarmoniumEngine {
             }
         }
 
-        // Snare - part of Rhythm module
+        // Snare - part of Rhythm module (avec Ghost Notes et Tom Fills)
         if rhythm_enabled && trigger_primary.snare && !self.musical_params.muted_channels.get(2).copied().unwrap_or(false) {
-             let vel = self.musical_params.vel_base_snare + (self.current_state.arousal * 30.0) as u8;
-             self.events_buffer.push(AudioEvent::NoteOn { note: 38, velocity: vel, channel: 2 });
+            let mut snare_note = 38u8;  // D1 - Snare standard
+            let mut vel = self.musical_params.vel_base_snare + (self.current_state.arousal * 30.0) as u8;
+
+            // A. Ghost Notes (Humanisation)
+            // Si le pattern rythmique indique un coup faible (< 0.7), on joue une ghost note
+            if trigger_primary.velocity < 0.7 {
+                vel = (vel as f32 * 0.65) as u8;
+                if is_low_energy {
+                    snare_note = 37;  // Side Stick (Rimshot) pour ambiances calmes
+                }
+            }
+
+            // B. Tom Fills (Tension)
+            // Si haute tension en fin de mesure -> Roulement de Toms
+            if is_high_tension && is_in_fill_zone {
+                // Sélectionne un Tom (Low 41, Mid 45, High 50) selon le step
+                snare_note = match self.sequencer_primary.current_step % 3 {
+                    0 => 41,  // Low Tom
+                    1 => 45,  // Mid Tom
+                    _ => 50,  // High Tom
+                };
+                vel = (vel as f32 * 1.1).min(127.0) as u8;  // Accentue le fill
+            }
+
+            self.events_buffer.push(AudioEvent::NoteOn { note: snare_note, velocity: vel, channel: 2 });
         }
 
-        // Hat - part of Rhythm module
-        if rhythm_enabled && (trigger_primary.hat || trigger_secondary.hat) && !self.musical_params.muted_channels.get(3).copied().unwrap_or(false) {
-             let vel = 70 + (self.current_state.arousal * 30.0) as u8;
-             self.events_buffer.push(AudioEvent::NoteOn { note: 42, velocity: vel, channel: 3 });
+        // Hat - part of Rhythm module (avec Cymbales & Variations)
+        let play_hat = trigger_primary.hat || trigger_secondary.hat;
+        if rhythm_enabled && play_hat && !self.musical_params.muted_channels.get(3).copied().unwrap_or(false) {
+            let mut hat_note = 42u8;  // F#1 - Closed Hi-Hat par défaut
+            let mut vel = 70 + (self.current_state.arousal * 30.0) as u8;
+
+            // A. Crash sur le "One" (Explosion d'énergie)
+            if self.sequencer_primary.current_step == 0 && is_high_energy {
+                hat_note = 49;  // Crash Cymbal
+                vel = 110;
+            }
+            // B. Variation Ride / Open Hat (Densité)
+            else if is_high_density {
+                if self.current_state.tension > 0.7 {
+                    hat_note = 51;  // Ride Cymbal (Section intense)
+                } else if self.sequencer_primary.current_step % 2 != 0 {
+                    hat_note = 46;  // Open Hi-Hat (Off-beat)
+                }
+            }
+            // C. Pedal Hat (Calme)
+            else if is_low_energy {
+                hat_note = 44;  // Pedal Hi-Hat (Chick fermé)
+            }
+
+            self.events_buffer.push(AudioEvent::NoteOn { note: hat_note, velocity: vel, channel: 3 });
         }
 
         // Send events to renderer

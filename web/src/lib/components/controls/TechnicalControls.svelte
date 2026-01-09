@@ -22,6 +22,7 @@
   export let enableHarmony = true;
   export let enableMelody = true;
   export let enableVoicing = false;
+  export let fixedKick = false;
   export let bpm = 120;
   export let rhythmMode = 0;
   export let rhythmSteps = 16;
@@ -51,6 +52,7 @@
     enableHarmony,
     enableMelody,
     enableVoicing,
+    fixedKick,
     bpm,
     rhythmMode,
     rhythmSteps,
@@ -77,6 +79,7 @@
       enableHarmony,
       enableMelody,
       enableVoicing,
+      fixedKick,
       bpm,
       rhythmMode,
       rhythmSteps,
@@ -109,6 +112,7 @@
     bridge.setDirectEnableHarmony(local.enableHarmony);
     bridge.setDirectEnableMelody(local.enableMelody);
     bridge.setDirectEnableVoicing(local.enableVoicing);
+    bridge.setDirectFixedKick(local.fixedKick);
     bridge.setDirectRhythmMode(local.rhythmMode);
     bridge.setDirectRhythmSteps(local.rhythmSteps);
     bridge.setDirectRhythmPulses(local.rhythmPulses);
@@ -125,13 +129,18 @@
   }
 
   function toggleModule(module: 'rhythm' | 'harmony' | 'melody' | 'voicing') {
-    // Buttons are instant (click), so we don't need pointer locking usually, 
+    // Buttons are instant (click), so we don't need pointer locking usually,
     // but setting isEditing=true briefly protects against instant rebound if needed.
     // simpler is direct update without locking:
     if (module === 'rhythm') local.enableRhythm = !local.enableRhythm;
     else if (module === 'harmony') local.enableHarmony = !local.enableHarmony;
     else if (module === 'melody') local.enableMelody = !local.enableMelody;
     else if (module === 'voicing') local.enableVoicing = !local.enableVoicing;
+    update();
+  }
+
+  function toggleFixedKick() {
+    local.fixedKick = !local.fixedKick;
     update();
   }
 </script>
@@ -170,6 +179,24 @@
         Voicing
       </button>
     </div>
+  </div>
+
+  <!-- Drum Mode Toggle -->
+  <div class="p-5 bg-neutral-900 rounded-lg">
+    <h3 class="text-base font-semibold text-neutral-400 mb-4">Drum Mode</h3>
+    <div class="flex gap-3">
+      <button
+        onclick={toggleFixedKick}
+        class="flex-1 py-3 px-4 rounded-lg text-base font-medium transition-colors
+          {local.fixedKick ? 'bg-amber-600 text-white' : 'bg-neutral-700 text-neutral-400'}"
+        title="Mode Drum Kit : Kick fixe sur C1 (36) pour VST Drums"
+      >
+        {local.fixedKick ? 'Drum Kit (C1)' : 'Synth Bass'}
+      </button>
+    </div>
+    <p class="text-xs text-neutral-500 mt-2">
+      {local.fixedKick ? 'Kick fixe sur C1 - ideal pour VST Drums' : 'Kick harmonise - ideal pour synth bass (Odin2)'}
+    </p>
   </div>
 
   <!-- BPM Direct -->

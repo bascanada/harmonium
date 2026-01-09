@@ -279,6 +279,15 @@ fn handle_set(
                 return true;
             }
         }
+        "set_direct_fixed_kick" => {
+            if let Some(v) = msg_params.and_then(|p| p.get("enabled")).and_then(|v| v.as_bool()) {
+                if let Ok(mut mode) = control_mode.lock() {
+                    mode.webview_controls_direct = true;
+                    mode.fixed_kick = v;
+                }
+                return true;
+            }
+        }
 
         // Channel controls
         "set_channel_muted" => {
