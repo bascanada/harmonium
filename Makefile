@@ -102,7 +102,7 @@ web/build: wasm/build
 	cd web && npm run build
 
 ## Build VST webview interface (Svelte -> embedded HTML)
-web/build-vst:
+web/build-vst: wasm/build
 	@echo "Building VST webview interface..."
 	cd web && npm run build:vst
 	@echo "VST interface built: web/dist/vst/"
