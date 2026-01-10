@@ -1,104 +1,21 @@
 [workspace]
-members = [".", "xtask"]
+members = [
+    "harmonium_core",
+    "harmonium_ai",
+    "harmonium_audio",
+    "harmonium_host",
+    "xtask"
+]
+resolver = "2"
 
-[package]
-name = "harmonium"
-version = "0.1.0"
-edition = "2024"
-
-[package.metadata.wasm-pack.profile.release]
-wasm-opt = false
-
-[lib]
-crate-type = ["cdylib", "rlib"]
-
-# CLI binary only available with standalone feature
-[[bin]]
-name = "harmonium"
-path = "src/main.rs"
-required-features = ["standalone"]
-
-[features]
-default = ["standalone", "wasm", "odin2"]
-standalone = ["cpal"]
-vst = ["nih_plug"]
-vst-gui = ["vst", "nih_plug_webview"]
-wasm = ["wasm-bindgen", "console_error_panic_hook", "serde-wasm-bindgen", "js-sys", "web-sys"]
-ai = ["candle-core", "candle-nn", "candle-transformers", "tokenizers"]
-odin2 = ["odin2-core"]
-
-[dependencies]
-# Audio (optional - for standalone mode)
-cpal = { version = "0.15", features = ["wasm-bindgen"], optional = true }
-
-# VST Plugin (optional - for DAW integration)
-nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", optional = true }
-nih_plug_webview = { git = "https://github.com/httnn/nih-plug-webview.git", optional = true }
-
-# Core synthesis (always needed)
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+rand = "0.8.5"
 fundsp = "0.20.0"
 oxisynth = "0.1.0"
-rand = "0.8.5"
-rust-music-theory = "0.3.0"
-
-# Lock-free data structures for real-time audio safety
-rtrb = "0.3"                    # Real-time ring buffer (SPSC queues)
-triple_buffer = "8.0"           # Lock-free triple buffering
-arrayvec = "0.7"                # Fixed-capacity Vec and String (no heap allocation)
-crossbeam-channel = "0.5"       # MPSC channels for font loading
-
-# Odin2 synthesizer (optional - alternative to fundsp)
-odin2-core = { git = "https://github.com/bascanada/odin-rs", features = ["std"], optional = true }
-
-# WASM bindings (optional - only for web builds)
-wasm-bindgen = { version = "0.2", optional = true }
-console_error_panic_hook = { version = "0.1", optional = true }
-serde-wasm-bindgen = { version = "0.6", optional = true }
-js-sys = { version = "0.3", optional = true }
-web-sys = { version = "0.3", features = ["console"], optional = true }
-
-# Pour l'IA (optional for VST builds)
-candle-core = { version = "0.8", optional = true }
-candle-nn = { version = "0.8", optional = true }
-candle-transformers = { version = "0.8", default-features = false, optional = true }
-tokenizers = { version = "0.13.3", default-features = false, features = ["fancy-regex", "onig"], optional = true }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-toml = "0.8"
-once_cell = "1.20"
-hound = "3.5.1"
+rtrb = "0.3"
+arrayvec = "0.7"
 midly = "0.5.3"
-rosc = "0.10"
-
-# Native getrandom
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-getrandom = "0.2"
-
-# WASM-specific dependencies
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { version = "0.2", features = ["js"] }
-web-sys = { version = "0.3", features = [
-    "console",
-    "Window",
-    "Document",
-    "Navigator",
-    "AudioContext",
-    "AudioContextOptions",
-    "AudioDestinationNode",
-    "AudioNode",
-    "AudioParam",
-    "GainNode",
-    "HtmlMediaElement",
-    "AudioBuffer",
-    "AudioBufferSourceNode",
-    "Event",
-] }
-
-[profile.release]
-lto = "thin"
-strip = "symbols"
-
-[profile.profiling]
-inherits = "release"
-debug = true
-strip = "none"
+triple_buffer = "8.0"
+once_cell = "1.20"
+log = "0.4"

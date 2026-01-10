@@ -15,7 +15,7 @@ PLUGINVAL := /Applications/pluginval.app/Contents/MacOS/pluginval
 # ════════════════════════════════════════════════════════════════════
 
 run:
-	cargo run -- $(ARGS)
+	cargo run -p harmonium -- $(ARGS)
 
 test:
 	cargo test --lib
@@ -96,7 +96,7 @@ vst/info:
 # ════════════════════════════════════════════════════════════════════
 
 wasm/build:
-	wasm-pack build --target web
+	RUSTFLAGS="--cfg=wasm_js" wasm-pack build harmonium_host --target web --out-dir ../pkg
 
 web/build: wasm/build
 	cd web && npm run build
