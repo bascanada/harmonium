@@ -14,7 +14,6 @@ use arrayvec::ArrayString;
 use rand::Rng;
 use rust_music_theory::note::PitchSymbol;
 use rust_music_theory::scale::ScaleType;
-use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use triple_buffer::Output;
 
@@ -69,7 +68,6 @@ pub struct HarmoniumEngine {
     // Recording State Tracking
     is_recording_wav: bool,
     is_recording_midi: bool,
-    is_recording_abc: bool,
 
     // Mute State Tracking
     last_muted_channels: Vec<bool>,
@@ -210,7 +208,6 @@ impl HarmoniumEngine {
             control_mode,
             is_recording_wav: false,
             is_recording_midi: false,
-            is_recording_abc: false,
             last_muted_channels: vec![false; 16],
             // Phase 2.5: Pre-allocate with capacity for typical number of events per tick
             events_buffer: Vec::with_capacity(8),
@@ -446,19 +443,6 @@ impl HarmoniumEngine {
             } else {
                 self.renderer.handle_event(AudioEvent::StopRecording {
                     format: harmonium_core::events::RecordFormat::Midi,
-                });
-            }
-        }
-
-        if mp.record_abc != self.is_recording_abc {
-            self.is_recording_abc = mp.record_abc;
-            if self.is_recording_abc {
-                self.renderer.handle_event(AudioEvent::StartRecording {
-                    format: harmonium_core::events::RecordFormat::Abc,
-                });
-            } else {
-                self.renderer.handle_event(AudioEvent::StopRecording {
-                    format: harmonium_core::events::RecordFormat::Abc,
                 });
             }
         }

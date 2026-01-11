@@ -156,7 +156,7 @@ to run a tensorflow model to transform words into parameters to control the valu
     %% --- 5. AUDIO OUTPUT ---
     subgraph AUDIO ["5. AUDIO RENDERING"]
         Synth["FM / Wavetable Synthesizer"]:::output
-        Midi["MIDI / ABC Output"]:::output
+        Midi["MIDI"]:::output
         
         Style_Block --> Synth
         Style_Shell --> Synth

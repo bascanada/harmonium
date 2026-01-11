@@ -6,7 +6,6 @@
     import RhythmVisualizer from '$lib/components/visualizations/RhythmVisualizer.svelte';
     import ChordProgression from '$lib/components/visualizations/ChordProgression.svelte';
     import MorphVisualization from '$lib/components/visualizations/MorphVisualization.svelte';
-    import abcjs from 'abcjs';
     import init, { get_available_backends } from 'harmonium';
 
     let bridge: HarmoniumBridge | null = null;
@@ -42,8 +41,6 @@
     // Recording State
     let isRecordingWav = false;
     let isRecordingMidi = false;
-    let isRecordingAbc = false;
-    let abcString = "";
 
     // Access WASM handle for recording (bridge doesn't expose recording methods yet)
     function getHandle() {
@@ -74,19 +71,6 @@
         }
     }
 
-    function toggleAbcRecording() {
-        const handle = getHandle();
-        if (!handle) return;
-        if (isRecordingAbc) {
-            handle.stop_recording_abc();
-            isRecordingAbc = false;
-        } else {
-            handle.start_recording_abc();
-            isRecordingAbc = true;
-            abcString = ""; // Clear previous score
-        }
-    }
-
     function checkRecordings() {
         const handle = getHandle();
         if (!handle) return;
@@ -99,17 +83,8 @@
             const fmt = recording.format;
             const data = recording.data;
 
-            if (fmt === 'abc') {
-                const textDecoder = new TextDecoder();
-                abcString = textDecoder.decode(data);
-                // Render ABC
-                setTimeout(() => {
-                    abcjs.renderAbc("paper", abcString, { responsive: "resize" });
-                }, 0);
-            }
-
-            const mimeType = fmt === 'wav' ? 'audio/wav' : (fmt === 'midi' ? 'audio/midi' : 'text/plain');
-            const ext = fmt === 'wav' ? 'wav' : (fmt === 'midi' ? 'mid' : 'abc');
+            const mimeType = fmt === 'wav' ? 'audio/wav' : (fmt === 'midi' ? 'audio/midi' : 'application/xml');
+            const ext = fmt === 'wav' ? 'wav' : (fmt === 'midi' ? 'mid' : 'musicxml');
 
             const blob = new Blob([data], { type: mimeType });
             const url = URL.createObjectURL(blob);
@@ -429,14 +404,6 @@
                     {isRecordingMidi ? 'Stop MIDI' : 'Record MIDI'}
                 </button>
 
-                <button
-                    onclick={toggleAbcRecording}
-                    class="px-4 py-2 font-semibold rounded-lg transition-colors duration-200 cursor-pointer flex items-center gap-2
-                        {isRecordingAbc ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' : 'bg-neutral-700 hover:bg-neutral-600 text-neutral-300'}"
-                >
-                    <div class="w-3 h-3 rounded-full {isRecordingAbc ? 'bg-white' : 'bg-red-500'}"></div>
-                    {isRecordingAbc ? 'Stop ABC' : 'Record ABC'}
-                </button>
             </div>
         {/if}
     </div>
@@ -507,12 +474,6 @@
                 {/if}
             </div>
 
-            {#if abcString}
-                <div class="w-full bg-white rounded-xl p-6 shadow-xl border border-neutral-700 overflow-hidden mt-8">
-                    <h2 class="text-xl font-bold mb-4 text-center text-black">Captured Score (ABC)</h2>
-                    <div id="paper" class="w-full overflow-x-auto"></div>
-                </div>
-            {/if}
         </div>
     {/if}
 </div>

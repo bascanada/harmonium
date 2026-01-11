@@ -136,7 +136,6 @@ impl EmotionEngine {
 
                     record_wav: false,
                     record_midi: false,
-                    record_abc: false,
                     harmony_mode: harmonium_core::harmony::HarmonyMode::Driver,
                     gain_lead: 1.0,
                     gain_bass: 0.6,
@@ -174,7 +173,6 @@ impl EmotionEngine {
 
             record_wav: false,
             record_midi: false,
-            record_abc: false,
             harmony_mode: harmonium_core::harmony::HarmonyMode::Driver,
             gain_lead: 0.0,
             gain_bass: 0.0,
@@ -226,7 +224,6 @@ impl EmotionEngine {
 
                 record_wav: false,
                 record_midi: false,
-                record_abc: false,
                 harmony_mode: harmonium_core::harmony::HarmonyMode::Driver,
                 gain_lead: 1.0,
                 gain_bass: 0.6,

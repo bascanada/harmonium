@@ -23,7 +23,6 @@ fn main() {
     let mut sf2_path: Option<String> = None;
     let mut record_wav = false;
     let mut record_midi = false;
-    let mut record_abc = false;
     let mut use_osc = false;
     let mut duration_secs = 0; // 0 = infini
     let mut harmony_mode = HarmonyMode::Driver; // Default to Driver
@@ -39,7 +38,6 @@ fn main() {
         match args[i].as_str() {
             "--record-wav" => record_wav = true,
             "--record-midi" => record_midi = true,
-            "--record-abc" => record_abc = true,
             "--osc" => use_osc = true,
             "--drum-kit" | "--fixed-kick" => fixed_kick = true,
             "--harmony-mode" | "-m" => {
@@ -108,7 +106,6 @@ fn main() {
                 );
                 println!("  --record-wav               Record to WAV file");
                 println!("  --record-midi              Record to MIDI file");
-                println!("  --record-abc               Record to ABC notation");
                 println!("  --osc                      Enable OSC control (UDP 8080)");
                 println!("  --duration <SECONDS>       Recording duration (0 = infinite)");
                 println!(
@@ -386,13 +383,12 @@ fn main() {
         .expect("Failed to create audio stream");
 
     // Démarrage de l'enregistrement si demandé
-    if record_wav || record_midi || record_abc {
+    if record_wav || record_midi {
         // Phase 3: Use triple buffer write (lock Input on UI side)
         if let Ok(mut input) = target_params_input.lock() {
             let mut params = input.input_buffer_mut().clone();
             params.record_wav = record_wav;
             params.record_midi = record_midi;
-            params.record_abc = record_abc;
             input.write(params);
             log::info("Recording started...");
         }
@@ -421,7 +417,6 @@ fn main() {
                     let mut params = input.input_buffer_mut().clone();
                     params.record_wav = false;
                     params.record_midi = false;
-                    params.record_abc = false;
                     input.write(params);
                 }
                 recording_stopped = true;
@@ -436,7 +431,6 @@ fn main() {
                 let filename = match fmt {
                     harmonium::events::RecordFormat::Wav => "output.wav",
                     harmonium::events::RecordFormat::Midi => "output.mid",
-                    harmonium::events::RecordFormat::Abc => "output.abc",
                     harmonium::events::RecordFormat::MusicXml => "output.musicxml",
                 };
                 log::info(&format!(

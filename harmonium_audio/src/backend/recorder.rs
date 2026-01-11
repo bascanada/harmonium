@@ -1,4 +1,3 @@
-use crate::backend::abc_backend::AbcBackend;
 use crate::backend::AudioRenderer;
 use harmonium_core::events::{AudioEvent, RecordFormat};
 use harmonium_core::params::MusicalParams;
@@ -50,9 +49,6 @@ pub struct RecorderBackend {
     midi_samples_since_last: u64,
     current_samples_per_step: usize,
 
-    // ABC State
-    abc_backend: Option<AbcBackend>,
-
     // MusicXML State
     musicxml_events: Option<Vec<(u64, AudioEvent)>>,
     musicxml_samples_elapsed: u64,
@@ -74,7 +70,6 @@ impl RecorderBackend {
             midi_track: None,
             midi_samples_since_last: 0,
             current_samples_per_step: 11025,
-            abc_backend: None,
             musicxml_events: None,
             musicxml_samples_elapsed: 0,
             musicxml_params: MusicalParams::default(),
@@ -131,25 +126,12 @@ impl RecorderBackend {
             let header = Header::new(Format::SingleTrack, Timing::Metrical(480.into()));
             let mut smf = Smf::new(header);
             smf.tracks.push(track_events);
-            
+
             let mut buffer = Vec::new();
             if smf.write(&mut buffer).is_ok() {
                 if let Ok(mut queue) = self.finished_recordings.lock() {
                     queue.push((RecordFormat::Midi, buffer));
                 }
-            }
-        }
-    }
-
-    fn start_abc(&mut self) {
-        self.abc_backend = Some(AbcBackend::new(self.sample_rate));
-    }
-
-    fn stop_abc(&mut self) {
-        if let Some(backend) = self.abc_backend.take() {
-            let data = backend.finalize();
-            if let Ok(mut queue) = self.finished_recordings.lock() {
-                queue.push((RecordFormat::Abc, data));
             }
         }
     }
@@ -189,7 +171,6 @@ impl AudioRenderer for RecorderBackend {
                 match format {
                     RecordFormat::Wav => self.start_wav(),
                     RecordFormat::Midi => self.start_midi(),
-                    RecordFormat::Abc => self.start_abc(),
                     RecordFormat::MusicXml => self.start_musicxml(),
                 }
             },
@@ -197,26 +178,17 @@ impl AudioRenderer for RecorderBackend {
                 match format {
                     RecordFormat::Wav => self.stop_wav(),
                     RecordFormat::Midi => self.stop_midi(),
-                    RecordFormat::Abc => self.stop_abc(),
                     RecordFormat::MusicXml => self.stop_musicxml(),
                 }
             },
             AudioEvent::TimingUpdate { samples_per_step } => {
                 self.current_samples_per_step = *samples_per_step;
-                if let Some(abc) = &mut self.abc_backend {
-                    abc.handle_event(event.clone());
-                }
             },
             AudioEvent::NoteOn { .. } | AudioEvent::NoteOff { .. } => {
                 // Capture MIDI
                 let _delta = self.samples_to_ticks(self.midi_samples_since_last);
                 if let Some(_track) = &mut self.midi_track {
                     // ... existing MIDI logic ...
-                }
-
-                // Capture ABC
-                if let Some(abc) = &mut self.abc_backend {
-                    abc.handle_event(event.clone());
                 }
 
                 // Capture MusicXML
@@ -274,11 +246,6 @@ impl AudioRenderer for RecorderBackend {
         // Advance MIDI time
         if self.midi_track.is_some() {
             self.midi_samples_since_last += (output.len() / channels) as u64;
-        }
-        
-        // Advance ABC time
-        if let Some(abc) = &mut self.abc_backend {
-            abc.process_buffer(output, channels);
         }
 
         // Advance MusicXML time
