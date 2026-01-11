@@ -1,6 +1,7 @@
 use crate::backend::abc_backend::AbcBackend;
 use crate::backend::AudioRenderer;
 use harmonium_core::events::{AudioEvent, RecordFormat};
+use harmonium_core::params::MusicalParams;
 use hound::{WavSpec, WavWriter};
 use midly::{Header, Smf, TrackEvent, TrackEventKind, MidiMessage, Format, Timing};
 use std::sync::{Arc, Mutex};
@@ -38,19 +39,24 @@ pub struct RecorderBackend {
     inner: Box<dyn AudioRenderer>,
     // Shared storage for finished recordings
     finished_recordings: Arc<Mutex<Vec<(RecordFormat, Vec<u8>)>>>,
-    
+
     // WAV State
     wav_writer: Option<WavWriter<SharedWriter>>,
     wav_output: Option<SharedWriter>,
     sample_rate: u32,
-    
+
     // MIDI State
     midi_track: Option<Vec<TrackEvent<'static>>>,
     midi_samples_since_last: u64,
     current_samples_per_step: usize,
-    
+
     // ABC State
     abc_backend: Option<AbcBackend>,
+
+    // MusicXML State
+    musicxml_events: Option<Vec<(u64, AudioEvent)>>,
+    musicxml_samples_elapsed: u64,
+    musicxml_params: MusicalParams,
 }
 
 impl RecorderBackend {
@@ -69,7 +75,15 @@ impl RecorderBackend {
             midi_samples_since_last: 0,
             current_samples_per_step: 11025,
             abc_backend: None,
+            musicxml_events: None,
+            musicxml_samples_elapsed: 0,
+            musicxml_params: MusicalParams::default(),
         }
+    }
+
+    /// Set the musical parameters for MusicXML export (key, time signature, etc.)
+    pub fn set_musicxml_params(&mut self, params: MusicalParams) {
+        self.musicxml_params = params;
     }
 
     /// Access the inner backend for downcasting
@@ -140,6 +154,24 @@ impl RecorderBackend {
         }
     }
 
+    fn start_musicxml(&mut self) {
+        self.musicxml_events = Some(Vec::new());
+        self.musicxml_samples_elapsed = 0;
+    }
+
+    fn stop_musicxml(&mut self) {
+        if let Some(events) = self.musicxml_events.take() {
+            let xml = harmonium_core::export::to_musicxml(
+                &events,
+                &self.musicxml_params,
+                self.current_samples_per_step,
+            );
+            if let Ok(mut queue) = self.finished_recordings.lock() {
+                queue.push((RecordFormat::MusicXml, xml.into_bytes()));
+            }
+        }
+    }
+
     fn samples_to_ticks(&self, samples: u64) -> u32 {
         if self.current_samples_per_step == 0 { return 0; }
         // 1 step = 1/4 beat (16th note)
@@ -158,6 +190,7 @@ impl AudioRenderer for RecorderBackend {
                     RecordFormat::Wav => self.start_wav(),
                     RecordFormat::Midi => self.start_midi(),
                     RecordFormat::Abc => self.start_abc(),
+                    RecordFormat::MusicXml => self.start_musicxml(),
                 }
             },
             AudioEvent::StopRecording { format } => {
@@ -165,6 +198,7 @@ impl AudioRenderer for RecorderBackend {
                     RecordFormat::Wav => self.stop_wav(),
                     RecordFormat::Midi => self.stop_midi(),
                     RecordFormat::Abc => self.stop_abc(),
+                    RecordFormat::MusicXml => self.stop_musicxml(),
                 }
             },
             AudioEvent::TimingUpdate { samples_per_step } => {
@@ -179,10 +213,15 @@ impl AudioRenderer for RecorderBackend {
                 if let Some(_track) = &mut self.midi_track {
                     // ... existing MIDI logic ...
                 }
-                
+
                 // Capture ABC
                 if let Some(abc) = &mut self.abc_backend {
                     abc.handle_event(event.clone());
+                }
+
+                // Capture MusicXML
+                if let Some(events) = &mut self.musicxml_events {
+                    events.push((self.musicxml_samples_elapsed, event.clone()));
                 }
             },
             _ => {}
@@ -240,6 +279,11 @@ impl AudioRenderer for RecorderBackend {
         // Advance ABC time
         if let Some(abc) = &mut self.abc_backend {
             abc.process_buffer(output, channels);
+        }
+
+        // Advance MusicXML time
+        if self.musicxml_events.is_some() {
+            self.musicxml_samples_elapsed += (output.len() / channels) as u64;
         }
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }

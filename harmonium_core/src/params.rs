@@ -306,6 +306,10 @@ pub struct MusicalParams {
     /// Enregistrer en ABC notation
     #[serde(default)]
     pub record_abc: bool,
+
+    /// Enregistrer en MusicXML (pour validation dans MuseScore)
+    #[serde(default)]
+    pub record_musicxml: bool,
 }
 
 // === Fonctions par défaut ===
@@ -385,6 +389,7 @@ impl Default for MusicalParams {
             record_wav: false,
             record_midi: false,
             record_abc: false,
+            record_musicxml: false,
         }
     }
 }

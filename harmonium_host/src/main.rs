@@ -437,6 +437,7 @@ fn main() {
                     harmonium::events::RecordFormat::Wav => "output.wav",
                     harmonium::events::RecordFormat::Midi => "output.mid",
                     harmonium::events::RecordFormat::Abc => "output.abc",
+                    harmonium::events::RecordFormat::MusicXml => "output.musicxml",
                 };
                 log::info(&format!(
                     "Saving recording to {} ({} bytes)",

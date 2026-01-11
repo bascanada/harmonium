@@ -20,6 +20,9 @@ run:
 test:
 	cargo test --lib
 
+test/sheet:
+	cargo test -p harmonium_core --test music_generation_tests generate_all_music_tests -- --ignored --nocapture
+
 # ════════════════════════════════════════════════════════════════════
 # VST / CLAP PLUGIN
 # ════════════════════════════════════════════════════════════════════

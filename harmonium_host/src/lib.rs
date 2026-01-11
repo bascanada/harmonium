@@ -575,6 +575,7 @@ impl Handle {
                     events::RecordFormat::Wav => "wav".to_string(),
                     events::RecordFormat::Midi => "midi".to_string(),
                     events::RecordFormat::Abc => "abc".to_string(),
+                    events::RecordFormat::MusicXml => "musicxml".to_string(),
                 };
                 return Some(RecordedData {
                     format_str,

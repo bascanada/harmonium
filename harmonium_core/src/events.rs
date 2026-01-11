@@ -20,4 +20,5 @@ pub enum RecordFormat {
     Wav,
     Midi,
     Abc,
+    MusicXml,
 }
