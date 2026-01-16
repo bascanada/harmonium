@@ -276,8 +276,8 @@ impl VoiceManager {
                     },
                     _ => {}
                 }
-            }
-            AudioEvent::TimingUpdate { .. } | AudioEvent::LoadFont { .. } | AudioEvent::SetChannelRoute { .. } | AudioEvent::StartRecording { .. } | AudioEvent::StopRecording { .. } | AudioEvent::SetMixerGains { .. } => {},
+            },
+            AudioEvent::TimingUpdate { .. } | AudioEvent::LoadFont { .. } | AudioEvent::SetChannelRoute { .. } | AudioEvent::StartRecording { .. } | AudioEvent::StopRecording { .. } | AudioEvent::SetMixerGains { .. } | AudioEvent::LoadOdinPreset { .. } => {},
         }
     }
 

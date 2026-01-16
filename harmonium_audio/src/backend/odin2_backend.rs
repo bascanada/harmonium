@@ -301,6 +301,32 @@ impl AudioRenderer for Odin2Backend {
                     engine.note_off(note);
                 }
             }
+            
+            AudioEvent::LoadOdinPreset { channel, bytes } => {
+                if let Ok(preset) = OdinPreset::from_bytes(&bytes) {
+                    let config = PresetConfig::from_preset(&preset);
+                    let idx = channel as usize;
+
+                    if idx < self.presets.len() {
+                        // Apply this preset to the specified channel
+                        // To persist against morphing, we replace the QuadrantConfig with a static one
+                        let static_quadrant = QuadrantConfigs {
+                            top_left: config.clone(),
+                            top_right: config.clone(),
+                            bottom_left: config.clone(),
+                            bottom_right: config.clone(),
+                        };
+
+                        // Update the persistent storage used by morphing
+                        self.presets[idx] = Some(static_quadrant);
+
+                        // Apply immediately
+                        if let Some(engine) = &mut self.engines[idx] {
+                            engine.load_config(config);
+                        }
+                    }
+                }
+            }
 
             AudioEvent::AllNotesOff { channel } => {
                 let inst = InstrumentType::from_channel(channel);

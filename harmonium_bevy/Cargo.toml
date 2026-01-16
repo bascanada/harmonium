@@ -1,0 +1,18 @@
+[package]
+name = "harmonium_bevy"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+thiserror = "2"
+bevy = "0.17"
+kira = "0.10.8"
+cpal = "0.15"
+
+rtrb = { workspace = true }
+harmonium_core = { path = "../harmonium_core" }
+harmonium_ai = { path = "../harmonium_ai" }
+harmonium_audio = { path = "../harmonium_audio" }
+
+[dev-dependencies]
+bevy = { version = "0.17", features = ["default"] }
