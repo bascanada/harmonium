@@ -23,24 +23,26 @@ impl Default for SemanticEngine {
 
 impl SemanticEngine {
     pub fn new() -> Self {
-        let mut dict = HashMap::new();
-        
-        // --- DANGER / COMBAT ---
-        dict.insert("monster".to_string(), WordWeight { arousal_delta: 0.3, valence_delta: -0.4, tension_delta: 0.5 });
-        dict.insert("danger".to_string(), WordWeight { arousal_delta: 0.5, valence_delta: -0.5, tension_delta: 0.6 });
-        dict.insert("boss".to_string(), WordWeight { arousal_delta: 0.8, valence_delta: -0.2, tension_delta: 0.8 });
-        dict.insert("combat".to_string(), WordWeight { arousal_delta: 0.6, valence_delta: -0.1, tension_delta: 0.4 });
-        
-        // --- ATMOSPHERE ---
-        dict.insert("dark".to_string(), WordWeight { arousal_delta: -0.1, valence_delta: -0.3, tension_delta: 0.2 });
-        dict.insert("scary".to_string(), WordWeight { arousal_delta: 0.2, valence_delta: -0.6, tension_delta: 0.4 });
-        dict.insert("mechanical".to_string(), WordWeight { arousal_delta: 0.0, valence_delta: -0.1, tension_delta: 0.3 });
-        dict.insert("nature".to_string(), WordWeight { arousal_delta: -0.2, valence_delta: 0.4, tension_delta: -0.2 });
-        
-        // --- SAFE ---
-        dict.insert("safe".to_string(), WordWeight { arousal_delta: -0.4, valence_delta: 0.5, tension_delta: -0.5 });
-        dict.insert("holy".to_string(), WordWeight { arousal_delta: -0.1, valence_delta: 0.6, tension_delta: -0.3 });
-        dict.insert("light".to_string(), WordWeight { arousal_delta: 0.1, valence_delta: 0.4, tension_delta: -0.2 });
+        let dict_data = [
+            // --- DANGER / COMBAT ---
+            ("monster", WordWeight { arousal_delta: 0.3, valence_delta: -0.4, tension_delta: 0.5 }),
+            ("danger", WordWeight { arousal_delta: 0.5, valence_delta: -0.5, tension_delta: 0.6 }),
+            ("boss", WordWeight { arousal_delta: 0.8, valence_delta: -0.2, tension_delta: 0.8 }),
+            ("combat", WordWeight { arousal_delta: 0.6, valence_delta: -0.1, tension_delta: 0.4 }),
+            // --- ATMOSPHERE ---
+            ("dark", WordWeight { arousal_delta: -0.1, valence_delta: -0.3, tension_delta: 0.2 }),
+            ("scary", WordWeight { arousal_delta: 0.2, valence_delta: -0.6, tension_delta: 0.4 }),
+            ("mechanical", WordWeight { arousal_delta: 0.0, valence_delta: -0.1, tension_delta: 0.3 }),
+            ("nature", WordWeight { arousal_delta: -0.2, valence_delta: 0.4, tension_delta: -0.2 }),
+            // --- SAFE ---
+            ("safe", WordWeight { arousal_delta: -0.4, valence_delta: 0.5, tension_delta: -0.5 }),
+            ("holy", WordWeight { arousal_delta: -0.1, valence_delta: 0.6, tension_delta: -0.3 }),
+            ("light", WordWeight { arousal_delta: 0.1, valence_delta: 0.4, tension_delta: -0.2 }),
+        ];
+        let dict: HashMap<String, WordWeight> = dict_data
+            .into_iter()
+            .map(|(s, w)| (s.to_string(), w))
+            .collect();
 
         Self { dictionary: dict }
     }
@@ -59,11 +61,9 @@ impl SemanticEngine {
         let mut total_arousal = 0.0;
         let mut total_valence = 0.0;
         let mut total_tension = 0.0;
-        
-        // Using f32 for count to allow potential weighted averaging later
-        let count = tags.len();
+        let mut match_count = 0.0;
 
-        if count == 0 { return target; }
+        if tags.is_empty() { return target; }
 
         for tag in tags {
             // Find the word or a default minimal impact if not found?
@@ -73,7 +73,15 @@ impl SemanticEngine {
                 total_arousal += weight.arousal_delta;
                 total_valence += weight.valence_delta;
                 total_tension += weight.tension_delta;
+                match_count += 1.0;
             }
+        }
+
+        if match_count > 0.0 {
+            // Average the deltas
+            total_arousal /= match_count;
+            total_valence /= match_count;
+            total_tension /= match_count;
         }
 
         // Apply deltas. We perform clamping to ensure values stay in valid ranges.

@@ -19,15 +19,35 @@ pub struct MusicKernel {
     pub sequencer: CoreSequencer,
     pub params: CoreMusicalParams,
     pub accumulator: f64,
+    // Track active notes to send NoteOffs: (channel, note, duration_remaining)
+    pub active_notes: Vec<(u8, u8, f64)>,
 }
 
 impl MusicKernel {
     pub fn new(sequencer: CoreSequencer, params: CoreMusicalParams) -> Self {
-        Self { sequencer, params, accumulator: 0.0 }
+        Self { 
+            sequencer, 
+            params, 
+            accumulator: 0.0,
+            active_notes: Vec::with_capacity(16),
+        }
     }
 
     pub fn update(&mut self, dt: f64) -> Vec<CoreAudioEvent> {
         let mut events = Vec::new();
+
+        // 0. Manage Note Offs
+        // We decrement duration and remove expired notes
+        let mut kept_notes = Vec::new();
+        for (channel, note, rem_time) in self.active_notes.drain(..) {
+             let new_rem = rem_time - dt;
+             if new_rem <= 0.0 {
+                 events.push(CoreAudioEvent::NoteOff { channel, note });
+             } else {
+                 kept_notes.push((channel, note, new_rem));
+             }
+        }
+        self.active_notes = kept_notes;
 
         // 1. Sync Sequencer Settings
         // In a full implementation, we would compare self.params vs self.sequencer state
@@ -63,21 +83,51 @@ impl MusicKernel {
             // 4. Generate Events
             let velocity = (trigger.velocity * 127.0) as u8;
             
+            // Duration for notes (e.g. 50% gate)
+            let note_duration = step_duration * 0.5;
+
             if trigger.kick {
                  // Kick on Channel 0
-                 events.push(CoreAudioEvent::NoteOn { channel: 0, note: 36, velocity }); // C1
-                 // NoteOff later? Or rely on synth envelope. 
-                 // Simple synths often need explicit Off, drum samplers might trigger one-shot.
-                 // We'll send NoteOff immediately for one-shot behavior if supported, 
-                 // or just NoteOn for now. 
+                 // Kill previous note (monophonic kick)
+                 events.push(CoreAudioEvent::NoteOff { channel: 0, note: 36 });
+                 events.push(CoreAudioEvent::NoteOn { channel: 0, note: 36, velocity });
+                 // Schedule Off
+                 self.active_notes.push((0, 36, note_duration));
+            }
+            if trigger.bass {
+                 // Bass line on Channel 0 (Bass instrument per Odin2Backend mapping)
+                 // TODO: Future refactoring - unify kick/bass or separate into dedicated percussion channel
+                 // Simple Octave pattern: Root (C2) or Octave (C3)
+                 let note = if self.sequencer.current_step % 8 == 0 { 36 } else { 48 };
+                 events.push(CoreAudioEvent::NoteOff { channel: 0, note });
+                 events.push(CoreAudioEvent::NoteOn { channel: 0, note, velocity });
+                 self.active_notes.push((0, note, note_duration * 1.5));
+            }
+            // TODO: Future refactoring - unify lead triggering logic across MusicKernel and HarmoniumEngine
+            // For now, matching HarmoniumEngine behavior: lead plays on kick/snare regardless of trigger.lead
+            if trigger.kick || trigger.snare {
+                 // Lead on Channel 1
+                 // Simple Arpeggiator: Cm7 (C Eb G Bb)
+                 let chord_tones = [60, 63, 67, 70];
+                 // Use step index to walk through chord tones
+                 let note_idx = (self.sequencer.current_step / 2) % chord_tones.len();
+                 let note = chord_tones[note_idx];
+
+                 events.push(CoreAudioEvent::NoteOff { channel: 1, note });
+                 events.push(CoreAudioEvent::NoteOn { channel: 1, note, velocity });
+                 self.active_notes.push((1, note, note_duration));
             }
             if trigger.snare {
                  // Snare on Channel 2 (per Odin backend mapping)
-                 events.push(CoreAudioEvent::NoteOn { channel: 2, note: 38, velocity }); // D1
+                 events.push(CoreAudioEvent::NoteOff { channel: 2, note: 38 });
+                 events.push(CoreAudioEvent::NoteOn { channel: 2, note: 38, velocity });
+                 self.active_notes.push((2, 38, note_duration));
             }
             if trigger.hat {
                  // Hat on Channel 3
-                 events.push(CoreAudioEvent::NoteOn { channel: 3, note: 42, velocity }); // F#1
+                 events.push(CoreAudioEvent::NoteOff { channel: 3, note: 42 });
+                 events.push(CoreAudioEvent::NoteOn { channel: 3, note: 42, velocity });
+                 self.active_notes.push((3, 42, note_duration * 0.5)); // shorter hats
             }
         }
         

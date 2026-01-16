@@ -43,7 +43,7 @@ impl Plugin for HarmoniumPlugin {
         let (producer, consumer) = RingBuffer::new(1024);
 
         // 3. Launch Harmonium sound in Kira (runs indefinitely on audio thread)
-        let sample_rate = 44100; // Stand-in for backend sample rate
+        let sample_rate = 48000; // TODO: Get actual sample rate from backend
         let sound_data = HarmoniumSoundData {
             sample_rate,
             event_consumer: consumer,
@@ -67,7 +67,7 @@ impl Plugin for HarmoniumPlugin {
             .register_type::<components::HarmoniumSource>()
             .register_type::<components::GenerativeConfig>()
             .register_type::<components::OdinConfig>()
-            // .register_type::<harmonium_core::sequencer::RhythmMode>() 
+            .register_type::<harmonium_core::sequencer::RhythmMode>() 
             .register_type::<components::HarmoniumTag>()
             .register_type::<components::AiDriver>()
 
@@ -116,10 +116,11 @@ fn update_harmonium_main_system(
     let events = harmonium.kernel.update(dt);
 
     // 3. Send events to Kira
-    let mut producer = harmonium.event_producer.lock().expect("Failed to lock event producer");
-    for event in events {
-        if let Err(_) = producer.push(event) {
-            warn!("Harmonium event buffer full!");
+    if let Ok(mut producer) = harmonium.event_producer.lock() {
+        for event in events {
+            if producer.push(event).is_err() {
+                warn!("Harmonium event buffer full!");
+            }
         }
     }
 }

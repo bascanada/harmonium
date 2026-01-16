@@ -31,9 +31,10 @@ pub use driver::HarmonicDriver;
 pub use parsimonious::{ParsimoniousDriver, TRQ, Neighbor, ParsimoniousTransform};
 
 use rand::Rng;
+use bevy_reflect::Reflect;
 
 /// Mode d'harmonie sélectionné
-#[derive(Clone, Copy, Debug, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Default, serde::Serialize, serde::Deserialize, Reflect)]
 pub enum HarmonyMode {
     /// Système BasicHarmony basé sur les quadrants émotionnels (Russell Circumplex)
     #[default]

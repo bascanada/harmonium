@@ -1,8 +1,9 @@
 use serde::{Serialize, Deserialize};
+use bevy_reflect::Reflect;
 
 // --- RHYTHM MODE (Strategy Pattern) ---
 
-#[derive(Clone, Copy, Debug, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Default, Serialize, Deserialize, Reflect)]
 pub enum RhythmMode {
     #[default]
     Euclidean,      // Algorithme de Bjorklund (Classique)
@@ -17,12 +18,14 @@ pub struct StepTrigger {
     pub kick: bool,     // Fondation (Square/Octagon)
     pub snare: bool,    // Tension (Triangle/Backbeat)
     pub hat: bool,      // Remplissage (Euclidean Fills)
+    pub bass: bool,     // NEW: Harmonie Basse (Channel 0)
+    pub lead: bool,     // NEW: Mélodie (Channel 1)
     pub velocity: f32,  // Dynamique générale (0.0 à 1.0)
 }
 
 impl StepTrigger {
     pub fn is_any(&self) -> bool {
-        self.kick || self.snare || self.hat
+        self.kick || self.snare || self.hat || self.bass || self.lead
     }
 }
 
@@ -134,6 +137,8 @@ impl Sequencer {
                     kick: b,
                     snare: false,
                     hat: b, // Layering simple
+                    bass: b, // Sync bass with kick in Euclidean mode
+                    lead: false,
                     velocity: if b { 1.0 } else { 0.0 },
                 }).collect()
             }
@@ -278,12 +283,22 @@ pub fn generate_balanced_layers_48(steps: usize, density: f32, tension: f32) -> 
 
     let hat_gon = Polygon::new(hat_vertices, hat_offset, 0.6 * density.max(0.5));
 
+    // LAYER D: BASS (Harmonic Foundation)
+    let bass_gon = if density < 0.4 { kick_gon } else { Polygon::new(8, 0, 0.8) };
+
+    // LAYER E: LEAD (Melody)
+    let lead_vertices = if density < 0.3 { 3 } else { 5 };
+    let lead_offset = (tension * (steps / lead_vertices) as f32) as usize;
+    let lead_gon = Polygon::new(lead_vertices, lead_offset, 0.7);
+
     // --- 2. RASTERIZATION (Collision Calculation) ---
 
     for i in 0..steps {
         let hit_kick = kick_gon.hits(i, steps);
         let hit_snare = snare_gon.hits(i, steps);
         let hit_hat = hat_gon.hits(i, steps);
+        let hit_bass = bass_gon.hits(i, steps);
+        let hit_lead = lead_gon.hits(i, steps);
 
         // --- 3. CONFLICT RESOLUTION & VELOCITY ---
 
@@ -311,6 +326,9 @@ pub fn generate_balanced_layers_48(steps: usize, density: f32, tension: f32) -> 
                 }
             }
         }
+
+        if hit_bass { triggers[i].bass = true; }
+        if hit_lead { triggers[i].lead = true; }
     }
 
     triggers
@@ -485,6 +503,27 @@ pub fn generate_classic_groove(steps: usize, density: f32, tension: f32) -> Vec<
             pattern[open_pos].hat = true;
             pattern[open_pos].velocity = 0.8;
         }
+    }
+
+    // === BASS PATTERNS ===
+    // Suivre le kick avec léger décalage ou remplissage
+    for i in 0..steps {
+        if pattern[i].kick {
+            pattern[i].bass = true;
+        } else if tension > 0.4 && i >= sixteenth && pattern[i-sixteenth].kick {
+             // Syncopated bass after kick if high tension
+             pattern[i].bass = true;
+        }
+    }
+    
+    // === LEAD PATTERNS ===
+    // Mélodie simple sur division principale
+    let melody_interval = if density < 0.4 { beat } else { eighth };
+    for i in (0..steps).step_by(melody_interval) {
+        // Lead on 1, 2-and, etc depending on tension
+        let jitter = if tension > 0.5 && sixteenth > 0 { sixteenth } else { 0 };
+        let final_pos = (i + jitter) % steps;
+        pattern[final_pos].lead = true;
     }
 
     pattern

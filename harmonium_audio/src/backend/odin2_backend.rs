@@ -302,24 +302,28 @@ impl AudioRenderer for Odin2Backend {
                 }
             }
             
-            AudioEvent::LoadOdinPreset { bytes } => {
+            AudioEvent::LoadOdinPreset { channel, bytes } => {
                 if let Ok(preset) = OdinPreset::from_bytes(&bytes) {
                     let config = PresetConfig::from_preset(&preset);
-                    // Apply this preset to the Bass channel (0)
-                    // To persist against morphing, we replace the QuadrantConfig with a static one
-                    let static_quadrant = QuadrantConfigs {
-                        top_left: config.clone(),
-                        top_right: config.clone(),
-                        bottom_left: config.clone(),
-                        bottom_right: config.clone(),
-                    };
+                    let idx = channel as usize;
 
-                    // Update the persistent storage used by morphing
-                    self.presets[0] = Some(static_quadrant);
+                    if idx < self.presets.len() {
+                        // Apply this preset to the specified channel
+                        // To persist against morphing, we replace the QuadrantConfig with a static one
+                        let static_quadrant = QuadrantConfigs {
+                            top_left: config.clone(),
+                            top_right: config.clone(),
+                            bottom_left: config.clone(),
+                            bottom_right: config.clone(),
+                        };
 
-                    // Apply immediately
-                    if let Some(engine) = &mut self.engines[0] {
-                        engine.load_config(config);
+                        // Update the persistent storage used by morphing
+                        self.presets[idx] = Some(static_quadrant);
+
+                        // Apply immediately
+                        if let Some(engine) = &mut self.engines[idx] {
+                            engine.load_config(config);
+                        }
                     }
                 }
             }

@@ -8,7 +8,7 @@ pub enum AudioEvent {
     AllNotesOff { channel: u8 },
     LoadFont { id: u32, bytes: Vec<u8> },
     /// Load an Odin 2 preset from raw bytes
-    LoadOdinPreset { bytes: Vec<u8> },
+    LoadOdinPreset { channel: u8, bytes: Vec<u8> },
     SetChannelRoute { channel: u8, bank: i32 }, // -1 = FundSP, >=0 = Oxisynth Bank
     TimingUpdate { samples_per_step: usize },
     StartRecording { format: RecordFormat },

@@ -40,9 +40,12 @@ pub fn sync_harmonium_params(
                  // Check if asset is actually loaded
                  if let Some(asset) = assets.get(current_handle) {
                      // Assert loaded, send event
-                     let _ = harmonium.event_producer.lock().expect("Failed to lock").push(AudioEvent::LoadOdinPreset { 
-                         bytes: asset.bytes.clone() 
-                     });
+                     if let Ok(mut producer) = harmonium.event_producer.lock() {
+                         let _ = producer.push(AudioEvent::LoadOdinPreset { 
+                             channel: 0, // Default to channel 0 for now
+                             bytes: asset.bytes.clone() 
+                         });
+                    }
                      
                      // Update local state
                      *last_preset = Some(current_handle.clone());
@@ -58,20 +61,28 @@ pub fn scan_environment_system(
     mut driver_query: Query<(&mut AiDriver, &GlobalTransform)>,
     // 2. All tagged entities in the world
     target_query: Query<(&HarmoniumTag, &GlobalTransform)>,
-    // 3. Global resources
+    // 3. Source of Manual configuration
+    source_query: Query<&HarmoniumSource>,
+    // 4. Global resources
     mut harmonium: ResMut<Harmonium>,
     semantic_engine: Local<SemanticEngine>, // Local = system internal state
 ) {
     let dt = time.delta_secs();
     
+    // Attempt to get the manual params (source of truth for manual override)
+    // If multiple sources exist, we take the first one found.
+    let manual_params = if let Some(source) = source_query.iter().next() {
+        source.manual_visual_params.clone()
+    } else {
+        // Fallback if no source entity exists
+        harmonium.params.clone()
+    };
+
     // We iterate in case of multiple drivers (local multiplayer?), usually 1.
     for (mut driver, player_transform) in driver_query.iter_mut() {
         // Optim: Don't scan every frame
         driver.scan_timer.tick(time.delta());
         
-        let mut ai_arousal = 0.0;
-        let mut ai_valence = 0.0;
-        let mut ai_tension = 0.0;
         let mut has_ai_input = false;
 
         if driver.scan_timer.just_finished() && driver.ai_influence > 0.001 {
@@ -93,51 +104,34 @@ pub fn scan_environment_system(
 
             // --- PHASE 2 : AI ANALYSIS ---
             // We ask AI to analyze these words
-            // We start from current params
-            let current_params = &harmonium.params; 
-            let ai_target = semantic_engine.analyze_context(&detected_tags, current_params);
+            // We start from current params (or better, from neutral?)
+            // Usually we want the AI contribution relative to "neutral" or Relative to "current manual"?
+            // analyze_context takes a base_params. If we want absolute emotional state from tags, base should be neutral.
+            // If we pass manual_params, the AI modifies it.
+            let ai_target = semantic_engine.analyze_context(&detected_tags, &manual_params);
             
-            ai_arousal = ai_target.arousal;
-            ai_valence = ai_target.valence;
-            ai_tension = ai_target.tension;
-        } else {
-             // If not scanning this frame, we should probably keep previous AI values 
-             // but `detect_tags` is local. Ideally `SemanticEngine` or `AiDriver` caches the target.
-             // For simplicity, we skip updating the AI target part if not scanning
-             // But we still run the mixing logic every frame for smooth interpolation.
-             
-             // To do this properly without a persistent target storage, 
-             // we'll just run the mix during scan frames for now, or assume stable.
-             // Better: Store `target_params` in AiDriver?
-             // For this implementation, let's just proceed.
-        }
-
-        if !has_ai_input { continue; } // Temporary skip if not scanning
+            // Cache the target in the component
+            driver.ai_target = ai_target;
+        } 
 
         // --- PHASE 3 : MIXING (Lerp) ---
-        // Manual (Slider UI / Source Config) vs AI
-        // We need access to the manual config. It is on the HarmoniumSource entity.
-        // But we don't have it in this query.
-        // We'll rely on harmonium.params which should be the "Manual" reference if we separate them?
-        // Or we treat harmonium.kernel.params as the live output, and harmonium.manual_params as input.
-        // Let's assume Harmonium resource has a `manual_params` field for this purpose.
+        // Manual (from Component) vs AI (from cached Driver)
         
-        let manual_arousal = harmonium.params.arousal;
-        let manual_valence = harmonium.params.valence;
-        let manual_tension = harmonium.params.tension;
-        
+        let ai_target = &driver.ai_target;
         let mix = driver.ai_influence;
         
-        let final_arousal = manual_arousal * (1.0 - mix) + ai_arousal * mix;
-        let final_valence = manual_valence * (1.0 - mix) + ai_valence * mix;
-        let final_tension = manual_tension * (1.0 - mix) + ai_tension * mix;
+        let final_arousal = manual_params.arousal * (1.0 - mix) + ai_target.arousal * mix;
+        let final_valence = manual_params.valence * (1.0 - mix) + ai_target.valence * mix;
+        let final_tension = manual_params.tension * (1.0 - mix) + ai_target.tension * mix;
 
         // --- PHASE 4 : APPLICATION ---
-        // Direct set for now, or simple lerp towards final
-        // Smooth transition could be: current = current + (target - current) * dt * speed
+        // Frame-rate independent smoothing
+        // lerp(target, 1.0 - exp(-speed * dt))
+        let speed = 2.0;
+        let f = 1.0 - (-speed * dt).exp();
         
-        harmonium.params.arousal = harmonium.params.arousal + (final_arousal - harmonium.params.arousal) * dt * 2.0;
-        harmonium.params.valence = harmonium.params.valence + (final_valence - harmonium.params.valence) * dt * 2.0;
-        harmonium.params.tension = harmonium.params.tension + (final_tension - harmonium.params.tension) * dt * 2.0;
+        harmonium.params.arousal = harmonium.params.arousal + (final_arousal - harmonium.params.arousal) * f;
+        harmonium.params.valence = harmonium.params.valence + (final_valence - harmonium.params.valence) * f;
+        harmonium.params.tension = harmonium.params.tension + (final_tension - harmonium.params.tension) * f;
     }
 }

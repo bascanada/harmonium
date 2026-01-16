@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use harmonium_core::sequencer::RhythmMode;
+use harmonium_core::params::EngineParams;
 
 /// The main component to attach to an entity (e.g. "MusicManager")
 /// to control the generative engine.
@@ -14,6 +15,9 @@ pub struct HarmoniumSource {
     
     /// 3. Synth configuration (Odin 2)
     pub synth: OdinConfig,
+
+    /// 4. Manual / UI parameters for mixing
+    pub manual_visual_params: EngineParams,
 }
 
 impl Default for HarmoniumSource {
@@ -22,6 +26,7 @@ impl Default for HarmoniumSource {
             is_enabled: true,
             config: GenerativeConfig::default(),
             synth: OdinConfig::default(),
+            manual_visual_params: EngineParams::default(),
         }
     }
 }
@@ -29,7 +34,6 @@ impl Default for HarmoniumSource {
 /// Advanced technical parameters (similar to "Direct" mode)
 #[derive(Clone, Reflect, Debug)]
 pub struct GenerativeConfig {
-    #[reflect(ignore)]
     pub rhythm_mode: RhythmMode,
     pub steps: usize,      // 16, 32, 48...
     pub density: f32,      // 0.0 - 1.0 (Probability of note)
@@ -96,6 +100,9 @@ pub struct AiDriver {
     
     /// Scan frequency
     pub scan_timer: Timer,
+
+    /// Cached AI target implementation
+    pub ai_target: EngineParams,
 }
 
 impl Default for AiDriver {
@@ -104,6 +111,7 @@ impl Default for AiDriver {
             ai_influence: 1.0, // Full AI by default
             detection_radius: 50.0,
             scan_timer: Timer::from_seconds(0.5, TimerMode::Repeating),
+            ai_target: EngineParams::default(),
         }
     }
 }
