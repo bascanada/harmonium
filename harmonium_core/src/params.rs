@@ -12,6 +12,7 @@
 
 use arrayvec::ArrayString;
 use serde::{Serialize, Deserialize};
+use bevy_reflect::Reflect;
 use crate::sequencer::RhythmMode;
 use crate::harmony::HarmonyMode;
 
@@ -532,7 +533,7 @@ impl Default for HarmonyState {
 // Helpers for Serde defaults
 fn default_poly_steps() -> usize { 48 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Reflect)]
 pub struct EngineParams {
     pub arousal: f32,
     pub valence: f32,
