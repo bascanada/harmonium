@@ -3972,6 +3972,7 @@ name = "harmonium_bevy"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "cpal",
  "harmonium_ai",
  "harmonium_audio",
  "harmonium_core",

@@ -82,11 +82,8 @@ pub fn scan_environment_system(
     for (mut driver, player_transform) in driver_query.iter_mut() {
         // Optim: Don't scan every frame
         driver.scan_timer.tick(time.delta());
-        
-        let mut has_ai_input = false;
 
         if driver.scan_timer.just_finished() && driver.ai_influence > 0.001 {
-            has_ai_input = true;
             
             // --- PHASE 1 : COLLECTION ---
             let player_pos = player_transform.translation();

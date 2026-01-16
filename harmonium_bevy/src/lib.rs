@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use kira::{AudioManager, AudioManagerSettings, backend::DefaultBackend};
 use rtrb::RingBuffer;
+use cpal::traits::{DeviceTrait, HostTrait};
 use harmonium_core::MusicKernel;
 use harmonium_core::sequencer::Sequencer;
 use harmonium_core::params::MusicalParams;
@@ -31,6 +32,26 @@ pub struct Harmonium {
     pub event_producer: std::sync::Mutex<rtrb::Producer<AudioEvent>>,
 }
 
+/// Gets the system's default audio sample rate using cpal.
+/// Falls back to 48000 Hz if unable to query the system.
+fn get_system_sample_rate() -> u32 {
+    match cpal::default_host().default_output_device() {
+        Some(device) => {
+            match device.default_output_config() {
+                Ok(config) => config.sample_rate().0,
+                Err(e) => {
+                    warn!("Failed to get default audio config: {}. Using 48000 Hz.", e);
+                    48000
+                }
+            }
+        }
+        None => {
+            warn!("No default output device found. Using 48000 Hz.");
+            48000
+        }
+    }
+}
+
 pub struct HarmoniumPlugin;
 
 impl Plugin for HarmoniumPlugin {
@@ -43,7 +64,8 @@ impl Plugin for HarmoniumPlugin {
         let (producer, consumer) = RingBuffer::new(1024);
 
         // 3. Launch Harmonium sound in Kira (runs indefinitely on audio thread)
-        let sample_rate = 48000; // TODO: Get actual sample rate from backend
+        // Query the system's actual sample rate using cpal
+        let sample_rate = get_system_sample_rate();
         let sound_data = HarmoniumSoundData {
             sample_rate,
             event_consumer: consumer,
