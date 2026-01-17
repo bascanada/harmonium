@@ -4,11 +4,13 @@ pub mod events;
 pub mod params;
 pub mod fractal;
 pub mod log;
+pub mod export;
 
 // Re-export common types
 pub use events::AudioEvent;
 pub use params::{MusicalParams, EngineParams};
 pub use sequencer::Sequencer;
+pub use export::{to_musicxml, write_musicxml, to_musicxml_with_chords, write_musicxml_with_chords, ChordSymbol, GitVersion};
 
 // Define MusicKernel (skeleton for now, as requested in plan)
 use crate::events::AudioEvent as CoreAudioEvent;
