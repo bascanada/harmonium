@@ -554,6 +554,8 @@ pub struct EngineParams {
     pub record_wav: bool,
     #[serde(default)]
     pub record_midi: bool,
+    #[serde(default)]
+    pub record_musicxml: bool,
 
     // Synthesis Morphing Control
     #[serde(default = "default_true")]
@@ -598,6 +600,7 @@ impl Default for EngineParams {
             harmony_mode: HarmonyMode::Driver,
             record_wav: false,
             record_midi: false,
+            record_musicxml: false,
             enable_synthesis_morphing: true,
             gain_lead: default_gain_lead(),
             gain_bass: default_gain_bass(),

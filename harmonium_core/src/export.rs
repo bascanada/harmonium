@@ -20,12 +20,28 @@
 //! ```
 
 use crate::events::AudioEvent;
+
+/// Escape special XML characters to produce valid XML output.
+/// Handles: & < > " '
+fn xml_escape(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => result.push_str("&amp;"),
+            '<' => result.push_str("&lt;"),
+            '>' => result.push_str("&gt;"),
+            '"' => result.push_str("&quot;"),
+            '\'' => result.push_str("&apos;"),
+            _ => result.push(c),
+        }
+    }
+    result
+}
 use crate::params::MusicalParams;
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 use std::io::Write;
 use std::path::Path;
-use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Get current date in YYYY-MM-DD format (no external dependencies)
@@ -73,6 +89,9 @@ fn is_leap_year(year: i64) -> bool {
 }
 
 /// Git version info (tag and short SHA)
+///
+/// Version information is captured at compile time via build.rs, making the binary
+/// portable without requiring git to be installed at runtime.
 #[derive(Clone, Debug)]
 pub struct GitVersion {
     /// Version tag (e.g., "v0.1.0" or crate version if no tag)
@@ -82,36 +101,16 @@ pub struct GitVersion {
 }
 
 impl GitVersion {
-    /// Detect git version from the repository
+    /// Get git version captured at compile time
+    ///
+    /// This uses environment variables set by build.rs, avoiding the need for
+    /// git to be installed at runtime. Falls back to crate version if git info
+    /// was not available at compile time.
     pub fn detect() -> Self {
-        let tag = Self::get_git_tag().unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
-        let sha = Self::get_git_sha().unwrap_or_else(|| "unknown".to_string());
+        // These are set at compile time by build.rs
+        let tag = env!("GIT_VERSION_TAG").to_string();
+        let sha = env!("GIT_VERSION_SHA").to_string();
         GitVersion { tag, sha }
-    }
-
-    /// Get the latest git tag or describe output
-    fn get_git_tag() -> Option<String> {
-        // Try to get a descriptive version (tag + commits since tag)
-        Command::new("git")
-            .args(["describe", "--tags", "--always"])
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-    }
-
-    /// Get the short git commit SHA
-    fn get_git_sha() -> Option<String> {
-        Command::new("git")
-            .args(["rev-parse", "--short", "HEAD"])
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
     }
 
     /// Format as "tag-sha" string
@@ -417,66 +416,73 @@ impl MusicXmlBuilder {
     }
 
     /// Build the MusicXML string with version info
+    ///
+    /// Note: Writing to a String in Rust cannot fail (except for OOM which would panic anyway),
+    /// so we use `let _ =` to acknowledge write results without panicking behavior.
     pub fn build_with_version(&self, version: &str, git_sha: &str) -> String {
         let mut xml = String::new();
 
+        // Escape version info to prevent XML injection
+        let version_escaped = xml_escape(version);
+        let git_sha_escaped = xml_escape(git_sha);
+
         // XML header
-        writeln!(xml, r#"<?xml version="1.0" encoding="UTF-8"?>"#).unwrap();
-        writeln!(xml, r#"<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">"#).unwrap();
-        writeln!(xml, r#"<score-partwise version="4.0">"#).unwrap();
+        let _ = writeln!(xml, r#"<?xml version="1.0" encoding="UTF-8"?>"#);
+        let _ = writeln!(xml, r#"<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">"#);
+        let _ = writeln!(xml, r#"<score-partwise version="4.0">"#);
 
         // Work title with version
         // Handle version with or without 'v' prefix
-        let version_display = if version.starts_with('v') {
-            version.to_string()
+        let version_display = if version_escaped.starts_with('v') {
+            version_escaped.clone()
         } else {
-            format!("v{}", version)
+            format!("v{}", version_escaped)
         };
-        writeln!(xml, "  <work>").unwrap();
-        writeln!(xml, "    <work-title>Harmonium {}-{}</work-title>", version_display, git_sha).unwrap();
-        writeln!(xml, "  </work>").unwrap();
+        let _ = writeln!(xml, "  <work>");
+        let _ = writeln!(xml, "    <work-title>Harmonium {}-{}</work-title>", version_display, git_sha_escaped);
+        let _ = writeln!(xml, "  </work>");
 
         // Identification
         let key_name = key_name(self.params.key_root, self.mode == KeyMode::Minor);
-        writeln!(xml, "  <identification>").unwrap();
-        writeln!(xml, r#"    <creator type="composer">Harmonium</creator>"#).unwrap();
-        writeln!(xml, "    <encoding>").unwrap();
-        writeln!(xml, "      <software>harmonium_core {}-{}</software>", version_display, git_sha).unwrap();
-        writeln!(xml, "      <encoding-date>{}</encoding-date>", chrono_date()).unwrap();
-        writeln!(xml, "    </encoding>").unwrap();
-        writeln!(xml, "    <miscellaneous>").unwrap();
-        writeln!(xml, "      <miscellaneous-field name=\"key\">{}</miscellaneous-field>", key_name).unwrap();
-        writeln!(xml, "      <miscellaneous-field name=\"bpm\">{}</miscellaneous-field>", self.params.bpm).unwrap();
-        writeln!(xml, "      <miscellaneous-field name=\"time_signature\">{}/{}</miscellaneous-field>",
-                 self.time_sig.0, self.time_sig.1).unwrap();
-        writeln!(xml, "      <miscellaneous-field name=\"rhythm_mode\">{:?}</miscellaneous-field>",
-                 self.params.rhythm_mode).unwrap();
-        writeln!(xml, "      <miscellaneous-field name=\"rhythm_steps\">{}</miscellaneous-field>",
-                 self.params.rhythm_steps).unwrap();
-        writeln!(xml, "      <miscellaneous-field name=\"rhythm_pulses\">{}</miscellaneous-field>",
-                 self.params.rhythm_pulses).unwrap();
-        writeln!(xml, "      <miscellaneous-field name=\"rhythm_density\">{:.2}</miscellaneous-field>",
-                 self.params.rhythm_density).unwrap();
-        writeln!(xml, "      <miscellaneous-field name=\"rhythm_tension\">{:.2}</miscellaneous-field>",
-                 self.params.rhythm_tension).unwrap();
-        writeln!(xml, "      <miscellaneous-field name=\"harmony_tension\">{:.2}</miscellaneous-field>",
-                 self.params.harmony_tension).unwrap();
-        writeln!(xml, "      <miscellaneous-field name=\"harmony_valence\">{:.2}</miscellaneous-field>",
-                 self.params.harmony_valence).unwrap();
-        writeln!(xml, "      <miscellaneous-field name=\"harmony_measures_per_chord\">{}</miscellaneous-field>",
-                 self.params.harmony_measures_per_chord).unwrap();
-        writeln!(xml, "      <miscellaneous-field name=\"melody_octave\">{}</miscellaneous-field>",
-                 self.params.melody_octave).unwrap();
-        writeln!(xml, "    </miscellaneous>").unwrap();
-        writeln!(xml, "  </identification>").unwrap();
+        let _ = writeln!(xml, "  <identification>");
+        let _ = writeln!(xml, r#"    <creator type="composer">Harmonium</creator>"#);
+        let _ = writeln!(xml, "    <encoding>");
+        let _ = writeln!(xml, "      <software>harmonium_core {}-{}</software>", version_display, git_sha_escaped);
+        let _ = writeln!(xml, "      <encoding-date>{}</encoding-date>", chrono_date());
+        let _ = writeln!(xml, "    </encoding>");
+        let _ = writeln!(xml, "    <miscellaneous>");
+        let _ = writeln!(xml, "      <miscellaneous-field name=\"key\">{}</miscellaneous-field>", key_name);
+        let _ = writeln!(xml, "      <miscellaneous-field name=\"bpm\">{}</miscellaneous-field>", self.params.bpm);
+        let _ = writeln!(xml, "      <miscellaneous-field name=\"time_signature\">{}/{}</miscellaneous-field>",
+                 self.time_sig.0, self.time_sig.1);
+        let _ = writeln!(xml, "      <miscellaneous-field name=\"rhythm_mode\">{:?}</miscellaneous-field>",
+                 self.params.rhythm_mode);
+        let _ = writeln!(xml, "      <miscellaneous-field name=\"rhythm_steps\">{}</miscellaneous-field>",
+                 self.params.rhythm_steps);
+        let _ = writeln!(xml, "      <miscellaneous-field name=\"rhythm_pulses\">{}</miscellaneous-field>",
+                 self.params.rhythm_pulses);
+        let _ = writeln!(xml, "      <miscellaneous-field name=\"rhythm_density\">{:.2}</miscellaneous-field>",
+                 self.params.rhythm_density);
+        let _ = writeln!(xml, "      <miscellaneous-field name=\"rhythm_tension\">{:.2}</miscellaneous-field>",
+                 self.params.rhythm_tension);
+        let _ = writeln!(xml, "      <miscellaneous-field name=\"harmony_tension\">{:.2}</miscellaneous-field>",
+                 self.params.harmony_tension);
+        let _ = writeln!(xml, "      <miscellaneous-field name=\"harmony_valence\">{:.2}</miscellaneous-field>",
+                 self.params.harmony_valence);
+        let _ = writeln!(xml, "      <miscellaneous-field name=\"harmony_measures_per_chord\">{}</miscellaneous-field>",
+                 self.params.harmony_measures_per_chord);
+        let _ = writeln!(xml, "      <miscellaneous-field name=\"melody_octave\">{}</miscellaneous-field>",
+                 self.params.melody_octave);
+        let _ = writeln!(xml, "    </miscellaneous>");
+        let _ = writeln!(xml, "  </identification>");
 
         // Credits for display on score (MuseScore shows these)
         // Compact title with version and date - positioned at top
-        writeln!(xml, "  <credit page=\"1\">").unwrap();
-        writeln!(xml, "    <credit-type>title</credit-type>").unwrap();
-        writeln!(xml, r#"    <credit-words default-x="600" default-y="1550" font-size="14" justify="center" valign="top">Harmonium {}-{} | {}</credit-words>"#,
-                 version_display, git_sha, chrono_date()).unwrap();
-        writeln!(xml, "  </credit>").unwrap();
+        let _ = writeln!(xml, "  <credit page=\"1\">");
+        let _ = writeln!(xml, "    <credit-type>title</credit-type>");
+        let _ = writeln!(xml, r#"    <credit-words default-x="600" default-y="1550" font-size="14" justify="center" valign="top">Harmonium {}-{} | {}</credit-words>"#,
+                 version_display, git_sha_escaped, chrono_date());
+        let _ = writeln!(xml, "  </credit>");
 
         // Compact parameters (single line) - positioned below title
         // Format: Key | BPM | Time | Mode(steps,pulses,d,t) | Harm(t,v,m)
@@ -487,34 +493,36 @@ impl MusicXmlBuilder {
             "ClassicGroove" => "CG",
             _ => &mode_full,
         };
-        writeln!(xml, "  <credit page=\"1\">").unwrap();
-        writeln!(xml, "    <credit-type>subtitle</credit-type>").unwrap();
-        writeln!(xml, r#"    <credit-words default-x="600" default-y="1520" font-size="9" justify="center" valign="top">{} | {} BPM | {}/{} | {}({},{},{:.1},{:.1}) | H({:.1},{:.1},{})</credit-words>"#,
+        let _ = writeln!(xml, "  <credit page=\"1\">");
+        let _ = writeln!(xml, "    <credit-type>subtitle</credit-type>");
+        let _ = writeln!(xml, r#"    <credit-words default-x="600" default-y="1520" font-size="9" justify="center" valign="top">{} | {} BPM | {}/{} | {}({},{},{:.1},{:.1}) | H({:.1},{:.1},{})</credit-words>"#,
                  key_name, self.params.bpm, self.time_sig.0, self.time_sig.1,
                  mode_short, self.params.rhythm_steps, self.params.rhythm_pulses,
                  self.params.rhythm_density, self.params.rhythm_tension,
                  self.params.harmony_tension, self.params.harmony_valence,
-                 self.params.harmony_measures_per_chord).unwrap();
-        writeln!(xml, "  </credit>").unwrap();
+                 self.params.harmony_measures_per_chord);
+        let _ = writeln!(xml, "  </credit>");
 
         // Part list
-        writeln!(xml, "  <part-list>").unwrap();
-        writeln!(xml, r#"    <score-part id="P1"><part-name>Lead</part-name></score-part>"#).unwrap();
-        writeln!(xml, r#"    <score-part id="P2"><part-name>Bass</part-name></score-part>"#).unwrap();
-        writeln!(xml, r#"    <score-part id="P3"><part-name>Drums</part-name></score-part>"#).unwrap();
-        writeln!(xml, "  </part-list>").unwrap();
+        let _ = writeln!(xml, "  <part-list>");
+        let _ = writeln!(xml, r#"    <score-part id="P1"><part-name>Lead</part-name></score-part>"#);
+        let _ = writeln!(xml, r#"    <score-part id="P2"><part-name>Bass</part-name></score-part>"#);
+        let _ = writeln!(xml, r#"    <score-part id="P3"><part-name>Drums</part-name></score-part>"#);
+        let _ = writeln!(xml, "  </part-list>");
 
         // Parts
         self.write_part(&mut xml, "P1", 1, ClefType::Treble);
         self.write_part(&mut xml, "P2", 0, ClefType::Bass);
         self.write_drum_part(&mut xml, "P3");
 
-        writeln!(xml, "</score-partwise>").unwrap();
+        let _ = writeln!(xml, "</score-partwise>");
         xml
     }
 
     /// Compute ScoreNotes from NoteOn/NoteOff events
     fn compute_notes(&mut self) {
+        eprintln!("MusicXML export: Processing {} total events", self.events.len());
+
         // Map of (channel, pitch) -> (start_step, velocity)
         let mut pending: HashMap<(u8, u8), (usize, u8)> = HashMap::new();
         let mut notes = Vec::new();
@@ -525,6 +533,23 @@ impl MusicXmlBuilder {
             match event {
                 AudioEvent::NoteOn { note, velocity, channel } => {
                     if *velocity > 0 {
+                        // If this note is already pending (common for percussion), finalize it first
+                        if let Some((old_start, old_vel)) = pending.get(&(*channel, *note)) {
+                            // Give it a short default duration (percussion hits)
+                            let default_duration = if *channel == 2 || *channel == 3 {
+                                2 // Short percussion hit
+                            } else {
+                                4 // Quarter note for other instruments
+                            };
+
+                            notes.push(ScoreNote {
+                                pitch: *note,
+                                start_step: *old_start,
+                                duration_steps: default_duration,
+                                channel: *channel,
+                                velocity: *old_vel,
+                            });
+                        }
                         pending.insert((*channel, *note), (step, *velocity));
                     } else {
                         // Velocity 0 = NoteOff
@@ -555,24 +580,51 @@ impl MusicXmlBuilder {
         }
 
         // Handle pending notes (no NoteOff received)
+        let pending_count = pending.len();
         for ((channel, pitch), (start, vel)) in pending {
+            // Percussion channels (2=snare, 3=hat) get short default duration
+            // Other channels get full measure duration
+            let default_duration = if channel == 2 || channel == 3 {
+                2 // Short percussion hit (equivalent to 8th note at 16 steps/measure)
+            } else {
+                self.params.rhythm_steps // Full measure for sustained notes
+            };
+
             notes.push(ScoreNote {
                 pitch,
                 start_step: start,
-                duration_steps: self.params.rhythm_steps, // Default to one measure
+                duration_steps: default_duration,
                 channel,
                 velocity: vel,
             });
         }
 
+        if pending_count > 0 {
+            eprintln!("MusicXML export: {} notes still pending (no NoteOff received)", pending_count);
+        }
+
         notes.sort_by_key(|n| (n.start_step, n.channel, n.pitch));
+
+        // Debug: Count notes per channel
+        let mut channel_counts = [0; 16];
+        for note in &notes {
+            channel_counts[note.channel as usize] += 1;
+        }
+        eprintln!("MusicXML: Created {} total notes from events", notes.len());
+        eprintln!("MusicXML: Note counts by channel:");
+        for (ch, count) in channel_counts.iter().enumerate() {
+            if *count > 0 {
+                eprintln!("  Channel {}: {} notes", ch, count);
+            }
+        }
+
         self.notes = notes;
     }
 
     /// Write a pitched part (Lead or Bass)
     /// Lead part (channel 1) includes chord symbols
     fn write_part(&self, xml: &mut String, part_id: &str, channel: u8, clef: ClefType) {
-        writeln!(xml, r#"  <part id="{}">"#, part_id).unwrap();
+        let _ = writeln!(xml, r#"  <part id="{}">"#, part_id);
 
         let part_notes: Vec<&ScoreNote> = self.notes.iter()
             .filter(|n| n.channel == channel)
@@ -585,7 +637,7 @@ impl MusicXmlBuilder {
         let show_chords = channel == 1;
 
         for measure in 0..total_measures.max(1) {
-            writeln!(xml, r#"    <measure number="{}">"#, measure + 1).unwrap();
+            let _ = writeln!(xml, r#"    <measure number="{}">"#, measure + 1);
 
             // Attributes on first measure
             if measure == 0 {
@@ -613,9 +665,17 @@ impl MusicXmlBuilder {
             let mut chord_idx = 0;
 
             // Group notes by start_step for chord detection
+            // Use a tolerance of 1 step for chord grouping (real-time recording can have slight timing differences)
+            const CHORD_TOLERANCE: usize = 1;
             let mut i = 0;
             while i < notes_in_measure.len() {
                 let note = notes_in_measure[i];
+
+                // Skip notes that start at or after the measure end
+                if note.start_step >= measure_end {
+                    i += 1;
+                    continue;
+                }
 
                 // Write any chord symbols that come before or at this note
                 while chord_idx < chords_in_measure.len() && chords_in_measure[chord_idx].step <= note.start_step {
@@ -623,25 +683,55 @@ impl MusicXmlBuilder {
                     chord_idx += 1;
                 }
 
-                // Fill rest before note
-                if note.start_step > current_pos {
-                    self.write_rest(xml, note.start_step - current_pos);
+                // Calculate remaining space in measure
+                let remaining = measure_end.saturating_sub(current_pos);
+                if remaining == 0 {
+                    // Measure is full, skip remaining notes
+                    break;
                 }
 
-                // Check for simultaneous notes (chord)
+                // Fill rest before note (only if there's a significant gap)
+                let note_pos = note.start_step.max(current_pos);
+                if note_pos > current_pos {
+                    let rest_duration = (note_pos - current_pos).min(remaining);
+                    if rest_duration > 0 {
+                        self.write_rest(xml, rest_duration);
+                        current_pos += rest_duration;
+                    }
+                }
+
+                // Recalculate remaining after rest
+                let remaining = measure_end.saturating_sub(current_pos);
+                if remaining == 0 {
+                    break;
+                }
+
+                // Check for simultaneous notes (chord) - use tolerance for real-time recordings
                 let mut chord_notes = vec![note];
                 let mut j = i + 1;
-                while j < notes_in_measure.len() && notes_in_measure[j].start_step == note.start_step {
-                    chord_notes.push(notes_in_measure[j]);
-                    j += 1;
+                while j < notes_in_measure.len() {
+                    let time_diff = notes_in_measure[j].start_step.saturating_sub(note.start_step);
+                    if time_diff <= CHORD_TOLERANCE {
+                        chord_notes.push(notes_in_measure[j]);
+                        j += 1;
+                    } else {
+                        break;
+                    }
                 }
 
-                // Write chord notes
+                // Clamp note duration to fit in remaining measure space
+                let clamped_duration = chord_notes[0].duration_steps.min(remaining);
+                if clamped_duration == 0 {
+                    i = j;
+                    continue;
+                }
+
+                // Write chord notes (all with same duration)
                 for (idx, chord_note) in chord_notes.iter().enumerate() {
-                    self.write_pitched_note(xml, chord_note, idx > 0);
+                    self.write_pitched_note_with_duration(xml, chord_note, idx > 0, clamped_duration);
                 }
 
-                current_pos = note.start_step + note.duration_steps;
+                current_pos += clamped_duration;
                 i = j;
             }
 
@@ -656,30 +746,33 @@ impl MusicXmlBuilder {
                 self.write_rest(xml, measure_end - current_pos);
             }
 
-            writeln!(xml, "    </measure>").unwrap();
+            let _ = writeln!(xml, "    </measure>");
         }
 
-        writeln!(xml, "  </part>").unwrap();
+        let _ = writeln!(xml, "  </part>");
     }
 
     /// Write a harmony (chord symbol) element
     fn write_harmony(&self, xml: &mut String, chord: &ChordSymbol) {
         let (root_step, root_alter) = chord.root_step_alter();
+        // Escape chord text to prevent XML injection
+        let text_escaped = xml_escape(&chord.text);
+        let kind_escaped = xml_escape(&chord.kind);
 
-        writeln!(xml, "      <harmony>").unwrap();
-        writeln!(xml, "        <root>").unwrap();
-        writeln!(xml, "          <root-step>{}</root-step>", root_step).unwrap();
+        let _ = writeln!(xml, "      <harmony>");
+        let _ = writeln!(xml, "        <root>");
+        let _ = writeln!(xml, "          <root-step>{}</root-step>", root_step);
         if root_alter != 0 {
-            writeln!(xml, "          <root-alter>{}</root-alter>", root_alter).unwrap();
+            let _ = writeln!(xml, "          <root-alter>{}</root-alter>", root_alter);
         }
-        writeln!(xml, "        </root>").unwrap();
-        writeln!(xml, "        <kind text=\"{}\">{}</kind>", chord.text, chord.kind).unwrap();
-        writeln!(xml, "      </harmony>").unwrap();
+        let _ = writeln!(xml, "        </root>");
+        let _ = writeln!(xml, "        <kind text=\"{}\">{}</kind>", text_escaped, kind_escaped);
+        let _ = writeln!(xml, "      </harmony>");
     }
 
     /// Write the drum part (channels 2 and 3 combined)
     fn write_drum_part(&self, xml: &mut String, part_id: &str) {
-        writeln!(xml, r#"  <part id="{}">"#, part_id).unwrap();
+        let _ = writeln!(xml, r#"  <part id="{}">"#, part_id);
 
         let drum_notes: Vec<&ScoreNote> = self.notes.iter()
             .filter(|n| n.channel == 2 || n.channel == 3)
@@ -689,17 +782,17 @@ impl MusicXmlBuilder {
         let total_measures = self.calculate_total_measures(&drum_notes);
 
         for measure in 0..total_measures.max(1) {
-            writeln!(xml, r#"    <measure number="{}">"#, measure + 1).unwrap();
+            let _ = writeln!(xml, r#"    <measure number="{}">"#, measure + 1);
 
             // Attributes on first measure (percussion clef)
             if measure == 0 {
-                writeln!(xml, "      <attributes>").unwrap();
-                writeln!(xml, "        <divisions>{}</divisions>", self.divisions).unwrap();
-                writeln!(xml, "        <key><fifths>0</fifths></key>").unwrap();
-                writeln!(xml, "        <time><beats>{}</beats><beat-type>{}</beat-type></time>",
-                         self.time_sig.0, self.time_sig.1).unwrap();
-                writeln!(xml, "        <clef><sign>percussion</sign><line>2</line></clef>").unwrap();
-                writeln!(xml, "      </attributes>").unwrap();
+                let _ = writeln!(xml, "      <attributes>");
+                let _ = writeln!(xml, "        <divisions>{}</divisions>", self.divisions);
+                let _ = writeln!(xml, "        <key><fifths>0</fifths></key>");
+                let _ = writeln!(xml, "        <time><beats>{}</beats><beat-type>{}</beat-type></time>",
+                         self.time_sig.0, self.time_sig.1);
+                let _ = writeln!(xml, "        <clef><sign>percussion</sign><line>2</line></clef>");
+                let _ = writeln!(xml, "      </attributes>");
             }
 
             let measure_start = measure * steps_per_measure;
@@ -711,27 +804,66 @@ impl MusicXmlBuilder {
 
             let mut current_pos = measure_start;
 
+            // Use same chord tolerance as pitched parts
+            const CHORD_TOLERANCE: usize = 1;
             let mut i = 0;
             while i < notes_in_measure.len() {
                 let note = notes_in_measure[i];
 
-                if note.start_step > current_pos {
-                    self.write_rest(xml, note.start_step - current_pos);
+                // Skip notes that start at or after the measure end
+                if note.start_step >= measure_end {
+                    i += 1;
+                    continue;
                 }
 
-                // Check for simultaneous drum hits
+                // Calculate remaining space in measure
+                let remaining = measure_end.saturating_sub(current_pos);
+                if remaining == 0 {
+                    break;
+                }
+
+                // Fill rest before note
+                let note_pos = note.start_step.max(current_pos);
+                if note_pos > current_pos {
+                    let rest_duration = (note_pos - current_pos).min(remaining);
+                    if rest_duration > 0 {
+                        self.write_rest(xml, rest_duration);
+                        current_pos += rest_duration;
+                    }
+                }
+
+                // Recalculate remaining after rest
+                let remaining = measure_end.saturating_sub(current_pos);
+                if remaining == 0 {
+                    break;
+                }
+
+                // Check for simultaneous drum hits - use tolerance
                 let mut chord_notes = vec![note];
                 let mut j = i + 1;
-                while j < notes_in_measure.len() && notes_in_measure[j].start_step == note.start_step {
-                    chord_notes.push(notes_in_measure[j]);
-                    j += 1;
+                while j < notes_in_measure.len() {
+                    let time_diff = notes_in_measure[j].start_step.saturating_sub(note.start_step);
+                    if time_diff <= CHORD_TOLERANCE {
+                        chord_notes.push(notes_in_measure[j]);
+                        j += 1;
+                    } else {
+                        break;
+                    }
                 }
 
+                // Clamp duration to fit in remaining measure space
+                let clamped_duration = chord_notes[0].duration_steps.min(remaining);
+                if clamped_duration == 0 {
+                    i = j;
+                    continue;
+                }
+
+                // Write drum notes (all with same duration)
                 for (idx, chord_note) in chord_notes.iter().enumerate() {
-                    self.write_drum_note(xml, chord_note, idx > 0);
+                    self.write_drum_note_with_duration(xml, chord_note, idx > 0, clamped_duration);
                 }
 
-                current_pos = note.start_step + note.duration_steps;
+                current_pos += clamped_duration;
                 i = j;
             }
 
@@ -739,28 +871,28 @@ impl MusicXmlBuilder {
                 self.write_rest(xml, measure_end - current_pos);
             }
 
-            writeln!(xml, "    </measure>").unwrap();
+            let _ = writeln!(xml, "    </measure>");
         }
 
-        writeln!(xml, "  </part>").unwrap();
+        let _ = writeln!(xml, "  </part>");
     }
 
     /// Write measure attributes (key, time, clef)
     fn write_attributes(&self, xml: &mut String, clef: ClefType) {
-        writeln!(xml, "      <attributes>").unwrap();
-        writeln!(xml, "        <divisions>{}</divisions>", self.divisions).unwrap();
+        let _ = writeln!(xml, "      <attributes>");
+        let _ = writeln!(xml, "        <divisions>{}</divisions>", self.divisions);
 
         // Key signature
         let mode_str = match self.mode {
             KeyMode::Major => "major",
             KeyMode::Minor => "minor",
         };
-        writeln!(xml, "        <key><fifths>{}</fifths><mode>{}</mode></key>",
-                 self.fifths, mode_str).unwrap();
+        let _ = writeln!(xml, "        <key><fifths>{}</fifths><mode>{}</mode></key>",
+                 self.fifths, mode_str);
 
         // Time signature
-        writeln!(xml, "        <time><beats>{}</beats><beat-type>{}</beat-type></time>",
-                 self.time_sig.0, self.time_sig.1).unwrap();
+        let _ = writeln!(xml, "        <time><beats>{}</beats><beat-type>{}</beat-type></time>",
+                 self.time_sig.0, self.time_sig.1);
 
         // Clef
         let (sign, line) = match clef {
@@ -768,42 +900,47 @@ impl MusicXmlBuilder {
             ClefType::Bass => ("F", 4),
             ClefType::Percussion => ("percussion", 2),
         };
-        writeln!(xml, "        <clef><sign>{}</sign><line>{}</line></clef>", sign, line).unwrap();
+        let _ = writeln!(xml, "        <clef><sign>{}</sign><line>{}</line></clef>", sign, line);
 
-        writeln!(xml, "      </attributes>").unwrap();
+        let _ = writeln!(xml, "      </attributes>");
     }
 
-    /// Write a pitched note
-    fn write_pitched_note(&self, xml: &mut String, note: &ScoreNote, is_chord: bool) {
+    /// Write a pitched note with explicit duration (for measure clamping)
+    fn write_pitched_note_with_duration(&self, xml: &mut String, note: &ScoreNote, is_chord: bool, duration: usize) {
         let (step, alter, octave) = self.midi_to_pitch(note.pitch);
-        let (note_type, dots) = self.duration_to_type(note.duration_steps);
+        let (note_type, dots) = self.duration_to_type(duration);
 
-        writeln!(xml, "      <note>").unwrap();
+        let _ = writeln!(xml, "      <note>");
         if is_chord {
-            writeln!(xml, "        <chord/>").unwrap();
+            let _ = writeln!(xml, "        <chord/>");
         }
-        writeln!(xml, "        <pitch>").unwrap();
-        writeln!(xml, "          <step>{}</step>", step).unwrap();
+        let _ = writeln!(xml, "        <pitch>");
+        let _ = writeln!(xml, "          <step>{}</step>", step);
         if alter != 0 {
-            writeln!(xml, "          <alter>{}</alter>", alter).unwrap();
+            let _ = writeln!(xml, "          <alter>{}</alter>", alter);
         }
-        writeln!(xml, "          <octave>{}</octave>", octave).unwrap();
-        writeln!(xml, "        </pitch>").unwrap();
-        writeln!(xml, "        <duration>{}</duration>", note.duration_steps).unwrap();
-        writeln!(xml, "        <type>{}</type>", note_type).unwrap();
+        let _ = writeln!(xml, "          <octave>{}</octave>", octave);
+        let _ = writeln!(xml, "        </pitch>");
+        let _ = writeln!(xml, "        <duration>{}</duration>", duration);
+        let _ = writeln!(xml, "        <type>{}</type>", note_type);
         for _ in 0..dots {
-            writeln!(xml, "        <dot/>").unwrap();
+            let _ = writeln!(xml, "        <dot/>");
         }
         // Add accidental for visual display if altered
         if alter != 0 {
             let acc = if alter > 0 { "sharp" } else { "flat" };
-            writeln!(xml, "        <accidental>{}</accidental>", acc).unwrap();
+            let _ = writeln!(xml, "        <accidental>{}</accidental>", acc);
         }
-        writeln!(xml, "      </note>").unwrap();
+        let _ = writeln!(xml, "      </note>");
     }
 
-    /// Write a drum note (unpitched)
-    fn write_drum_note(&self, xml: &mut String, note: &ScoreNote, is_chord: bool) {
+    /// Write a pitched note (uses note's own duration)
+    fn write_pitched_note(&self, xml: &mut String, note: &ScoreNote, is_chord: bool) {
+        self.write_pitched_note_with_duration(xml, note, is_chord, note.duration_steps);
+    }
+
+    /// Write a drum note with explicit duration (for measure clamping)
+    fn write_drum_note_with_duration(&self, xml: &mut String, note: &ScoreNote, is_chord: bool, duration: usize) {
         // Map channel to display position
         // Channel 2 = Snare (middle of staff, E4)
         // Channel 3 = Hi-hat (above staff, G5)
@@ -813,22 +950,27 @@ impl MusicXmlBuilder {
             _ => ("F", 4),  // Default (kick would be here)
         };
 
-        let (note_type, dots) = self.duration_to_type(note.duration_steps);
+        let (note_type, dots) = self.duration_to_type(duration);
 
-        writeln!(xml, "      <note>").unwrap();
+        let _ = writeln!(xml, "      <note>");
         if is_chord {
-            writeln!(xml, "        <chord/>").unwrap();
+            let _ = writeln!(xml, "        <chord/>");
         }
-        writeln!(xml, "        <unpitched>").unwrap();
-        writeln!(xml, "          <display-step>{}</display-step>", display_step).unwrap();
-        writeln!(xml, "          <display-octave>{}</display-octave>", display_octave).unwrap();
-        writeln!(xml, "        </unpitched>").unwrap();
-        writeln!(xml, "        <duration>{}</duration>", note.duration_steps).unwrap();
-        writeln!(xml, "        <type>{}</type>", note_type).unwrap();
+        let _ = writeln!(xml, "        <unpitched>");
+        let _ = writeln!(xml, "          <display-step>{}</display-step>", display_step);
+        let _ = writeln!(xml, "          <display-octave>{}</display-octave>", display_octave);
+        let _ = writeln!(xml, "        </unpitched>");
+        let _ = writeln!(xml, "        <duration>{}</duration>", duration);
+        let _ = writeln!(xml, "        <type>{}</type>", note_type);
         for _ in 0..dots {
-            writeln!(xml, "        <dot/>").unwrap();
+            let _ = writeln!(xml, "        <dot/>");
         }
-        writeln!(xml, "      </note>").unwrap();
+        let _ = writeln!(xml, "      </note>");
+    }
+
+    /// Write a drum note (uses note's own duration)
+    fn write_drum_note(&self, xml: &mut String, note: &ScoreNote, is_chord: bool) {
+        self.write_drum_note_with_duration(xml, note, is_chord, note.duration_steps);
     }
 
     /// Write a rest
@@ -838,14 +980,14 @@ impl MusicXmlBuilder {
         }
         let (note_type, dots) = self.duration_to_type(duration);
 
-        writeln!(xml, "      <note>").unwrap();
-        writeln!(xml, "        <rest/>").unwrap();
-        writeln!(xml, "        <duration>{}</duration>", duration).unwrap();
-        writeln!(xml, "        <type>{}</type>", note_type).unwrap();
+        let _ = writeln!(xml, "      <note>");
+        let _ = writeln!(xml, "        <rest/>");
+        let _ = writeln!(xml, "        <duration>{}</duration>", duration);
+        let _ = writeln!(xml, "        <type>{}</type>", note_type);
         for _ in 0..dots {
-            writeln!(xml, "        <dot/>").unwrap();
+            let _ = writeln!(xml, "        <dot/>");
         }
-        writeln!(xml, "      </note>").unwrap();
+        let _ = writeln!(xml, "      </note>");
     }
 
     /// Convert MIDI pitch to MusicXML pitch components
@@ -913,10 +1055,12 @@ impl MusicXmlBuilder {
         self.params.rhythm_steps
     }
 
-    /// Calculate total measures needed
-    fn calculate_total_measures(&self, notes: &[&ScoreNote]) -> usize {
+    /// Calculate total measures needed based on ALL notes (not just one part)
+    /// All parts must have the same number of measures in MusicXML
+    fn calculate_total_measures(&self, _notes: &[&ScoreNote]) -> usize {
         let steps_per_measure = self.steps_per_measure();
-        let max_step = notes.iter()
+        // Calculate based on ALL notes across ALL parts
+        let max_step = self.notes.iter()
             .map(|n| n.start_step + n.duration_steps)
             .max()
             .unwrap_or(0);

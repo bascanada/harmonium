@@ -557,7 +557,17 @@ impl Handle {
         self.target_params_input.write(self.cached_params.clone());
     }
 
-    /// Récupère le dernier enregistrement terminé (WAV ou MIDI)
+    pub fn start_recording_musicxml(&mut self) {
+        self.cached_params.record_musicxml = true;
+        self.target_params_input.write(self.cached_params.clone());
+    }
+
+    pub fn stop_recording_musicxml(&mut self) {
+        self.cached_params.record_musicxml = false;
+        self.target_params_input.write(self.cached_params.clone());
+    }
+
+    /// Récupère le dernier enregistrement terminé (WAV, MIDI, or MusicXML)
     pub fn pop_finished_recording(&self) -> Option<RecordedData> {
         if let Ok(mut queue) = self.finished_recordings.lock() {
             if let Some((fmt, data)) = queue.pop() {

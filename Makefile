@@ -15,6 +15,9 @@ PLUGINVAL := /Applications/pluginval.app/Contents/MacOS/pluginval
 # ════════════════════════════════════════════════════════════════════
 
 run:
+	cargo run -p harmonium --release -- $(ARGS)
+
+run/debug:
 	cargo run -p harmonium -- $(ARGS)
 
 test:

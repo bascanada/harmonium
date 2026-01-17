@@ -68,6 +68,7 @@ pub struct HarmoniumEngine {
     // Recording State Tracking
     is_recording_wav: bool,
     is_recording_midi: bool,
+    is_recording_musicxml: bool,
 
     // Mute State Tracking
     last_muted_channels: Vec<bool>,
@@ -208,6 +209,7 @@ impl HarmoniumEngine {
             control_mode,
             is_recording_wav: false,
             is_recording_midi: false,
+            is_recording_musicxml: false,
             last_muted_channels: vec![false; 16],
             // Phase 2.5: Pre-allocate with capacity for typical number of events per tick
             events_buffer: Vec::with_capacity(8),
@@ -443,6 +445,23 @@ impl HarmoniumEngine {
             } else {
                 self.renderer.handle_event(AudioEvent::StopRecording {
                     format: harmonium_core::events::RecordFormat::Midi,
+                });
+            }
+        }
+
+        if mp.record_musicxml != self.is_recording_musicxml {
+            self.is_recording_musicxml = mp.record_musicxml;
+            if self.is_recording_musicxml {
+                // Pass the current musical params to the recorder for accurate export metadata
+                if let Some(recorder) = self.renderer.as_any_mut().downcast_mut::<harmonium_audio::backend::recorder::RecorderBackend>() {
+                    recorder.set_musicxml_params(mp.clone());
+                }
+                self.renderer.handle_event(AudioEvent::StartRecording {
+                    format: harmonium_core::events::RecordFormat::MusicXml,
+                });
+            } else {
+                self.renderer.handle_event(AudioEvent::StopRecording {
+                    format: harmonium_core::events::RecordFormat::MusicXml,
                 });
             }
         }

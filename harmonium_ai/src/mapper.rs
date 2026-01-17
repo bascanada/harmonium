@@ -173,6 +173,7 @@ impl EmotionMapper {
         params.muted_channels = emotions.muted_channels.clone();
         params.record_wav = emotions.record_wav;
         params.record_midi = emotions.record_midi;
+        params.record_musicxml = emotions.record_musicxml;
 
         // Mode Drum Kit (passthrough)
         params.fixed_kick = emotions.fixed_kick;

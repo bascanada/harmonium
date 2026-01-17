@@ -136,6 +136,7 @@ impl EmotionEngine {
 
                     record_wav: false,
                     record_midi: false,
+                    record_musicxml: false,
                     harmony_mode: harmonium_core::harmony::HarmonyMode::Driver,
                     gain_lead: 1.0,
                     gain_bass: 0.6,
@@ -173,6 +174,7 @@ impl EmotionEngine {
 
             record_wav: false,
             record_midi: false,
+            record_musicxml: false,
             harmony_mode: harmonium_core::harmony::HarmonyMode::Driver,
             gain_lead: 0.0,
             gain_bass: 0.0,
@@ -181,8 +183,8 @@ impl EmotionEngine {
             vel_base_bass: 0,
             vel_base_snare: 0,
             poly_steps: 48,
-                    enable_synthesis_morphing: true,
-                    fixed_kick: false,
+            enable_synthesis_morphing: true,
+            fixed_kick: false,
         };
 
         // 2. Compare the input vector to each Anchor vector
@@ -224,6 +226,7 @@ impl EmotionEngine {
 
                 record_wav: false,
                 record_midi: false,
+                record_musicxml: false,
                 harmony_mode: harmonium_core::harmony::HarmonyMode::Driver,
                 gain_lead: 1.0,
                 gain_bass: 0.6,
@@ -232,8 +235,8 @@ impl EmotionEngine {
                 vel_base_bass: 85,
                 vel_base_snare: 70,
                 poly_steps: 48,
-                    enable_synthesis_morphing: true,
-                    fixed_kick: false,
+                enable_synthesis_morphing: true,
+                fixed_kick: false,
             };
         }
 

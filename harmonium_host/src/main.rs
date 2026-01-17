@@ -10,9 +10,131 @@ use rosc::{OscPacket, OscType};
 use std::env;
 use std::fs;
 use std::net::UdpSocket;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+
+fn perform_graceful_shutdown(
+    target_params_input: &Arc<Mutex<triple_buffer::Input<EngineParams>>>,
+    finished_recordings: &Arc<Mutex<Vec<(harmonium::events::RecordFormat, Vec<u8>)>>>,
+    record_wav: &Option<String>,
+    record_midi: &Option<String>,
+    record_musicxml: &Option<String>,
+) -> bool {
+    // Step 1: Calculate expected number of recordings
+    let expected_recordings =
+        (if record_wav.is_some() { 1 } else { 0 }) +
+        (if record_midi.is_some() { 1 } else { 0 }) +
+        (if record_musicxml.is_some() { 1 } else { 0 });
+
+    if expected_recordings == 0 {
+        return true; // Nothing to save
+    }
+
+    log::info(&format!("Stopping {} recording(s)...", expected_recordings));
+
+    // Step 2: Mute all channels to stop new note generation (but let existing notes finish)
+    // This ensures we capture all NoteOff events for notes that are still playing
+    if let Ok(mut input) = target_params_input.lock() {
+        let mut params = input.input_buffer_mut().clone();
+        // Mute all channels to stop generating new notes
+        params.muted_channels = vec![true; 16];
+        // IMPORTANT: Preserve recording flags while muting
+        params.record_wav = record_wav.is_some();
+        params.record_midi = record_midi.is_some();
+        params.record_musicxml = record_musicxml.is_some();
+        input.write(params);
+        log::info("Muted all channels to stop new note generation");
+    }
+
+    // Step 2.5: Wait briefly for triple buffer to propagate and AllNotesOff to be sent
+    std::thread::sleep(Duration::from_millis(200));
+
+    // Step 3: Wait for notes to finish playing and NoteOff events to be sent
+    // Use a longer wait time to account for synth release/decay envelopes
+    log::info("Waiting for playing notes to finish...");
+    std::thread::sleep(Duration::from_millis(3000));
+
+    // Step 4: Now stop recordings
+    if let Ok(mut input) = target_params_input.lock() {
+        let mut params = input.input_buffer_mut().clone();
+        params.record_wav = false;
+        params.record_midi = false;
+        params.record_musicxml = false;
+        input.write(params);
+        log::info("Recording stop signal sent to audio thread");
+    }
+
+    // Step 5: Wait for backend to process stop events and finalize recordings
+    log::info("Waiting for recordings to finalize...");
+    std::thread::sleep(Duration::from_millis(1500));
+
+    // Step 6: Poll finished_recordings queue with timeout (up to 5 seconds)
+    let mut saved_count = 0;
+    let mut iterations = 0;
+    const MAX_ITERATIONS: usize = 50; // 5 seconds total
+
+    log::info("Polling for finalized recordings...");
+    while iterations < MAX_ITERATIONS && saved_count < expected_recordings {
+        if let Ok(mut queue) = finished_recordings.lock() {
+            let queue_size = queue.len();
+            if queue_size > 0 {
+                log::info(&format!("Found {} recording(s) in queue", queue_size));
+            }
+
+            while let Some((fmt, data)) = queue.pop() {
+                let filename = match fmt {
+                    harmonium::events::RecordFormat::Wav => {
+                        record_wav.as_deref().unwrap_or("output.wav")
+                    }
+                    harmonium::events::RecordFormat::Midi => {
+                        record_midi.as_deref().unwrap_or("output.mid")
+                    }
+                    harmonium::events::RecordFormat::MusicXml => {
+                        record_musicxml.as_deref().unwrap_or("output.musicxml")
+                    }
+                };
+
+                log::info(&format!(
+                    "Saved {} to {} ({} bytes)",
+                    match fmt {
+                        harmonium::events::RecordFormat::Wav => "WAV",
+                        harmonium::events::RecordFormat::Midi => "MIDI",
+                        harmonium::events::RecordFormat::MusicXml => "MusicXML",
+                    },
+                    filename,
+                    data.len()
+                ));
+
+                if let Err(e) = fs::write(filename, &data) {
+                    log::warn(&format!("Failed to write {}: {}", filename, e));
+                } else {
+                    saved_count += 1;
+                }
+            }
+        }
+
+        // Exit early if we've saved all expected recordings
+        if saved_count >= expected_recordings {
+            log::info("All recordings saved successfully");
+            break;
+        }
+
+        std::thread::sleep(Duration::from_millis(100));
+        iterations += 1;
+    }
+
+    if saved_count < expected_recordings {
+        log::warn(&format!(
+            "Timeout: Only saved {}/{} recordings",
+            saved_count, expected_recordings
+        ));
+    }
+
+    // Success if we saved all expected recordings
+    saved_count >= expected_recordings
+}
 
 fn main() {
     log::info("Harmonium - Procedural Music Generator");
@@ -21,8 +143,9 @@ fn main() {
     // === 0. Parse Arguments ===
     let args: Vec<String> = env::args().collect();
     let mut sf2_path: Option<String> = None;
-    let mut record_wav = false;
-    let mut record_midi = false;
+    let mut record_wav: Option<String> = None;
+    let mut record_midi: Option<String> = None;
+    let mut record_musicxml: Option<String> = None;
     let mut use_osc = false;
     let mut duration_secs = 0; // 0 = infini
     let mut harmony_mode = HarmonyMode::Driver; // Default to Driver
@@ -36,8 +159,30 @@ fn main() {
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
-            "--record-wav" => record_wav = true,
-            "--record-midi" => record_midi = true,
+            "--record-wav" => {
+                if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                    record_wav = Some(args[i + 1].clone());
+                    i += 1;
+                } else {
+                    record_wav = Some("output.wav".to_string());
+                }
+            }
+            "--record-midi" => {
+                if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                    record_midi = Some(args[i + 1].clone());
+                    i += 1;
+                } else {
+                    record_midi = Some("output.mid".to_string());
+                }
+            }
+            "--record-musicxml" => {
+                if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                    record_musicxml = Some(args[i + 1].clone());
+                    i += 1;
+                } else {
+                    record_musicxml = Some("output.musicxml".to_string());
+                }
+            }
             "--osc" => use_osc = true,
             "--drum-kit" | "--fixed-kick" => fixed_kick = true,
             "--harmony-mode" | "-m" => {
@@ -104,10 +249,11 @@ fn main() {
                 println!(
                     "  --backend, -b <BACKEND>    Audio backend: 'fundsp' or 'odin2' (default: fundsp)"
                 );
-                println!("  --record-wav               Record to WAV file");
-                println!("  --record-midi              Record to MIDI file");
+                println!("  --record-wav [PATH]        Record to WAV file (default: output.wav)");
+                println!("  --record-midi [PATH]       Record to MIDI file (default: output.mid)");
+                println!("  --record-musicxml [PATH]   Record to MusicXML file (default: output.musicxml)");
                 println!("  --osc                      Enable OSC control (UDP 8080)");
-                println!("  --duration <SECONDS>       Recording duration (0 = infinite)");
+                println!("  --duration <SECONDS>       Recording duration (0 = infinite, Ctrl+C to stop)");
                 println!(
                     "  --poly-steps, -p <STEPS>   Polyrythm resolution: 48, 96, 192... (default: 48)"
                 );
@@ -151,6 +297,15 @@ fn main() {
         None
     };
 
+    // === 0.5. Graceful Shutdown Handler ===
+    let shutdown_flag = Arc::new(AtomicBool::new(false));
+    let shutdown_flag_handler = shutdown_flag.clone();
+    ctrlc::set_handler(move || {
+        // Only set the atomic flag - no logging here to avoid allocations in signal handler
+        shutdown_flag_handler.store(true, Ordering::Relaxed);
+    })
+    .expect("Error setting Ctrl+C handler");
+
     // === 1. État Partagé (Lock-free avec Triple Buffer) ===
     // Phase 3: Create triple buffer for lock-free UI→Audio parameter updates
     let mut initial_params = EngineParams::default();
@@ -182,6 +337,12 @@ fn main() {
     if use_osc {
         // Phase 3: Clone Arc<Mutex<Input>> for OSC thread to write parameters
         let osc_params_input = target_params_input.clone();
+        // Clone the recording flags to preserve them across OSC updates
+        let osc_record_wav = record_wav.clone();
+        let osc_record_midi = record_midi.clone();
+        let osc_record_musicxml = record_musicxml.clone();
+        // Clone muted channels to preserve across updates
+        let osc_muted_channels = initial_params.muted_channels.clone();
         thread::spawn(move || {
             let addr = "127.0.0.1:8080";
             let socket = match UdpSocket::bind(addr) {
@@ -269,6 +430,11 @@ fn main() {
                                                                 predicted_params.density;
                                                             current.tension =
                                                                 predicted_params.tension;
+                                                            // IMPORTANT: Preserve recording flags and muted channels
+                                                            current.record_wav = osc_record_wav.is_some();
+                                                            current.record_midi = osc_record_midi.is_some();
+                                                            current.record_musicxml = osc_record_musicxml.is_some();
+                                                            current.muted_channels = osc_muted_channels.clone();
                                                             input.write(current);
                                                             log::info(&format!(
                                                                 "AI UPDATE: Arousal {:.2} | Valence {:.2} | Density {:.2} | Tension {:.2}",
@@ -314,6 +480,11 @@ fn main() {
                                                 current.valence = valence;
                                                 current.density = density;
                                                 current.tension = tension;
+                                                // IMPORTANT: Preserve recording flags and muted channels
+                                                current.record_wav = osc_record_wav.is_some();
+                                                current.record_midi = osc_record_midi.is_some();
+                                                current.record_musicxml = osc_record_musicxml.is_some();
+                                                current.muted_channels = osc_muted_channels.clone();
                                                 input.write(current);
                                             }
                                         }
@@ -335,6 +506,12 @@ fn main() {
         // === 2b. Thread Simulateur d'IA (Changements aléatoires toutes les 5 secondes) ===
         // Phase 3: Clone Arc<Mutex<Input>> for simulator thread to write parameters
         let simulator_params_input = target_params_input.clone();
+        // Clone the recording flags to preserve them across emotion changes
+        let simulator_record_wav = record_wav.clone();
+        let simulator_record_midi = record_midi.clone();
+        let simulator_record_musicxml = record_musicxml.clone();
+        // Clone muted channels to preserve across updates
+        let simulator_muted_channels = initial_params.muted_channels.clone();
         thread::spawn(move || {
             let mut rng = rand::thread_rng();
             thread::sleep(Duration::from_secs(3)); // Attendre le démarrage
@@ -346,11 +523,18 @@ fn main() {
                 // Phase 3: Use triple buffer write (lock Input on UI side)
                 if let Ok(mut input) = simulator_params_input.lock() {
                     let mut params = input.input_buffer_mut().clone();
+
                     // Simule un changement d'action/émotio
                     params.arousal = rng.gen_range(0.15..0.95); // Activation/Énergie
                     params.valence = rng.gen_range(-0.8..0.8); // Positif/Négatif
                     params.density = rng.gen_range(0.15..0.95); // Complexité rythmique
                     params.tension = rng.gen_range(0.0..1.0); // Dissonance
+
+                    // IMPORTANT: Preserve recording flags and muted channels across emotion changes
+                    params.record_wav = simulator_record_wav.is_some();
+                    params.record_midi = simulator_record_midi.is_some();
+                    params.record_musicxml = simulator_record_musicxml.is_some();
+                    params.muted_channels = simulator_muted_channels.clone();
 
                     // Extract values for logging before moving params
                     let arousal = params.arousal;
@@ -383,12 +567,17 @@ fn main() {
         .expect("Failed to create audio stream");
 
     // Démarrage de l'enregistrement si demandé
-    if record_wav || record_midi {
+    if record_wav.is_some() || record_midi.is_some() || record_musicxml.is_some() {
         // Phase 3: Use triple buffer write (lock Input on UI side)
         if let Ok(mut input) = target_params_input.lock() {
             let mut params = input.input_buffer_mut().clone();
-            params.record_wav = record_wav;
-            params.record_midi = record_midi;
+            params.record_wav = record_wav.is_some();
+            params.record_midi = record_midi.is_some();
+            params.record_musicxml = record_musicxml.is_some();
+            log::info(&format!(
+                "DEBUG: Setting recording flags - WAV={}, MIDI={}, MusicXML={}",
+                params.record_wav, params.record_midi, params.record_musicxml
+            ));
             input.write(params);
             log::info("Recording started...");
         }
@@ -402,51 +591,70 @@ fn main() {
     log::info("Le moteur va maintenant morpher automatiquement entre les états!");
 
     let start_time = std::time::Instant::now();
-    let mut recording_stopped = false;
 
     // Keep the main thread alive
     loop {
         std::thread::sleep(Duration::from_millis(100));
 
+        // Check for Ctrl+C signal
+        if shutdown_flag.load(Ordering::Relaxed) {
+            log::info("Received interrupt signal, saving recordings...");
+            let success = perform_graceful_shutdown(
+                &target_params_input,
+                &finished_recordings,
+                &record_wav,
+                &record_midi,
+                &record_musicxml,
+            );
+            if !success {
+                log::warn("Some recordings may not have been saved");
+            }
+            log::info("Exited gracefully.");
+            break;
+        }
+
         // Gestion de la durée d'enregistrement
-        if duration_secs > 0 && !recording_stopped {
-            if start_time.elapsed().as_secs() >= duration_secs {
-                log::info("Duration reached. Stopping recording...");
-                // Phase 3: Use triple buffer write (lock Input on UI side)
-                if let Ok(mut input) = target_params_input.lock() {
-                    let mut params = input.input_buffer_mut().clone();
-                    params.record_wav = false;
-                    params.record_midi = false;
-                    input.write(params);
-                }
-                recording_stopped = true;
-                // Attendre un peu que le backend traite l'événement
-                std::thread::sleep(Duration::from_millis(500));
+        if duration_secs > 0 && start_time.elapsed().as_secs() >= duration_secs {
+            log::info("Duration reached. Stopping recording...");
+            let success = perform_graceful_shutdown(
+                &target_params_input,
+                &finished_recordings,
+                &record_wav,
+                &record_midi,
+                &record_musicxml,
+            );
+            if !success {
+                log::warn("Some recordings may not have been saved");
             }
-        }
-
-        // Vérification des enregistrements terminés
-        if let Ok(mut queue) = finished_recordings.lock() {
-            while let Some((fmt, data)) = queue.pop() {
-                let filename = match fmt {
-                    harmonium::events::RecordFormat::Wav => "output.wav",
-                    harmonium::events::RecordFormat::Midi => "output.mid",
-                    harmonium::events::RecordFormat::MusicXml => "output.musicxml",
-                };
-                log::info(&format!(
-                    "Saving recording to {} ({} bytes)",
-                    filename,
-                    data.len()
-                ));
-                if let Err(e) = fs::write(filename, data) {
-                    log::warn(&format!("Failed to write file: {}", e));
-                }
-            }
-        }
-
-        if recording_stopped && duration_secs > 0 {
             log::info("Exiting after recording.");
             break;
+        }
+
+        // Vérification des enregistrements terminés (only poll when NOT shutting down)
+        if !shutdown_flag.load(Ordering::Relaxed) {
+            if let Ok(mut queue) = finished_recordings.lock() {
+                while let Some((fmt, data)) = queue.pop() {
+                    let filename = match fmt {
+                        harmonium::events::RecordFormat::Wav => {
+                            record_wav.as_deref().unwrap_or("output.wav")
+                        }
+                        harmonium::events::RecordFormat::Midi => {
+                            record_midi.as_deref().unwrap_or("output.mid")
+                        }
+                        harmonium::events::RecordFormat::MusicXml => {
+                            record_musicxml.as_deref().unwrap_or("output.musicxml")
+                        }
+                    };
+                    log::info(&format!(
+                        "Saving recording to {} ({} bytes)",
+                        filename,
+                        data.len()
+                    ));
+                    if let Err(e) = fs::write(filename, &data) {
+                        log::warn(&format!("Failed to write file: {}", e));
+                    }
+                }
+            }
         }
     }
 }

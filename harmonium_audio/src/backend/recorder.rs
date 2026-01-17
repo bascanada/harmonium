@@ -2,7 +2,7 @@ use crate::backend::AudioRenderer;
 use harmonium_core::events::{AudioEvent, RecordFormat};
 use harmonium_core::params::MusicalParams;
 use hound::{WavSpec, WavWriter};
-use midly::{Header, Smf, TrackEvent, TrackEventKind, MidiMessage, Format, Timing};
+use midly::{Header, Smf, TrackEvent, TrackEventKind, MidiMessage, MetaMessage, Format, Timing};
 use std::sync::{Arc, Mutex};
 use std::io::{Cursor, Write, Seek};
 
@@ -117,12 +117,27 @@ impl RecorderBackend {
     }
 
     fn start_midi(&mut self) {
-        self.midi_track = Some(Vec::new());
+        let mut track = Vec::new();
+
+        // Add tempo meta event at the start (default 120 BPM = 500000 microseconds per quarter note)
+        // This will be overridden if the engine sends a tempo change
+        track.push(TrackEvent {
+            delta: 0.into(),
+            kind: TrackEventKind::Meta(MetaMessage::Tempo(500000.into())),
+        });
+
+        self.midi_track = Some(track);
         self.midi_samples_since_last = 0;
     }
 
     fn stop_midi(&mut self) {
-        if let Some(track_events) = self.midi_track.take() {
+        if let Some(mut track_events) = self.midi_track.take() {
+            // Add End of Track meta event (required by MIDI spec)
+            track_events.push(TrackEvent {
+                delta: 0.into(),
+                kind: TrackEventKind::Meta(MetaMessage::EndOfTrack),
+            });
+
             let header = Header::new(Format::SingleTrack, Timing::Metrical(480.into()));
             let mut smf = Smf::new(header);
             smf.tracks.push(track_events);
@@ -143,6 +158,12 @@ impl RecorderBackend {
 
     fn stop_musicxml(&mut self) {
         if let Some(events) = self.musicxml_events.take() {
+            // Debug: Count captured events by type
+            let note_on_count = events.iter().filter(|(_, e)| matches!(e, AudioEvent::NoteOn { .. })).count();
+            let note_off_count = events.iter().filter(|(_, e)| matches!(e, AudioEvent::NoteOff { .. })).count();
+            eprintln!("MusicXML recorder: Captured {} NoteOn events, {} NoteOff events (total {} events)",
+                     note_on_count, note_off_count, events.len());
+
             let xml = harmonium_core::export::to_musicxml(
                 &events,
                 &self.musicxml_params,
@@ -185,13 +206,7 @@ impl AudioRenderer for RecorderBackend {
                 self.current_samples_per_step = *samples_per_step;
             },
             AudioEvent::NoteOn { .. } | AudioEvent::NoteOff { .. } => {
-                // Capture MIDI
-                let _delta = self.samples_to_ticks(self.midi_samples_since_last);
-                if let Some(_track) = &mut self.midi_track {
-                    // ... existing MIDI logic ...
-                }
-
-                // Capture MusicXML
+                // Capture MusicXML - just record the events as-is
                 if let Some(events) = &mut self.musicxml_events {
                     events.push((self.musicxml_samples_elapsed, event.clone()));
                 }
