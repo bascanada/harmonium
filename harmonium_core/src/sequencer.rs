@@ -1,9 +1,8 @@
 use serde::{Serialize, Deserialize};
-use bevy_reflect::Reflect;
 
 // --- RHYTHM MODE (Strategy Pattern) ---
 
-#[derive(Clone, Copy, Debug, PartialEq, Default, Serialize, Deserialize, Reflect)]
+#[derive(Clone, Copy, Debug, PartialEq, Default, Serialize, Deserialize)]
 pub enum RhythmMode {
     #[default]
     Euclidean,      // Algorithme de Bjorklund (Classique)

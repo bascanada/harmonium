@@ -14,6 +14,7 @@ pub use harmonium_core;
 
 pub mod components;
 pub mod assets;
+pub mod mirror;
 mod sound;
 mod systems;
 
@@ -89,7 +90,9 @@ impl Plugin for HarmoniumPlugin {
             .register_type::<components::HarmoniumSource>()
             .register_type::<components::GenerativeConfig>()
             .register_type::<components::OdinConfig>()
-            .register_type::<harmonium_core::sequencer::RhythmMode>() 
+            .register_type::<mirror::BevyRhythmMode>()
+            .register_type::<mirror::BevyHarmonyMode>()
+            .register_type::<mirror::BevyEngineParams>()
             .register_type::<components::HarmoniumTag>()
             .register_type::<components::AiDriver>()
 

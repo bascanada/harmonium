@@ -13,6 +13,7 @@ rtrb = { workspace = true }
 harmonium_core = { path = "../harmonium_core" }
 harmonium_ai = { path = "../harmonium_ai" }
 harmonium_audio = { path = "../harmonium_audio" }
+serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
 bevy = { version = "0.17", features = ["default"] }

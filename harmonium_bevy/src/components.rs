@@ -1,6 +1,5 @@
 use bevy::prelude::*;
-use harmonium_core::sequencer::RhythmMode;
-use harmonium_core::params::EngineParams;
+use crate::mirror::{BevyRhythmMode, BevyEngineParams};
 
 /// The main component to attach to an entity (e.g. "MusicManager")
 /// to control the generative engine.
@@ -17,7 +16,7 @@ pub struct HarmoniumSource {
     pub synth: OdinConfig,
 
     /// 4. Manual / UI parameters for mixing
-    pub manual_visual_params: EngineParams,
+    pub manual_visual_params: BevyEngineParams,
 }
 
 impl Default for HarmoniumSource {
@@ -26,7 +25,7 @@ impl Default for HarmoniumSource {
             is_enabled: true,
             config: GenerativeConfig::default(),
             synth: OdinConfig::default(),
-            manual_visual_params: EngineParams::default(),
+            manual_visual_params: BevyEngineParams::default(),
         }
     }
 }
@@ -34,7 +33,7 @@ impl Default for HarmoniumSource {
 /// Advanced technical parameters (similar to "Direct" mode)
 #[derive(Clone, Reflect, Debug)]
 pub struct GenerativeConfig {
-    pub rhythm_mode: RhythmMode,
+    pub rhythm_mode: BevyRhythmMode,
     pub steps: usize,      // 16, 32, 48...
     pub density: f32,      // 0.0 - 1.0 (Probability of note)
     pub tension: f32,      // 0.0 - 1.0 (Dissonance / Complexity)
@@ -44,7 +43,7 @@ pub struct GenerativeConfig {
 impl Default for GenerativeConfig {
     fn default() -> Self {
         Self {
-            rhythm_mode: RhythmMode::Euclidean,
+            rhythm_mode: BevyRhythmMode::Euclidean,
             steps: 16,
             density: 0.5,
             tension: 0.3,
@@ -102,7 +101,7 @@ pub struct AiDriver {
     pub scan_timer: Timer,
 
     /// Cached AI target implementation
-    pub ai_target: EngineParams,
+    pub ai_target: BevyEngineParams,
 }
 
 impl Default for AiDriver {
@@ -111,7 +110,7 @@ impl Default for AiDriver {
             ai_influence: 1.0, // Full AI by default
             detection_radius: 50.0,
             scan_timer: Timer::from_seconds(0.5, TimerMode::Repeating),
-            ai_target: EngineParams::default(),
+            ai_target: BevyEngineParams::default(),
         }
     }
 }

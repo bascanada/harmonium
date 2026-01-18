@@ -19,7 +19,7 @@ pub fn sync_harmonium_params(
         
         // 2. Mapping technical config to Kernel
         let k_params = &mut harmonium.kernel.params;
-        k_params.rhythm_mode = source.config.rhythm_mode;
+        k_params.rhythm_mode = source.config.rhythm_mode.into();
         k_params.rhythm_steps = source.config.steps; 
         k_params.bpm = source.config.tempo;
         // density -> pulses
@@ -71,8 +71,8 @@ pub fn scan_environment_system(
     
     // Attempt to get the manual params (source of truth for manual override)
     // If multiple sources exist, we take the first one found.
-    let manual_params = if let Some(source) = source_query.iter().next() {
-        source.manual_visual_params.clone()
+    let manual_params: harmonium_core::EngineParams = if let Some(source) = source_query.iter().next() {
+        source.manual_visual_params.clone().into()
     } else {
         // Fallback if no source entity exists
         harmonium.params.clone()
@@ -108,13 +108,13 @@ pub fn scan_environment_system(
             let ai_target = semantic_engine.analyze_context(&detected_tags, &manual_params);
             
             // Cache the target in the component
-            driver.ai_target = ai_target;
+            driver.ai_target = ai_target.into();
         } 
 
         // --- PHASE 3 : MIXING (Lerp) ---
         // Manual (from Component) vs AI (from cached Driver)
         
-        let ai_target = &driver.ai_target;
+        let ai_target: harmonium_core::EngineParams = driver.ai_target.clone().into();
         let mix = driver.ai_influence;
         
         let final_arousal = manual_params.arousal * (1.0 - mix) + ai_target.arousal * mix;

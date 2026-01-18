@@ -3978,6 +3978,7 @@ dependencies = [
  "harmonium_core",
  "kira",
  "rtrb",
+ "serde",
  "thiserror 2.0.17",
 ]
 
@@ -3986,7 +3987,6 @@ name = "harmonium_core"
 version = "0.1.0"
 dependencies = [
  "arrayvec",
- "bevy_reflect",
  "midly",
  "rand 0.8.5",
  "rust-music-theory",

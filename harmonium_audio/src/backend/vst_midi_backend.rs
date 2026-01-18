@@ -147,8 +147,8 @@ impl AudioRenderer for VstMidiBackend {
             AudioEvent::SetMixerGains { .. } => {
                 // Gains are handled by the DAW's mixer
             }
-            AudioEvent::LoadFont { .. } => {
-                // No fonts needed for MIDI output
+            AudioEvent::LoadFont { .. } | AudioEvent::LoadOdinPreset { .. } => {
+                // No fonts or presets needed for MIDI output
             }
             AudioEvent::StartRecording { .. } | AudioEvent::StopRecording { .. } => {
                 // Recording is handled by the DAW
