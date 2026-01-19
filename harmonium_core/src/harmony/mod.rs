@@ -24,7 +24,7 @@ pub mod voice_leading;
 pub mod driver;
 
 // Re-exports pour compatibilité
-pub use melody::HarmonyNavigator;
+pub use melody::{HarmonyNavigator, MelodicEvent};
 pub use basic::{Progression, ChordStep, ChordQuality};
 pub use chord::{Chord, ChordType, PitchClass};
 pub use driver::HarmonicDriver;
