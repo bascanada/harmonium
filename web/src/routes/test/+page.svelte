@@ -41,6 +41,7 @@
     // Recording State
     let isRecordingWav = false;
     let isRecordingMidi = false;
+    let isRecordingMusicXml = false;
 
     // Access WASM handle for recording (bridge doesn't expose recording methods yet)
     function getHandle() {
@@ -68,6 +69,18 @@
         } else {
             handle.start_recording_midi();
             isRecordingMidi = true;
+        }
+    }
+
+    function toggleMusicXmlRecording() {
+        const handle = getHandle();
+        if (!handle) return;
+        if (isRecordingMusicXml) {
+            handle.stop_recording_musicxml();
+            isRecordingMusicXml = false;
+        } else {
+            handle.start_recording_musicxml();
+            isRecordingMusicXml = true;
         }
     }
 
@@ -402,6 +415,15 @@
                 >
                     <div class="w-3 h-3 rounded-full {isRecordingMidi ? 'bg-white' : 'bg-red-500'}"></div>
                     {isRecordingMidi ? 'Stop MIDI' : 'Record MIDI'}
+                </button>
+
+                <button
+                    onclick={toggleMusicXmlRecording}
+                    class="px-4 py-2 font-semibold rounded-lg transition-colors duration-200 cursor-pointer flex items-center gap-2
+                        {isRecordingMusicXml ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' : 'bg-neutral-700 hover:bg-neutral-600 text-neutral-300'}"
+                >
+                    <div class="w-3 h-3 rounded-full {isRecordingMusicXml ? 'bg-white' : 'bg-red-500'}"></div>
+                    {isRecordingMusicXml ? 'Stop MusicXML' : 'Record MusicXML'}
                 </button>
 
             </div>

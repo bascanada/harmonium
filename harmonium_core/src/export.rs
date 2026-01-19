@@ -46,42 +46,48 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Get current date in YYYY-MM-DD format (no external dependencies)
 fn chrono_date() -> String {
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = duration.as_secs();
+    #[cfg(target_arch = "wasm32")]
+    return String::from("2024-01-01");
 
-    // Simple date calculation (no leap second handling, good enough for metadata)
-    let days_since_epoch = secs / 86400;
-    let mut year = 1970;
-    let mut remaining_days = days_since_epoch as i64;
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let duration = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        let secs = duration.as_secs();
 
-    loop {
-        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
-        if remaining_days < days_in_year {
-            break;
+        // Simple date calculation (no leap second handling, good enough for metadata)
+        let days_since_epoch = secs / 86400;
+        let mut year = 1970;
+        let mut remaining_days = days_since_epoch as i64; // Explicitly use i64 for calculation
+
+        loop {
+            let days_in_year = if is_leap_year(year) { 366 } else { 365 };
+            if remaining_days < days_in_year {
+                break;
+            }
+            remaining_days -= days_in_year;
+            year += 1;
         }
-        remaining_days -= days_in_year;
-        year += 1;
-    }
 
-    let days_in_months: [i64; 12] = if is_leap_year(year) {
-        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    } else {
-        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    };
+        let days_in_months: [i64; 12] = if is_leap_year(year) {
+            [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        } else {
+            [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        };
 
-    let mut month = 1;
-    for &days in &days_in_months {
-        if remaining_days < days {
-            break;
+        let mut month = 1;
+        for &days in &days_in_months {
+            if remaining_days < days {
+                break;
+            }
+            remaining_days -= days;
+            month += 1;
         }
-        remaining_days -= days;
-        month += 1;
-    }
 
-    let day = remaining_days + 1;
-    format!("{:04}-{:02}-{:02}", year, month, day)
+        let day = remaining_days + 1;
+        format!("{:04}-{:02}-{:02}", year, month, day)
+    }
 }
 
 fn is_leap_year(year: i64) -> bool {
