@@ -11,3 +11,7 @@
 dist/
 
 pkg/
+
+.DS_Store
+*.musicxml
+*.mid*

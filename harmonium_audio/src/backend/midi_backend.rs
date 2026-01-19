@@ -46,10 +46,13 @@ impl AudioRenderer for MidiBackend {
             AudioEvent::TimingUpdate { samples_per_step } => {
                 self.current_samples_per_step = samples_per_step;
             },
+            AudioEvent::UpdateMusicalParams { .. } => {
+                // Ignore - only RecorderBackend needs this
+            },
             AudioEvent::NoteOn { note, velocity, channel } => {
                 let delta = self.samples_to_ticks(self.samples_since_last_event);
                 self.samples_since_last_event = 0;
-                
+
                 let mut track = self.track.lock().unwrap();
                 track.push(TrackEvent {
                     delta: delta.into(),
@@ -62,7 +65,7 @@ impl AudioRenderer for MidiBackend {
             AudioEvent::NoteOff { note, channel } => {
                 let delta = self.samples_to_ticks(self.samples_since_last_event);
                 self.samples_since_last_event = 0;
-                
+
                 let mut track = self.track.lock().unwrap();
                 track.push(TrackEvent {
                     delta: delta.into(),
