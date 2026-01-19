@@ -512,6 +512,8 @@ fn main() {
         let simulator_record_musicxml = record_musicxml.clone();
         // Clone muted channels to preserve across updates
         let simulator_muted_channels = initial_params.muted_channels.clone();
+        let simulator_shutdown_flag = shutdown_flag.clone();
+
         thread::spawn(move || {
             let mut rng = rand::thread_rng();
             thread::sleep(Duration::from_secs(3)); // Attendre le démarrage
@@ -519,9 +521,32 @@ fn main() {
             log::info("Simulateur d'IA démarré (changements toutes les 5s)");
 
             loop {
-                thread::sleep(Duration::from_secs(5));
+                // Check shutdown flag before sleeping
+                if simulator_shutdown_flag.load(Ordering::Relaxed) {
+                    log::info("Simulator thread stopping due to shutdown signal");
+                    break;
+                }
+
+                // Sleep in small chunks to react to shutdown faster
+                for _ in 0..50 {
+                    if simulator_shutdown_flag.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(100));
+                }
+
+                if simulator_shutdown_flag.load(Ordering::Relaxed) {
+                    log::info("Simulator thread stopping due to shutdown signal");
+                    break;
+                }
+
                 // Phase 3: Use triple buffer write (lock Input on UI side)
                 if let Ok(mut input) = simulator_params_input.lock() {
+                    // Check one last time before acquiring lock/writing
+                    if simulator_shutdown_flag.load(Ordering::Relaxed) {
+                        break;
+                    }
+
                     let mut params = input.input_buffer_mut().clone();
 
                     // Simule un changement d'action/émotio

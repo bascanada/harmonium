@@ -46,12 +46,12 @@ pub struct RecorderBackend {
 
     // MIDI State
     midi_track: Option<Vec<TrackEvent<'static>>>,
-    midi_samples_since_last: u64,
+    midi_steps_since_last: f64,  // Changed from midi_samples_since_last: u64
     current_samples_per_step: usize,
 
     // MusicXML State
-    musicxml_events: Option<Vec<(u64, AudioEvent)>>,
-    musicxml_samples_elapsed: u64,
+    musicxml_events: Option<Vec<(f64, AudioEvent)>>,  // Changed from Vec<(u64, AudioEvent)>
+    musicxml_steps_elapsed: f64,  // Changed from musicxml_samples_elapsed: u64
     musicxml_params: MusicalParams,
 }
 
@@ -68,17 +68,12 @@ impl RecorderBackend {
             wav_output: None,
             sample_rate,
             midi_track: None,
-            midi_samples_since_last: 0,
+            midi_steps_since_last: 0.0,  // Changed to f64
             current_samples_per_step: 11025,
             musicxml_events: None,
-            musicxml_samples_elapsed: 0,
+            musicxml_steps_elapsed: 0.0,  // Changed to f64
             musicxml_params: MusicalParams::default(),
         }
-    }
-
-    /// Set the musical parameters for MusicXML export (key, time signature, etc.)
-    pub fn set_musicxml_params(&mut self, params: MusicalParams) {
-        self.musicxml_params = params;
     }
 
     /// Access the inner backend for downcasting
@@ -127,7 +122,7 @@ impl RecorderBackend {
         });
 
         self.midi_track = Some(track);
-        self.midi_samples_since_last = 0;
+        self.midi_steps_since_last = 0.0;  // Reset to f64
     }
 
     fn stop_midi(&mut self) {
@@ -153,7 +148,7 @@ impl RecorderBackend {
 
     fn start_musicxml(&mut self) {
         self.musicxml_events = Some(Vec::new());
-        self.musicxml_samples_elapsed = 0;
+        self.musicxml_steps_elapsed = 0.0;  // Reset to f64
     }
 
     fn stop_musicxml(&mut self) {
@@ -167,7 +162,7 @@ impl RecorderBackend {
             let xml = harmonium_core::export::to_musicxml(
                 &events,
                 &self.musicxml_params,
-                self.current_samples_per_step,
+                1,  // Dummy value - no longer used for conversion with step-based events
             );
             if let Ok(mut queue) = self.finished_recordings.lock() {
                 queue.push((RecordFormat::MusicXml, xml.into_bytes()));
@@ -175,12 +170,11 @@ impl RecorderBackend {
         }
     }
 
-    fn samples_to_ticks(&self, samples: u64) -> u32 {
-        if self.current_samples_per_step == 0 { return 0; }
+    fn steps_to_ticks(&self, steps: f64) -> u32 {
         // 1 step = 1/4 beat (16th note)
-        // ticks per beat = 480
-        // ticks per step = 120
-        ((samples as f64 * 120.0) / self.current_samples_per_step as f64) as u32
+        // Standard MIDI: 480 ticks per quarter note
+        // Therefore: 120 ticks per step
+        (steps * 120.0).round() as u32
     }
 }
 
@@ -205,21 +199,25 @@ impl AudioRenderer for RecorderBackend {
             AudioEvent::TimingUpdate { samples_per_step } => {
                 self.current_samples_per_step = *samples_per_step;
             },
+            AudioEvent::UpdateMusicalParams { params } => {
+                self.musicxml_params = *params.clone();
+            },
             AudioEvent::NoteOn { .. } | AudioEvent::NoteOff { .. } => {
-                // Capture MusicXML - just record the events as-is
+                // Capture MusicXML with step timestamp
                 if let Some(events) = &mut self.musicxml_events {
-                    events.push((self.musicxml_samples_elapsed, event.clone()));
+                    events.push((self.musicxml_steps_elapsed, event.clone()));
                 }
             },
             _ => {}
         }
-        
-        // Re-implement MIDI logic because I can't use ...existing code... inside the match arm easily without context
+
+        // MIDI recording logic - convert step delta to ticks
         match &event {
              AudioEvent::NoteOn { note, velocity, channel } => {
-                let delta = self.samples_to_ticks(self.midi_samples_since_last);
+                // Compute delta before mutable borrow
+                let delta = self.steps_to_ticks(self.midi_steps_since_last);
                 if let Some(track) = &mut self.midi_track {
-                    self.midi_samples_since_last = 0;
+                    self.midi_steps_since_last = 0.0;  // Reset to 0.0
                     track.push(TrackEvent {
                         delta: delta.into(),
                         kind: TrackEventKind::Midi {
@@ -230,9 +228,10 @@ impl AudioRenderer for RecorderBackend {
                 }
             },
             AudioEvent::NoteOff { note, channel } => {
-                let delta = self.samples_to_ticks(self.midi_samples_since_last);
+                // Compute delta before mutable borrow
+                let delta = self.steps_to_ticks(self.midi_steps_since_last);
                 if let Some(track) = &mut self.midi_track {
-                    self.midi_samples_since_last = 0;
+                    self.midi_steps_since_last = 0.0;  // Reset to 0.0
                     track.push(TrackEvent {
                         delta: delta.into(),
                         kind: TrackEventKind::Midi {
@@ -250,22 +249,30 @@ impl AudioRenderer for RecorderBackend {
 
     fn process_buffer(&mut self, output: &mut [f32], channels: usize) {
         self.inner.process_buffer(output, channels);
-        
+
         // Capture WAV
         if let Some(writer) = &mut self.wav_writer {
             for sample in output.iter() {
                 writer.write_sample(*sample).ok();
             }
         }
-        
-        // Advance MIDI time
-        if self.midi_track.is_some() {
-            self.midi_samples_since_last += (output.len() / channels) as u64;
-        }
 
-        // Advance MusicXML time
-        if self.musicxml_events.is_some() {
-            self.musicxml_samples_elapsed += (output.len() / channels) as u64;
+        // Integrate samples → steps continuously
+        // This is where tempo-awareness happens: when samples_per_step changes (tempo change),
+        // the next buffer adds steps at a different rate, but accumulated history is preserved.
+        if self.current_samples_per_step > 0 {
+            let frames = (output.len() / channels) as f64;
+            let steps_in_buffer = frames / self.current_samples_per_step as f64;
+
+            // Advance MIDI time (steps)
+            if self.midi_track.is_some() {
+                self.midi_steps_since_last += steps_in_buffer;
+            }
+
+            // Advance MusicXML time (steps)
+            if self.musicxml_events.is_some() {
+                self.musicxml_steps_elapsed += steps_in_buffer;
+            }
         }
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }

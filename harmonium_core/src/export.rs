@@ -351,12 +351,10 @@ fn steps_per_quarter(rhythm_steps: usize) -> usize {
 
 /// Main builder for MusicXML output
 pub struct MusicXmlBuilder {
-    /// Event history (timestamp in samples, event)
-    events: Vec<(u64, AudioEvent)>,
+    /// Event history (timestamp in musical steps, event)
+    events: Vec<(f64, AudioEvent)>,  // Changed from u64 to f64
     /// Musical parameters
     params: MusicalParams,
-    /// Samples per step for timing conversion
-    samples_per_step: usize,
     /// Computed score notes
     notes: Vec<ScoreNote>,
     /// Chord symbols for harmony annotations
@@ -374,7 +372,7 @@ pub struct MusicXmlBuilder {
 impl MusicXmlBuilder {
     /// Create a new MusicXML builder from event history
     pub fn new(
-        events: Vec<(u64, AudioEvent)>,
+        events: Vec<(f64, AudioEvent)>,  // Changed to f64
         params: &MusicalParams,
         samples_per_step: usize,
     ) -> Self {
@@ -383,10 +381,10 @@ impl MusicXmlBuilder {
 
     /// Create a new MusicXML builder with chord symbols
     pub fn with_chords(
-        events: Vec<(u64, AudioEvent)>,
+        events: Vec<(f64, AudioEvent)>,  // Changed to f64
         chord_symbols: Vec<ChordSymbol>,
         params: &MusicalParams,
-        samples_per_step: usize,
+        _samples_per_step: usize,
     ) -> Self {
         let is_minor = params.harmony_valence < 0.0;
         let fifths = fifths_from_key(params.key_root, is_minor);
@@ -397,7 +395,6 @@ impl MusicXmlBuilder {
         let mut builder = Self {
             events,
             params: params.clone(),
-            samples_per_step,
             notes: Vec::new(),
             chord_symbols,
             fifths,
@@ -527,8 +524,9 @@ impl MusicXmlBuilder {
         let mut pending: HashMap<(u8, u8), (usize, u8)> = HashMap::new();
         let mut notes = Vec::new();
 
-        for (timestamp, event) in &self.events {
-            let step = (*timestamp as f64 / self.samples_per_step as f64).round() as usize;
+        for (step_timestamp, event) in &self.events {
+            // Use step timestamp directly - already in musical time
+            let step = step_timestamp.round() as usize;
 
             match event {
                 AudioEvent::NoteOn { note, velocity, channel } => {
@@ -934,11 +932,6 @@ impl MusicXmlBuilder {
         let _ = writeln!(xml, "      </note>");
     }
 
-    /// Write a pitched note (uses note's own duration)
-    fn write_pitched_note(&self, xml: &mut String, note: &ScoreNote, is_chord: bool) {
-        self.write_pitched_note_with_duration(xml, note, is_chord, note.duration_steps);
-    }
-
     /// Write a drum note with explicit duration (for measure clamping)
     fn write_drum_note_with_duration(&self, xml: &mut String, note: &ScoreNote, is_chord: bool, duration: usize) {
         // Map channel to display position
@@ -966,11 +959,6 @@ impl MusicXmlBuilder {
             let _ = writeln!(xml, "        <dot/>");
         }
         let _ = writeln!(xml, "      </note>");
-    }
-
-    /// Write a drum note (uses note's own duration)
-    fn write_drum_note(&self, xml: &mut String, note: &ScoreNote, is_chord: bool) {
-        self.write_drum_note_with_duration(xml, note, is_chord, note.duration_steps);
     }
 
     /// Write a rest
@@ -1078,9 +1066,9 @@ impl MusicXmlBuilder {
 /// # Returns
 /// A complete MusicXML 4.0 string ready to be saved or opened in notation software
 pub fn to_musicxml(
-    events: &[(u64, AudioEvent)],
+    events: &[(f64, AudioEvent)],  // Changed from u64 to f64
     params: &MusicalParams,
-    samples_per_step: usize,
+    samples_per_step: usize,  // Kept for backward compatibility
 ) -> String {
     let builder = MusicXmlBuilder::new(events.to_vec(), params, samples_per_step);
     builder.build()
@@ -1094,7 +1082,7 @@ pub fn to_musicxml(
 /// * `samples_per_step` - Number of audio samples per sequencer step
 /// * `path` - Output file path
 pub fn write_musicxml(
-    events: &[(u64, AudioEvent)],
+    events: &[(f64, AudioEvent)],  // Changed to f64
     params: &MusicalParams,
     samples_per_step: usize,
     path: &Path,
@@ -1116,10 +1104,10 @@ pub fn write_musicxml(
 /// # Returns
 /// A complete MusicXML 4.0 string with chord symbols above the lead part
 pub fn to_musicxml_with_chords(
-    events: &[(u64, AudioEvent)],
+    events: &[(f64, AudioEvent)],  // Changed from u64 to f64
     chords: &[ChordSymbol],
     params: &MusicalParams,
-    samples_per_step: usize,
+    samples_per_step: usize,  // Kept for backward compatibility
 ) -> String {
     let builder = MusicXmlBuilder::with_chords(
         events.to_vec(),
@@ -1139,7 +1127,7 @@ pub fn to_musicxml_with_chords(
 /// * `samples_per_step` - Number of audio samples per sequencer step
 /// * `path` - Output file path
 pub fn write_musicxml_with_chords(
-    events: &[(u64, AudioEvent)],
+    events: &[(f64, AudioEvent)],  // Changed to f64
     chords: &[ChordSymbol],
     params: &MusicalParams,
     samples_per_step: usize,
@@ -1156,12 +1144,12 @@ mod tests {
     use super::*;
 
     // Helper to create NoteOn event
-    fn note_on(time: u64, note: u8, vel: u8, channel: u8) -> (u64, AudioEvent) {
+    fn note_on(time: f64, note: u8, vel: u8, channel: u8) -> (f64, AudioEvent) {
         (time, AudioEvent::NoteOn { note, velocity: vel, channel })
     }
 
     // Helper to create NoteOff event
-    fn note_off(time: u64, note: u8, channel: u8) -> (u64, AudioEvent) {
+    fn note_off(time: f64, note: u8, channel: u8) -> (f64, AudioEvent) {
         (time, AudioEvent::NoteOff { note, channel })
     }
 
@@ -1279,8 +1267,8 @@ mod tests {
     fn test_simple_note_produces_valid_xml() {
         let samples_per_step = 11025;
         let events = vec![
-            note_on(0, 60, 100, 1),
-            note_off(samples_per_step as u64, 60, 1),
+            note_on(0.0, 60, 100, 1),
+            note_off(samples_per_step as f64, 60, 1),
         ];
 
         let params = MusicalParams::default();
@@ -1297,8 +1285,8 @@ mod tests {
     #[test]
     fn test_bass_channel_uses_bass_clef() {
         let events = vec![
-            note_on(0, 36, 100, 0), // Channel 0 = Bass
-            note_off(11025, 36, 0),
+            note_on(0.0, 36, 100, 0), // Channel 0 = Bass
+            note_off(11025.0, 36, 0),
         ];
 
         let params = MusicalParams::default();
@@ -1313,8 +1301,8 @@ mod tests {
     #[test]
     fn test_drums_use_percussion_clef() {
         let events = vec![
-            note_on(0, 38, 100, 2), // Channel 2 = Snare
-            note_off(11025, 38, 2),
+            note_on(0.0, 38, 100, 2), // Channel 2 = Snare
+            note_off(11025.0, 38, 2),
         ];
 
         let params = MusicalParams::default();
@@ -1328,8 +1316,8 @@ mod tests {
     #[test]
     fn test_key_signature_g_major() {
         let events = vec![
-            note_on(0, 67, 100, 1),
-            note_off(11025, 67, 1),
+            note_on(0.0, 67, 100, 1),
+            note_off(11025.0, 67, 1),
         ];
 
         let mut params = MusicalParams::default();
@@ -1344,8 +1332,8 @@ mod tests {
     #[test]
     fn test_key_signature_d_minor() {
         let events = vec![
-            note_on(0, 62, 100, 1),
-            note_off(11025, 62, 1),
+            note_on(0.0, 62, 100, 1),
+            note_off(11025.0, 62, 1),
         ];
 
         let mut params = MusicalParams::default();
@@ -1360,8 +1348,8 @@ mod tests {
     #[test]
     fn test_time_signature_3_4() {
         let events = vec![
-            note_on(0, 60, 100, 1),
-            note_off(11025, 60, 1),
+            note_on(0.0, 60, 100, 1),
+            note_off(11025.0, 60, 1),
         ];
 
         let mut params = MusicalParams::default();
@@ -1375,12 +1363,12 @@ mod tests {
     #[test]
     fn test_chord_notation() {
         let events = vec![
-            note_on(0, 60, 100, 1), // C
-            note_on(0, 64, 100, 1), // E (same time = chord)
-            note_on(0, 67, 100, 1), // G (same time = chord)
-            note_off(11025, 60, 1),
-            note_off(11025, 64, 1),
-            note_off(11025, 67, 1),
+            note_on(0.0, 60, 100, 1), // C
+            note_on(0.0, 64, 100, 1), // E (same time = chord)
+            note_on(0.0, 67, 100, 1), // G (same time = chord)
+            note_off(11025.0, 60, 1),
+            note_off(11025.0, 64, 1),
+            note_off(11025.0, 67, 1),
         ];
 
         let xml = to_musicxml(&events, &MusicalParams::default(), 11025);
@@ -1395,8 +1383,8 @@ mod tests {
         // Note starts on step 4 (after a rest)
         let samples_per_step = 11025;
         let events = vec![
-            note_on(4 * samples_per_step as u64, 60, 100, 1),
-            note_off(5 * samples_per_step as u64, 60, 1),
+            note_on(4.0 * samples_per_step as f64, 60, 100, 1),
+            note_off(5.0 * samples_per_step as f64, 60, 1),
         ];
 
         let xml = to_musicxml(&events, &MusicalParams::default(), samples_per_step);
@@ -1405,7 +1393,7 @@ mod tests {
 
     #[test]
     fn test_empty_events_produces_valid_xml() {
-        let events: Vec<(u64, AudioEvent)> = vec![];
+        let events: Vec<(f64, AudioEvent)> = vec![];
         let xml = to_musicxml(&events, &MusicalParams::default(), 11025);
 
         assert!(xml.contains("<?xml"));

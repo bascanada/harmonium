@@ -1,3 +1,4 @@
+use crate::params::MusicalParams;
 
 #[derive(Clone, Debug)]
 pub enum AudioEvent {
@@ -11,6 +12,8 @@ pub enum AudioEvent {
     LoadOdinPreset { channel: u8, bytes: Vec<u8> },
     SetChannelRoute { channel: u8, bank: i32 }, // -1 = FundSP, >=0 = Oxisynth Bank
     TimingUpdate { samples_per_step: usize },
+    /// Send musical parameters (key, time signature, etc.) to recorder
+    UpdateMusicalParams { params: Box<MusicalParams> },
     StartRecording { format: RecordFormat },
     StopRecording { format: RecordFormat },
     /// Set mixer gains for each instrument (0.0-1.0)

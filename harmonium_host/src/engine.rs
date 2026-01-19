@@ -452,10 +452,10 @@ impl HarmoniumEngine {
         if mp.record_musicxml != self.is_recording_musicxml {
             self.is_recording_musicxml = mp.record_musicxml;
             if self.is_recording_musicxml {
-                // Pass the current musical params to the recorder for accurate export metadata
-                if let Some(recorder) = self.renderer.as_any_mut().downcast_mut::<harmonium_audio::backend::recorder::RecorderBackend>() {
-                    recorder.set_musicxml_params(mp.clone());
-                }
+                // Send musical params through event system for accurate export metadata
+                self.renderer.handle_event(AudioEvent::UpdateMusicalParams {
+                    params: Box::new(mp.clone())
+                });
                 self.renderer.handle_event(AudioEvent::StartRecording {
                     format: harmonium_core::events::RecordFormat::MusicXml,
                 });
@@ -499,6 +499,12 @@ impl HarmoniumEngine {
                 self.renderer.handle_event(AudioEvent::TimingUpdate {
                     samples_per_step: new_samples_per_step,
                 });
+                // Send updated musical params if recording is active
+                if self.is_recording_musicxml || self.is_recording_midi {
+                    self.renderer.handle_event(AudioEvent::UpdateMusicalParams {
+                        params: Box::new(self.musical_params.clone())
+                    });
+                }
             }
             return; // Skip sequencer logic when rhythm disabled
         }
@@ -584,6 +590,12 @@ impl HarmoniumEngine {
             self.renderer.handle_event(AudioEvent::TimingUpdate {
                 samples_per_step: new_samples_per_step,
             });
+            // Send updated musical params if recording is active
+            if self.is_recording_musicxml || self.is_recording_midi {
+                self.renderer.handle_event(AudioEvent::UpdateMusicalParams {
+                    params: Box::new(self.musical_params.clone())
+                });
+            }
         }
     }
 

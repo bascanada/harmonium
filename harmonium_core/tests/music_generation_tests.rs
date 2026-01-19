@@ -82,7 +82,7 @@ fn generate_and_export(
     let mut driver = HarmonicDriver::new(params.key_root);
 
     // Collect events and chord symbols
-    let mut events: Vec<(u64, AudioEvent)> = Vec::new();
+    let mut events: Vec<(f64, AudioEvent)> = Vec::new();  // Changed to f64 for step-based timestamps
     let mut chord_symbols: Vec<ChordSymbol> = Vec::new();
     let mut current_chord = driver.current_chord().clone();
     let mut steps_in_chord = 0;
@@ -100,7 +100,7 @@ fn generate_and_export(
     let mut active_lead: Option<u8> = None;
 
     for step in 0..total_steps {
-        let timestamp = (step * SAMPLES_PER_STEP) as u64;
+        let timestamp = step as f64;  // Use step directly as timestamp
 
         // === HARMONY: Change chord every N measures ===
         if steps_in_chord >= steps_per_chord {
@@ -143,8 +143,8 @@ fn generate_and_export(
         if trigger.snare {
             let velocity = (trigger.velocity * 90.0) as u8;
             events.push((timestamp, AudioEvent::NoteOn { note: 38, velocity, channel: 2 }));
-            // Short duration for drums
-            let off_time = timestamp + (SAMPLES_PER_STEP / 2) as u64;
+            // Short duration for drums (half step)
+            let off_time = timestamp + 0.5;
             events.push((off_time, AudioEvent::NoteOff { note: 38, channel: 2 }));
         }
 
@@ -152,7 +152,7 @@ fn generate_and_export(
         if trigger.hat {
             let velocity = (trigger.velocity * 70.0) as u8;
             events.push((timestamp, AudioEvent::NoteOn { note: 42, velocity, channel: 3 }));
-            let off_time = timestamp + (SAMPLES_PER_STEP / 4) as u64;
+            let off_time = timestamp + 0.25;  // Quarter step
             events.push((off_time, AudioEvent::NoteOff { note: 42, channel: 3 }));
         }
 
@@ -179,7 +179,7 @@ fn generate_and_export(
     }
 
     // Final NoteOffs
-    let end_time = (total_steps * SAMPLES_PER_STEP) as u64;
+    let end_time = total_steps as f64;
     if let Some(note) = active_bass {
         events.push((end_time, AudioEvent::NoteOff { note, channel: 0 }));
     }
@@ -188,7 +188,7 @@ fn generate_and_export(
     }
 
     // Sort events by timestamp
-    events.sort_by_key(|(t, _)| *t);
+    events.sort_by(|(t1, _), (t2, _)| t1.partial_cmp(t2).unwrap());
 
     // Export to MusicXML with chord symbols
     let path = Path::new(OUTPUT_DIR).join(format!("{}.musicxml", name));
