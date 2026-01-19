@@ -303,9 +303,9 @@ pub struct MusicalParams {
     #[serde(default)]
     pub record_midi: bool,
 
-    /// Enregistrer en ABC notation
+    /// Enregistrer en MusicXML (pour validation dans MuseScore)
     #[serde(default)]
-    pub record_abc: bool,
+    pub record_musicxml: bool,
 }
 
 // === Fonctions par défaut ===
@@ -384,7 +384,7 @@ impl Default for MusicalParams {
             // Recording
             record_wav: false,
             record_midi: false,
-            record_abc: false,
+            record_musicxml: false,
         }
     }
 }
@@ -554,7 +554,7 @@ pub struct EngineParams {
     #[serde(default)]
     pub record_midi: bool,
     #[serde(default)]
-    pub record_abc: bool,
+    pub record_musicxml: bool,
 
     // Synthesis Morphing Control
     #[serde(default = "default_true")]
@@ -599,7 +599,7 @@ impl Default for EngineParams {
             harmony_mode: HarmonyMode::Driver,
             record_wav: false,
             record_midi: false,
-            record_abc: false,
+            record_musicxml: false,
             enable_synthesis_morphing: true,
             gain_lead: default_gain_lead(),
             gain_bass: default_gain_bass(),

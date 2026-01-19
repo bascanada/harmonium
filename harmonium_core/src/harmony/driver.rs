@@ -141,6 +141,8 @@ impl HarmonicDriver {
     ///
     /// # Example
     /// ```
+    /// use harmonium_core::harmony::driver::HarmonicDriver;
+    /// let mut driver = HarmonicDriver::new(0); // 0 is C
     /// driver.set_hysteresis_thresholds(0.45, 0.55, 0.65, 0.75);
     /// ```
     pub fn set_hysteresis_thresholds(

@@ -143,6 +143,9 @@ impl AudioRenderer for SynthBackend {
             AudioEvent::TimingUpdate { samples_per_step } => {
                 self.samples_per_step = samples_per_step;
             },
+            AudioEvent::UpdateMusicalParams { .. } => {
+                // Ignore - only RecorderBackend needs this
+            },
             AudioEvent::SetMixerGains { lead, bass, snare, hat } => {
                 self.voice_manager.set_gains(lead, bass, snare, hat);
             },

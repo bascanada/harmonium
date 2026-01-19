@@ -1,8 +1,8 @@
-use crate::backend::abc_backend::AbcBackend;
 use crate::backend::AudioRenderer;
 use harmonium_core::events::{AudioEvent, RecordFormat};
+use harmonium_core::params::MusicalParams;
 use hound::{WavSpec, WavWriter};
-use midly::{Header, Smf, TrackEvent, TrackEventKind, MidiMessage, Format, Timing};
+use midly::{Header, Smf, TrackEvent, TrackEventKind, MidiMessage, MetaMessage, Format, Timing};
 use std::sync::{Arc, Mutex};
 use std::io::{Cursor, Write, Seek};
 
@@ -38,19 +38,21 @@ pub struct RecorderBackend {
     inner: Box<dyn AudioRenderer>,
     // Shared storage for finished recordings
     finished_recordings: Arc<Mutex<Vec<(RecordFormat, Vec<u8>)>>>,
-    
+
     // WAV State
     wav_writer: Option<WavWriter<SharedWriter>>,
     wav_output: Option<SharedWriter>,
     sample_rate: u32,
-    
+
     // MIDI State
     midi_track: Option<Vec<TrackEvent<'static>>>,
-    midi_samples_since_last: u64,
+    midi_steps_since_last: f64,  // Changed from midi_samples_since_last: u64
     current_samples_per_step: usize,
-    
-    // ABC State
-    abc_backend: Option<AbcBackend>,
+
+    // MusicXML State
+    musicxml_events: Option<Vec<(f64, AudioEvent)>>,  // Changed from Vec<(u64, AudioEvent)>
+    musicxml_steps_elapsed: f64,  // Changed from musicxml_samples_elapsed: u64
+    musicxml_params: MusicalParams,
 }
 
 impl RecorderBackend {
@@ -66,9 +68,11 @@ impl RecorderBackend {
             wav_output: None,
             sample_rate,
             midi_track: None,
-            midi_samples_since_last: 0,
+            midi_steps_since_last: 0.0,  // Changed to f64
             current_samples_per_step: 11025,
-            abc_backend: None,
+            musicxml_events: None,
+            musicxml_steps_elapsed: 0.0,  // Changed to f64
+            musicxml_params: MusicalParams::default(),
         }
     }
 
@@ -108,16 +112,31 @@ impl RecorderBackend {
     }
 
     fn start_midi(&mut self) {
-        self.midi_track = Some(Vec::new());
-        self.midi_samples_since_last = 0;
+        let mut track = Vec::new();
+
+        // Add tempo meta event at the start (default 120 BPM = 500000 microseconds per quarter note)
+        // This will be overridden if the engine sends a tempo change
+        track.push(TrackEvent {
+            delta: 0.into(),
+            kind: TrackEventKind::Meta(MetaMessage::Tempo(500000.into())),
+        });
+
+        self.midi_track = Some(track);
+        self.midi_steps_since_last = 0.0;  // Reset to f64
     }
 
     fn stop_midi(&mut self) {
-        if let Some(track_events) = self.midi_track.take() {
+        if let Some(mut track_events) = self.midi_track.take() {
+            // Add End of Track meta event (required by MIDI spec)
+            track_events.push(TrackEvent {
+                delta: 0.into(),
+                kind: TrackEventKind::Meta(MetaMessage::EndOfTrack),
+            });
+
             let header = Header::new(Format::SingleTrack, Timing::Metrical(480.into()));
             let mut smf = Smf::new(header);
             smf.tracks.push(track_events);
-            
+
             let mut buffer = Vec::new();
             if smf.write(&mut buffer).is_ok() {
                 if let Ok(mut queue) = self.finished_recordings.lock() {
@@ -127,25 +146,35 @@ impl RecorderBackend {
         }
     }
 
-    fn start_abc(&mut self) {
-        self.abc_backend = Some(AbcBackend::new(self.sample_rate));
+    fn start_musicxml(&mut self) {
+        self.musicxml_events = Some(Vec::new());
+        self.musicxml_steps_elapsed = 0.0;  // Reset to f64
     }
 
-    fn stop_abc(&mut self) {
-        if let Some(backend) = self.abc_backend.take() {
-            let data = backend.finalize();
+    fn stop_musicxml(&mut self) {
+        if let Some(events) = self.musicxml_events.take() {
+            // Debug: Count captured events by type
+            let note_on_count = events.iter().filter(|(_, e)| matches!(e, AudioEvent::NoteOn { .. })).count();
+            let note_off_count = events.iter().filter(|(_, e)| matches!(e, AudioEvent::NoteOff { .. })).count();
+            eprintln!("MusicXML recorder: Captured {} NoteOn events, {} NoteOff events (total {} events)",
+                     note_on_count, note_off_count, events.len());
+
+            let xml = harmonium_core::export::to_musicxml(
+                &events,
+                &self.musicxml_params,
+                1,  // Dummy value - no longer used for conversion with step-based events
+            );
             if let Ok(mut queue) = self.finished_recordings.lock() {
-                queue.push((RecordFormat::Abc, data));
+                queue.push((RecordFormat::MusicXml, xml.into_bytes()));
             }
         }
     }
 
-    fn samples_to_ticks(&self, samples: u64) -> u32 {
-        if self.current_samples_per_step == 0 { return 0; }
+    fn steps_to_ticks(&self, steps: f64) -> u32 {
         // 1 step = 1/4 beat (16th note)
-        // ticks per beat = 480
-        // ticks per step = 120
-        ((samples as f64 * 120.0) / self.current_samples_per_step as f64) as u32
+        // Standard MIDI: 480 ticks per quarter note
+        // Therefore: 120 ticks per step
+        (steps * 120.0).round() as u32
     }
 }
 
@@ -157,43 +186,38 @@ impl AudioRenderer for RecorderBackend {
                 match format {
                     RecordFormat::Wav => self.start_wav(),
                     RecordFormat::Midi => self.start_midi(),
-                    RecordFormat::Abc => self.start_abc(),
+                    RecordFormat::MusicXml => self.start_musicxml(),
                 }
             },
             AudioEvent::StopRecording { format } => {
                 match format {
                     RecordFormat::Wav => self.stop_wav(),
                     RecordFormat::Midi => self.stop_midi(),
-                    RecordFormat::Abc => self.stop_abc(),
+                    RecordFormat::MusicXml => self.stop_musicxml(),
                 }
             },
             AudioEvent::TimingUpdate { samples_per_step } => {
                 self.current_samples_per_step = *samples_per_step;
-                if let Some(abc) = &mut self.abc_backend {
-                    abc.handle_event(event.clone());
-                }
+            },
+            AudioEvent::UpdateMusicalParams { params } => {
+                self.musicxml_params = *params.clone();
             },
             AudioEvent::NoteOn { .. } | AudioEvent::NoteOff { .. } => {
-                // Capture MIDI
-                let _delta = self.samples_to_ticks(self.midi_samples_since_last);
-                if let Some(_track) = &mut self.midi_track {
-                    // ... existing MIDI logic ...
-                }
-                
-                // Capture ABC
-                if let Some(abc) = &mut self.abc_backend {
-                    abc.handle_event(event.clone());
+                // Capture MusicXML with step timestamp
+                if let Some(events) = &mut self.musicxml_events {
+                    events.push((self.musicxml_steps_elapsed, event.clone()));
                 }
             },
             _ => {}
         }
-        
-        // Re-implement MIDI logic because I can't use ...existing code... inside the match arm easily without context
+
+        // MIDI recording logic - convert step delta to ticks
         match &event {
              AudioEvent::NoteOn { note, velocity, channel } => {
-                let delta = self.samples_to_ticks(self.midi_samples_since_last);
+                // Compute delta before mutable borrow
+                let delta = self.steps_to_ticks(self.midi_steps_since_last);
                 if let Some(track) = &mut self.midi_track {
-                    self.midi_samples_since_last = 0;
+                    self.midi_steps_since_last = 0.0;  // Reset to 0.0
                     track.push(TrackEvent {
                         delta: delta.into(),
                         kind: TrackEventKind::Midi {
@@ -204,9 +228,10 @@ impl AudioRenderer for RecorderBackend {
                 }
             },
             AudioEvent::NoteOff { note, channel } => {
-                let delta = self.samples_to_ticks(self.midi_samples_since_last);
+                // Compute delta before mutable borrow
+                let delta = self.steps_to_ticks(self.midi_steps_since_last);
                 if let Some(track) = &mut self.midi_track {
-                    self.midi_samples_since_last = 0;
+                    self.midi_steps_since_last = 0.0;  // Reset to 0.0
                     track.push(TrackEvent {
                         delta: delta.into(),
                         kind: TrackEventKind::Midi {
@@ -224,22 +249,30 @@ impl AudioRenderer for RecorderBackend {
 
     fn process_buffer(&mut self, output: &mut [f32], channels: usize) {
         self.inner.process_buffer(output, channels);
-        
+
         // Capture WAV
         if let Some(writer) = &mut self.wav_writer {
             for sample in output.iter() {
                 writer.write_sample(*sample).ok();
             }
         }
-        
-        // Advance MIDI time
-        if self.midi_track.is_some() {
-            self.midi_samples_since_last += (output.len() / channels) as u64;
-        }
-        
-        // Advance ABC time
-        if let Some(abc) = &mut self.abc_backend {
-            abc.process_buffer(output, channels);
+
+        // Integrate samples → steps continuously
+        // This is where tempo-awareness happens: when samples_per_step changes (tempo change),
+        // the next buffer adds steps at a different rate, but accumulated history is preserved.
+        if self.current_samples_per_step > 0 {
+            let frames = (output.len() / channels) as f64;
+            let steps_in_buffer = frames / self.current_samples_per_step as f64;
+
+            // Advance MIDI time (steps)
+            if self.midi_track.is_some() {
+                self.midi_steps_since_last += steps_in_buffer;
+            }
+
+            // Advance MusicXML time (steps)
+            if self.musicxml_events.is_some() {
+                self.musicxml_steps_elapsed += steps_in_buffer;
+            }
         }
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }

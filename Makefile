@@ -15,10 +15,16 @@ PLUGINVAL := /Applications/pluginval.app/Contents/MacOS/pluginval
 # ════════════════════════════════════════════════════════════════════
 
 run:
+	cargo run -p harmonium --release -- $(ARGS)
+
+run/debug:
 	cargo run -p harmonium -- $(ARGS)
 
 test:
 	cargo test --lib
+
+test/sheet:
+	cargo test -p harmonium_core --test music_generation_tests generate_all_music_tests -- --ignored --nocapture
 
 # ════════════════════════════════════════════════════════════════════
 # VST / CLAP PLUGIN

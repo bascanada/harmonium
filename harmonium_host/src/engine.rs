@@ -14,7 +14,6 @@ use arrayvec::ArrayString;
 use rand::Rng;
 use rust_music_theory::note::PitchSymbol;
 use rust_music_theory::scale::ScaleType;
-use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use triple_buffer::Output;
 
@@ -69,7 +68,7 @@ pub struct HarmoniumEngine {
     // Recording State Tracking
     is_recording_wav: bool,
     is_recording_midi: bool,
-    is_recording_abc: bool,
+    is_recording_musicxml: bool,
 
     // Mute State Tracking
     last_muted_channels: Vec<bool>,
@@ -210,7 +209,7 @@ impl HarmoniumEngine {
             control_mode,
             is_recording_wav: false,
             is_recording_midi: false,
-            is_recording_abc: false,
+            is_recording_musicxml: false,
             last_muted_channels: vec![false; 16],
             // Phase 2.5: Pre-allocate with capacity for typical number of events per tick
             events_buffer: Vec::with_capacity(8),
@@ -450,15 +449,19 @@ impl HarmoniumEngine {
             }
         }
 
-        if mp.record_abc != self.is_recording_abc {
-            self.is_recording_abc = mp.record_abc;
-            if self.is_recording_abc {
+        if mp.record_musicxml != self.is_recording_musicxml {
+            self.is_recording_musicxml = mp.record_musicxml;
+            if self.is_recording_musicxml {
+                // Send musical params through event system for accurate export metadata
+                self.renderer.handle_event(AudioEvent::UpdateMusicalParams {
+                    params: Box::new(mp.clone())
+                });
                 self.renderer.handle_event(AudioEvent::StartRecording {
-                    format: harmonium_core::events::RecordFormat::Abc,
+                    format: harmonium_core::events::RecordFormat::MusicXml,
                 });
             } else {
                 self.renderer.handle_event(AudioEvent::StopRecording {
-                    format: harmonium_core::events::RecordFormat::Abc,
+                    format: harmonium_core::events::RecordFormat::MusicXml,
                 });
             }
         }
@@ -496,6 +499,12 @@ impl HarmoniumEngine {
                 self.renderer.handle_event(AudioEvent::TimingUpdate {
                     samples_per_step: new_samples_per_step,
                 });
+                // Send updated musical params if recording is active
+                if self.is_recording_musicxml || self.is_recording_midi {
+                    self.renderer.handle_event(AudioEvent::UpdateMusicalParams {
+                        params: Box::new(self.musical_params.clone())
+                    });
+                }
             }
             return; // Skip sequencer logic when rhythm disabled
         }
@@ -581,6 +590,12 @@ impl HarmoniumEngine {
             self.renderer.handle_event(AudioEvent::TimingUpdate {
                 samples_per_step: new_samples_per_step,
             });
+            // Send updated musical params if recording is active
+            if self.is_recording_musicxml || self.is_recording_midi {
+                self.renderer.handle_event(AudioEvent::UpdateMusicalParams {
+                    params: Box::new(self.musical_params.clone())
+                });
+            }
         }
     }
 

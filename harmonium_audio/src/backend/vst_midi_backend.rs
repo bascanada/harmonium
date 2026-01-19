@@ -150,8 +150,14 @@ impl AudioRenderer for VstMidiBackend {
             AudioEvent::LoadFont { .. } | AudioEvent::LoadOdinPreset { .. } => {
                 // No fonts or presets needed for MIDI output
             }
+            AudioEvent::UpdateMusicalParams { .. } => {
+                // Ignore - only RecorderBackend needs this
+            }
             AudioEvent::StartRecording { .. } | AudioEvent::StopRecording { .. } => {
                 // Recording is handled by the DAW
+            }
+            _ => {
+                // Ignore other events (like LoadOdinPreset) for VST MIDI backend
             }
         }
     }

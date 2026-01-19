@@ -345,6 +345,10 @@ impl AudioRenderer for Odin2Backend {
                 self.samples_per_step = samples_per_step;
             }
 
+            AudioEvent::UpdateMusicalParams { .. } => {
+                // Ignore - only RecorderBackend needs this
+            }
+
             AudioEvent::ControlChange { ctrl: _, value: _, channel } => {
                 let inst = InstrumentType::from_channel(channel);
                  if let Some(_engine) = &mut self.engines[inst.index()] {

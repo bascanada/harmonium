@@ -44,6 +44,9 @@ console_error_panic_hook = { version = "0.1", optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
 js-sys = { version = "0.3", optional = true }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ctrlc = "3.4"
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # TODO: Remove dual getrandom dependency once tokenizers updates to rand 0.9.
 # tokenizers uses rand 0.8 -> getrandom 0.2 (needs "js" feature)
