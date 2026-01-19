@@ -501,16 +501,16 @@ impl HarmonyNavigator {
         // === CAS 1: TONIQUE (La maison - affirmer l'accord, pas stagner!) ===
         if is_tonic {
             if is_strong_beat {
-                // ANTI-ARPEGGIATOR: Boost stepwise motion, reduce leaps
-                // OLD: Arpeggio-focused (vec![0, 2, 4, -3, octave_jump, -octave_jump], vec![10, 30, 25, 15, 10, 10])
-                // NEW: Stepwise-dominant (±1 gets 70% of weight)
+                // ANTI-ARPEGGIATOR & SUSTAINER
+                // Increased '0' weight from 5 → 25 to allow holding the Tonic (Stability)
+                // Reduced ±1 from 35→30 each to keep total = 100 (still 60% stepwise)
                 (vec![0, 1, -1, 2, 4, -3, octave_jump, -octave_jump],
-                 vec![5, 35, 35, 15, 10, 5, 5, 5])
+                 vec![25, 30, 30, 8, 3, 2, 1, 1])
             } else {
-                // Temps faible: already stepwise-dominant, just boost ±1 more
-                // OLD: (vec![1, -1, 2, -2, 0], vec![30, 30, 15, 15, 10])
+                // Weak beat: High chance to hold note (creates syncopation)
+                // Increased '0' from 5 → 30 for syncopated rhythms
                 (vec![1, -1, 2, -2, 0],
-                 vec![40, 40, 10, 5, 5])
+                 vec![33, 33, 2, 2, 30])
             }
         }
         // === CAS 2: SENSIBLE (7ème degré) - TRES forte attraction ===
@@ -521,15 +521,16 @@ impl HarmonyNavigator {
         // === CAS 3: AUTRES NOTES D'ACCORD (Tierce, Quinte) ===
         else if is_chord_tone {
             if is_strong_beat {
-                // ANTI-ARPEGGIATOR: Prioritize steps over arpeggios
-                // OLD: Arpeggio-focused (vec![0, -2, 2, -4, 1, -1], vec![10, 30, 30, 10, 10, 10])
-                // NEW: Stepwise-dominant (±1 gets 80% of weight)
+                // ANTI-ARPEGGIATOR & SUSTAINER
+                // Increased '0' from 5 → 20 (slightly less than tonic for variety)
+                // Stepwise motion still dominates at 78% (±1 = 39 each)
                 (vec![0, 1, -1, -2, 2, -4],
-                 vec![5, 40, 40, 5, 5, 5])
+                 vec![20, 39, 39, 1, 1, 0])
             } else {
-                // Mouvement par notes de passage - already optimal
+                // Weak beat: Hold note for sustained phrasing
+                // Increased '0' from 5 → 25
                 (vec![1, -1, 2, -2, 0],
-                 vec![40, 40, 10, 5, 5])
+                 vec![38, 35, 2, 0, 25])
             }
         }
         // === CAS 4: NOTES DE PASSAGE (Instables - doivent résoudre) ===
@@ -582,18 +583,27 @@ mod tests {
         let navigator = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, 4);
         let (steps, weights) = navigator.get_weighted_steps(0, true);
 
-        // Sur tonique + temps fort: MOUVEMENT favorisé (arpège) plutôt qu'immobilité
-        // Les sauts d'arpège (+2 tierce, +4 quinte) doivent avoir plus de poids que "0"
+        // NEW DESIGN: Sustain is now a feature (20-30%) for variable note lengths
+        // Stepwise motion should still dominate (±1 >= 50%)
+        // Not pure stasis (some movement must occur)
         let stay_weight = steps.iter().position(|&s| s == 0).map(|i| weights[i]).unwrap_or(0);
-        let arpeggiate_weight: u32 = steps.iter()
+        let stepwise_weight: u32 = steps.iter()
             .enumerate()
-            .filter(|&(_, &s)| s == 2 || s == 4)
+            .filter(|&(_, &s)| s.abs() == 1)
             .map(|(i, _)| weights[i])
             .sum();
+        let total: u32 = weights.iter().sum();
 
-        assert!(arpeggiate_weight > stay_weight,
-                "Les arpèges ({}) doivent dominer l'immobilité ({})",
-                arpeggiate_weight, stay_weight);
+        // Sustain should be significant (20-30%)
+        assert!(stay_weight >= 20 && stay_weight <= 30,
+                "Sustain weight should be 20-30%, got {}%", stay_weight);
+
+        // Stepwise motion should dominate (>=50%)
+        assert!(stepwise_weight >= 50,
+                "Stepwise motion (±1) should be >=50%, got {}%", stepwise_weight);
+
+        // Weights should sum to 100
+        assert_eq!(total, 100, "Total weights should equal 100, got {}", total);
     }
 
     #[test]
@@ -1019,13 +1029,13 @@ mod tests {
         let mut nav = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, 4);
 
         // Generate events and check legato usage
-        let mut had_legato = false;
+        let mut _had_legato = false;
         let mut had_noteon = false;
 
         for i in 0..50 {
             let event = nav.next_melodic_event(i % 4 == 0, i % 16 == 0);
             match event {
-                MelodicEvent::Legato { .. } => had_legato = true,
+                MelodicEvent::Legato { .. } => _had_legato = true,
                 MelodicEvent::NoteOn { .. } => had_noteon = true,
                 MelodicEvent::Rest => {}
             }
@@ -1035,5 +1045,222 @@ mod tests {
         assert!(had_noteon, "Should generate NoteOn events");
         // Legato is less common, so it might not always appear
         // Just verify the logic doesn't crash
+    }
+
+    #[test]
+    fn test_sustain_weight_increased() {
+        let mut nav = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, 4);
+        nav.set_chord_context(0, ChordQuality::Major);
+
+        // Count sustain (step 0) occurrences on tonic strong beat
+        let mut sustains = 0;
+        let mut total = 0;
+
+        for _ in 0..200 {
+            nav.current_index = 0; // Force tonic
+            let (steps, weights) = nav.get_weighted_steps(0, true);
+
+            let dist = WeightedIndex::new(&weights).unwrap();
+            let chosen_step = steps[dist.sample(&mut rand::thread_rng())];
+
+            if chosen_step == 0 {
+                sustains += 1;
+            }
+            total += 1;
+        }
+
+        let sustain_ratio = sustains as f32 / total as f32;
+        assert!(sustain_ratio >= 0.20 && sustain_ratio <= 0.35,
+                "Sustain (step 0) should occur 20-30% of time on tonic strong beat, got {:.1}%",
+                sustain_ratio * 100.0);
+    }
+
+    #[test]
+    fn test_weak_beat_sustain_increased() {
+        let mut nav = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, 4);
+        nav.set_chord_context(0, ChordQuality::Major);
+
+        // Count sustain (step 0) on tonic weak beat (should be even higher ~30%)
+        let mut sustains = 0;
+        let mut total = 0;
+
+        for _ in 0..200 {
+            nav.current_index = 0; // Force tonic
+            let (steps, weights) = nav.get_weighted_steps(0, false);
+
+            let dist = WeightedIndex::new(&weights).unwrap();
+            let chosen_step = steps[dist.sample(&mut rand::thread_rng())];
+
+            if chosen_step == 0 {
+                sustains += 1;
+            }
+            total += 1;
+        }
+
+        let sustain_ratio = sustains as f32 / total as f32;
+        // Statistical variance with 200 samples means we need 23-40% range (target is 30%)
+        assert!(sustain_ratio >= 0.23 && sustain_ratio <= 0.40,
+                "Sustain on weak beat should occur 23-40% of time, got {:.1}%",
+                sustain_ratio * 100.0);
+    }
+
+    /// Integration test: Verify that melody generator produces multi-step note sequences
+    /// This tests that the same frequency occurs consecutively, creating sustained notes
+    #[test]
+    fn test_melody_produces_sustained_note_sequences() {
+        let mut nav = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, 4);
+        nav.set_chord_context(0, ChordQuality::Major);
+
+        let mut note_sequence = Vec::new();
+        for i in 0..64 {
+            let event = nav.next_melodic_event(i % 4 == 0, i % 16 == 0);
+            if let Some(freq) = event.frequency() {
+                note_sequence.push(freq);
+            } else {
+                note_sequence.push(0.0); // Rest = 0Hz
+            }
+        }
+
+        // Count consecutive same-frequency sequences (sustained notes)
+        let mut sustained_sequences = 0;
+        let mut i = 0;
+        while i < note_sequence.len() - 1 {
+            if note_sequence[i] > 0.0 && note_sequence[i] == note_sequence[i + 1] {
+                sustained_sequences += 1;
+                // Skip to next different note
+                while i < note_sequence.len() - 1 && note_sequence[i] == note_sequence[i + 1] {
+                    i += 1;
+                }
+            }
+            i += 1;
+        }
+
+        // Should have multiple sustained sequences (not changing pitch every step)
+        // Note: Statistical variation means this isn't exact, but should be >= 5
+        assert!(sustained_sequences >= 5,
+                "Should have at least 5 sustained note sequences in 64 steps, got {}",
+                sustained_sequences);
+    }
+
+    /// Integration test: Verify that Legato events occur when note repeats
+    /// This ensures the melody generator emits Legato (not NoteOn) for sustained notes
+    #[test]
+    fn test_legato_events_for_repeated_notes() {
+        let mut nav = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, 4);
+        nav.set_chord_context(0, ChordQuality::Major);
+
+        let mut legato_count = 0;
+        let mut noteon_count = 0;
+        let mut rest_count = 0;
+        let mut prev_freq: Option<f32> = None;
+
+        for i in 0..100 {
+            let event = nav.next_melodic_event(i % 4 == 0, i % 16 == 0);
+
+            match event {
+                MelodicEvent::Legato { frequency } => {
+                    legato_count += 1;
+                    // Legato is used for:
+                    // 1. Same note (step 0) - true sustain
+                    // 2. Small steps (±1 semitone, ≈ 6% freq change) in motif repetition
+                    // Don't assert specific frequency relationship here - just count occurrences
+                    prev_freq = Some(frequency);
+                }
+                MelodicEvent::NoteOn { frequency } => {
+                    noteon_count += 1;
+                    prev_freq = Some(frequency);
+                }
+                MelodicEvent::Rest => {
+                    rest_count += 1;
+                    prev_freq = None;
+                }
+            }
+        }
+
+        // Should have a mix of all three event types
+        assert!(legato_count > 0, "Should generate Legato events for sustained notes");
+        assert!(noteon_count > 0, "Should generate NoteOn events for new notes");
+        assert!(rest_count > 0, "Should generate Rest events for breathing");
+
+        // Legato should be less common than NoteOn (used for smooth transitions)
+        // But not extremely rare (should happen when notes sustain)
+        let legato_ratio = legato_count as f32 / (legato_count + noteon_count) as f32;
+        assert!(legato_ratio >= 0.05 && legato_ratio <= 0.40,
+                "Legato ratio should be 5-40%, got {:.1}% ({} legato, {} noteon)",
+                legato_ratio * 100.0, legato_count, noteon_count);
+    }
+
+    /// Integration test: Verify note duration distribution in generated sequence
+    /// This checks that we get variable note lengths (not all 16th notes)
+    #[test]
+    fn test_note_duration_distribution() {
+        let mut nav = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, 4);
+        nav.set_chord_context(0, ChordQuality::Major);
+
+        let mut note_durations = Vec::new();
+        let mut current_freq: Option<f32> = None;
+        let mut current_duration = 0;
+
+        // Use larger sample (256) for better statistical convergence
+        for i in 0..256 {
+            let event = nav.next_melodic_event(i % 4 == 0, i % 16 == 0);
+
+            match event.frequency() {
+                Some(freq) => {
+                    if let Some(prev) = current_freq {
+                        if (freq - prev).abs() < 0.1 {
+                            // Same note continuing
+                            current_duration += 1;
+                        } else {
+                            // Different note: record previous duration
+                            if current_duration > 0 {
+                                note_durations.push(current_duration);
+                            }
+                            current_freq = Some(freq);
+                            current_duration = 1;
+                        }
+                    } else {
+                        // First note or after rest
+                        current_freq = Some(freq);
+                        current_duration = 1;
+                    }
+                }
+                None => {
+                    // Rest: record previous duration if any
+                    if current_duration > 0 {
+                        note_durations.push(current_duration);
+                    }
+                    current_freq = None;
+                    current_duration = 0;
+                }
+            }
+        }
+
+        // Record final note if any
+        if current_duration > 0 {
+            note_durations.push(current_duration);
+        }
+
+        // Must have generated notes
+        assert!(!note_durations.is_empty(), "Should generate notes");
+
+        // Count distribution
+        let _single_step = note_durations.iter().filter(|&&d| d == 1).count();
+        let multi_step = note_durations.iter().filter(|&&d| d > 1).count();
+        let long_notes = note_durations.iter().filter(|&&d| d >= 3).count();
+
+        // Should NOT be all 16th notes (single step)
+        // Note: Probabilistic generation means this varies significantly
+        // Threshold of 10% accounts for statistical variation while still detecting "machine gun" bug
+        let multi_step_ratio = multi_step as f32 / note_durations.len() as f32;
+        assert!(multi_step_ratio >= 0.10,
+                "At least 10% of notes should be multi-step (sustained), got {:.1}% ({} multi / {} total)",
+                multi_step_ratio * 100.0, multi_step, note_durations.len());
+
+        // Should have some longer notes (3+ steps = dotted 8th or longer)
+        // Statistical variation means not every run will hit 3, use >= 2 as minimum
+        assert!(long_notes >= 2,
+                "Should have at least 2 notes lasting 3+ steps (dotted 8th/quarter), got {}",
+                long_notes);
     }
 }

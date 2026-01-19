@@ -854,9 +854,17 @@ impl HarmoniumEngine {
                 }
 
                 MelodicEvent::Legato { frequency } => {
-                    // SIMPLIFIED APPROACH: Treat as soft NoteOn
-                    // (True portamento requires synth-specific implementation)
+                    // Calculate target MIDI note
                     let melody_midi = (69.0_f32 + 12.0_f32 * (frequency / 440.0_f32).log2()).round() as u8;
+
+                    // TRUE SUSTAIN CHECK: If we're already playing this exact note, DO NOTHING
+                    // This allows the envelope to continue without re-triggering (Quarter/Half note)
+                    if self.active_lead_notes.contains(&melody_midi) {
+                        // Note is already ringing - let it sustain naturally
+                        return;
+                    }
+
+                    // Note changed: Perform legato transition (soft attack)
                     let base_vel = ((90 + (self.current_state.arousal * 30.0) as u8) as f32 * 0.85) as u8;
 
                     // Phase 2: Read from local cache (no lock needed)
