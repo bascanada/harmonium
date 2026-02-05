@@ -1,8 +1,8 @@
 //! Module Harmonique Unifié - Harmonium
 //!
 //! Ce module contient toute la logique harmonique:
-//! - `basic`: Système BasicHarmony (quadrants émotionnels Russell)
-//! - `melody`: HarmonyNavigator (génération mélodique Markov+Fractal)
+//! - `basic`: Système `BasicHarmony` (quadrants émotionnels Russell)
+//! - `melody`: `HarmonyNavigator` (génération mélodique Markov+Fractal)
 //! - `chord`: Représentation enrichie des accords
 //! - `lydian_chromatic`: Lydian Chromatic Concept (12 niveaux)
 //! - `neo_riemannian`: Transformations P, L, R (triades uniquement)
@@ -10,35 +10,34 @@
 //! - `steedman_grammar`: Grammaire générative de progressions
 //! - `pivot`: Système de transition entre stratégies
 //! - `voice_leading`: Optimisation du voice-leading
-//! - `driver`: HarmonicDriver (orchestrateur principal)
+//! - `driver`: `HarmonicDriver` (orchestrateur principal)
 
-pub mod melody;
 pub mod basic;
 pub mod chord;
+pub mod driver;
 pub mod lydian_chromatic;
+pub mod melody;
 pub mod neo_riemannian;
 pub mod parsimonious;
-pub mod steedman_grammar;
 pub mod pivot;
+pub mod steedman_grammar;
 pub mod voice_leading;
-pub mod driver;
 
 // Re-exports pour compatibilité
-pub use melody::HarmonyNavigator;
-pub use basic::{Progression, ChordStep, ChordQuality};
+pub use basic::{ChordQuality, ChordStep, Progression};
 pub use chord::{Chord, ChordType, PitchClass};
 pub use driver::HarmonicDriver;
-pub use parsimonious::{ParsimoniousDriver, TRQ, Neighbor, ParsimoniousTransform};
-
+pub use melody::HarmonyNavigator;
+pub use parsimonious::{Neighbor, ParsimoniousDriver, ParsimoniousTransform, TRQ};
 use rand::Rng;
 
 /// Mode d'harmonie sélectionné
-#[derive(Clone, Copy, Debug, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum HarmonyMode {
-    /// Système BasicHarmony basé sur les quadrants émotionnels (Russell Circumplex)
+    /// Système `BasicHarmony` basé sur les quadrants émotionnels (Russell Circumplex)
     #[default]
     Basic,
-    /// HarmonicDriver avancé (Steedman + Neo-Riemannian + LCC)
+    /// `HarmonicDriver` avancé (Steedman + Neo-Riemannian + LCC)
     Driver,
 }
 
@@ -84,7 +83,7 @@ pub struct HarmonyDecision {
 }
 
 /// Type de transition entre accords
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TransitionType {
     /// Harmonie fonctionnelle (Steedman): V->I, ii-V, etc.
     Functional,
@@ -97,12 +96,13 @@ pub enum TransitionType {
 }
 
 impl TransitionType {
-    pub fn name(&self) -> &'static str {
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
         match self {
-            TransitionType::Functional => "Functional",
-            TransitionType::Transformational => "Transformational",
-            TransitionType::Pivot => "Pivot",
-            TransitionType::Static => "Static",
+            Self::Functional => "Functional",
+            Self::Transformational => "Transformational",
+            Self::Pivot => "Pivot",
+            Self::Static => "Static",
         }
     }
 }

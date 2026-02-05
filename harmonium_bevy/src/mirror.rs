@@ -1,10 +1,8 @@
 use bevy::prelude::*;
+use harmonium_core::{harmony::HarmonyMode, params::EngineParams, sequencer::RhythmMode};
 use serde::{Deserialize, Serialize};
-use harmonium_core::sequencer::RhythmMode;
-use harmonium_core::harmony::HarmonyMode;
-use harmonium_core::params::EngineParams;
 
-/// Bevy-compatible mirror of core RhythmMode
+/// Bevy-compatible mirror of core `RhythmMode`
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Reflect, Serialize, Deserialize)]
 pub enum BevyRhythmMode {
     #[default]
@@ -16,9 +14,9 @@ pub enum BevyRhythmMode {
 impl From<BevyRhythmMode> for RhythmMode {
     fn from(mode: BevyRhythmMode) -> Self {
         match mode {
-            BevyRhythmMode::Euclidean => RhythmMode::Euclidean,
-            BevyRhythmMode::PerfectBalance => RhythmMode::PerfectBalance,
-            BevyRhythmMode::ClassicGroove => RhythmMode::ClassicGroove,
+            BevyRhythmMode::Euclidean => Self::Euclidean,
+            BevyRhythmMode::PerfectBalance => Self::PerfectBalance,
+            BevyRhythmMode::ClassicGroove => Self::ClassicGroove,
         }
     }
 }
@@ -26,14 +24,14 @@ impl From<BevyRhythmMode> for RhythmMode {
 impl From<RhythmMode> for BevyRhythmMode {
     fn from(mode: RhythmMode) -> Self {
         match mode {
-            RhythmMode::Euclidean => BevyRhythmMode::Euclidean,
-            RhythmMode::PerfectBalance => BevyRhythmMode::PerfectBalance,
-            RhythmMode::ClassicGroove => BevyRhythmMode::ClassicGroove,
+            RhythmMode::Euclidean => Self::Euclidean,
+            RhythmMode::PerfectBalance => Self::PerfectBalance,
+            RhythmMode::ClassicGroove => Self::ClassicGroove,
         }
     }
 }
 
-/// Bevy-compatible mirror of core HarmonyMode
+/// Bevy-compatible mirror of core `HarmonyMode`
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Reflect, Serialize, Deserialize)]
 pub enum BevyHarmonyMode {
     #[default]
@@ -44,8 +42,8 @@ pub enum BevyHarmonyMode {
 impl From<BevyHarmonyMode> for HarmonyMode {
     fn from(mode: BevyHarmonyMode) -> Self {
         match mode {
-            BevyHarmonyMode::Basic => HarmonyMode::Basic,
-            BevyHarmonyMode::Driver => HarmonyMode::Driver,
+            BevyHarmonyMode::Basic => Self::Basic,
+            BevyHarmonyMode::Driver => Self::Driver,
         }
     }
 }
@@ -53,13 +51,13 @@ impl From<BevyHarmonyMode> for HarmonyMode {
 impl From<HarmonyMode> for BevyHarmonyMode {
     fn from(mode: HarmonyMode) -> Self {
         match mode {
-            HarmonyMode::Basic => BevyHarmonyMode::Basic,
-            HarmonyMode::Driver => BevyHarmonyMode::Driver,
+            HarmonyMode::Basic => Self::Basic,
+            HarmonyMode::Driver => Self::Driver,
         }
     }
 }
 
-/// Bevy-compatible mirror of EngineParams
+/// Bevy-compatible mirror of `EngineParams`
 /// This allows full editing in Bevy Inspector
 #[derive(Clone, Debug, Reflect, Serialize, Deserialize)]
 pub struct BevyEngineParams {
@@ -68,13 +66,13 @@ pub struct BevyEngineParams {
     pub density: f32,
     pub tension: f32,
     pub smoothness: f32,
-    
+
     pub algorithm: BevyRhythmMode,
     // Note: complex types like Vec might need deeper mirroring or wrapping if they are specific types
     // but Vec<i32> and Vec<bool> are fine.
     pub channel_routing: Vec<i32>,
     pub muted_channels: Vec<bool>,
-    
+
     pub harmony_mode: BevyHarmonyMode,
 
     pub record_wav: bool,
@@ -82,7 +80,7 @@ pub struct BevyEngineParams {
     pub record_musicxml: bool,
 
     pub enable_synthesis_morphing: bool,
-    
+
     pub gain_lead: f32,
     pub gain_bass: f32,
     pub gain_snare: f32,
@@ -125,7 +123,7 @@ impl Default for BevyEngineParams {
 
 impl From<BevyEngineParams> for EngineParams {
     fn from(params: BevyEngineParams) -> Self {
-        EngineParams {
+        Self {
             arousal: params.arousal,
             valence: params.valence,
             density: params.density,
@@ -153,7 +151,7 @@ impl From<BevyEngineParams> for EngineParams {
 
 impl From<EngineParams> for BevyEngineParams {
     fn from(params: EngineParams) -> Self {
-        BevyEngineParams {
+        Self {
             arousal: params.arousal,
             valence: params.valence,
             density: params.density,

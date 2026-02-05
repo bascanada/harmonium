@@ -8,10 +8,13 @@
 //!
 //! Basé sur les travaux de Dmitri Tymoczko sur la géométrie des espaces d'accords.
 
-use super::chord::{Chord, ChordType, PitchClass};
-use super::lydian_chromatic::LydianChromaticConcept;
-use super::{HarmonyContext, HarmonyDecision, HarmonyStrategy, RngCore, TransitionType};
 use std::sync::Arc;
+
+use super::{
+    HarmonyContext, HarmonyDecision, HarmonyStrategy, RngCore, TransitionType,
+    chord::{Chord, ChordType, PitchClass},
+    lydian_chromatic::LydianChromaticConcept,
+};
 
 /// Mouvement maximum de voix en demi-tons pour le mouvement parsimonieux
 pub const MAX_SEMITONE_MOVEMENT: u8 = 2;
@@ -29,19 +32,19 @@ pub struct TRQ {
 }
 
 impl TRQ {
-    pub fn new(tension: f32, release: f32) -> Self {
-        Self {
-            tension: tension.clamp(0.0, 1.0),
-            release: release.clamp(0.0, 1.0),
-        }
+    #[must_use]
+    pub const fn new(tension: f32, release: f32) -> Self {
+        Self { tension: tension.clamp(0.0, 1.0), release: release.clamp(0.0, 1.0) }
     }
 
     /// Tension nette (positive = tendu, négative = détendu)
+    #[must_use]
     pub fn net(&self) -> f32 {
         self.tension - self.release
     }
 
     /// Calcule le TRQ pour une transition d'accord
+    #[must_use]
     pub fn for_transition(from: &Chord, to: &Chord) -> Self {
         // Facteurs de tension:
         // - Le mouvement chromatique augmente la tension
@@ -107,7 +110,7 @@ pub enum ParsimoniousTransform {
 
 /// Le moteur de Voice-Leading Parsimonieux
 ///
-/// Contrairement au NeoRiemannianEngine qui utilise des tables de lookup
+/// Contrairement au `NeoRiemannianEngine` qui utilise des tables de lookup
 /// pré-calculées, ce moteur explore dynamiquement l'espace des accords
 /// pour trouver les voisins les plus proches.
 pub struct ParsimoniousDriver {
@@ -117,7 +120,7 @@ pub struct ParsimoniousDriver {
     max_movement: u8,
     /// Activer le morphing de cardinalité
     allow_cardinality_morph: bool,
-    /// Seuil TRQ pour la sélection (préfère les voisins avec TRQ.net() < seuil)
+    /// Seuil TRQ pour la sélection (préfère les voisins avec `TRQ.net()` < seuil)
     trq_threshold: f32,
 }
 
@@ -128,7 +131,8 @@ impl Default for ParsimoniousDriver {
 }
 
 impl ParsimoniousDriver {
-    pub fn new(lcc: Arc<LydianChromaticConcept>) -> Self {
+    #[must_use]
+    pub const fn new(lcc: Arc<LydianChromaticConcept>) -> Self {
         Self {
             lcc,
             max_movement: MAX_SEMITONE_MOVEMENT,
@@ -138,19 +142,22 @@ impl ParsimoniousDriver {
     }
 
     /// Définit le mouvement maximum par voix
+    #[must_use]
     pub fn with_max_movement(mut self, semitones: u8) -> Self {
         self.max_movement = semitones.min(3);
         self
     }
 
     /// Active/désactive le morphing de cardinalité
-    pub fn with_cardinality_morph(mut self, enabled: bool) -> Self {
+    #[must_use]
+    pub const fn with_cardinality_morph(mut self, enabled: bool) -> Self {
         self.allow_cardinality_morph = enabled;
         self
     }
 
     /// Définit le seuil TRQ pour la sélection
-    pub fn with_trq_threshold(mut self, threshold: f32) -> Self {
+    #[must_use]
+    pub const fn with_trq_threshold(mut self, threshold: f32) -> Self {
         self.trq_threshold = threshold;
         self
     }
@@ -159,6 +166,7 @@ impl ParsimoniousDriver {
     ///
     /// C'est le cœur de l'algorithme: au lieu de suivre des rails prédéfinis (P, L, R),
     /// on explore l'espace des accords pour trouver les voisins les plus proches.
+    #[must_use]
     pub fn find_neighbors(&self, chord: &Chord) -> Vec<Neighbor> {
         let mut neighbors = Vec::new();
         let current_pcs = chord.pitch_classes();
@@ -324,7 +332,9 @@ impl ParsimoniousDriver {
         // Déterminer les contractions valides
         let contractions: Vec<ChordType> = match original.chord_type {
             ChordType::Major7 | ChordType::Dominant7 | ChordType::Major6 => vec![ChordType::Major],
-            ChordType::Minor7 | ChordType::MinorMajor7 | ChordType::Minor6 => vec![ChordType::Minor],
+            ChordType::Minor7 | ChordType::MinorMajor7 | ChordType::Minor6 => {
+                vec![ChordType::Minor]
+            }
             ChordType::HalfDiminished | ChordType::Diminished7 => vec![ChordType::Diminished],
             ChordType::Augmented7 => vec![ChordType::Augmented],
             ChordType::Dominant7Sus4 => vec![ChordType::Sus4],
@@ -367,18 +377,13 @@ impl ParsimoniousDriver {
             neighbors.iter().collect()
         };
 
-        let candidates = if filtered.is_empty() {
-            neighbors.iter().collect::<Vec<_>>()
-        } else {
-            filtered
-        };
+        let candidates =
+            if filtered.is_empty() { neighbors.iter().collect::<Vec<_>>() } else { filtered };
 
         // Sélection aléatoire pondérée basée sur la distance de voice-leading
         // Distance plus basse = poids plus élevé
-        let total_weight: f32 = candidates
-            .iter()
-            .map(|n| 1.0 / (n.voice_leading_distance as f32 + 1.0))
-            .sum();
+        let total_weight: f32 =
+            candidates.iter().map(|n| 1.0 / (n.voice_leading_distance as f32 + 1.0)).sum();
 
         let mut choice = rng.next_f32() * total_weight;
 
@@ -395,8 +400,9 @@ impl ParsimoniousDriver {
 
     /// Trouve le chemin le plus court entre deux accords (BFS)
     ///
-    /// Similaire à find_path() de NeoRiemannianEngine mais fonctionne
+    /// Similaire à `find_path()` de `NeoRiemannianEngine` mais fonctionne
     /// avec tous les types d'accords.
+    #[must_use]
     pub fn find_path(&self, from: &Chord, to: &Chord, max_depth: usize) -> Vec<Chord> {
         use std::collections::{HashSet, VecDeque};
 
@@ -491,9 +497,9 @@ mod tests {
         assert!(neighbors.len() >= 3);
 
         // C Major -> C Minor devrait être un voisin (transformation P)
-        assert!(neighbors
-            .iter()
-            .any(|n| n.chord.root == 0 && n.chord.chord_type == ChordType::Minor));
+        assert!(
+            neighbors.iter().any(|n| n.chord.root == 0 && n.chord.chord_type == ChordType::Minor)
+        );
     }
 
     #[test]
@@ -516,12 +522,13 @@ mod tests {
         let neighbors = driver.find_neighbors(&c_major);
 
         // Devrait pouvoir s'étendre vers Cmaj7, C7, C6
-        let expansions: Vec<_> = neighbors
-            .iter()
-            .filter(|n| n.transformation == ParsimoniousTransform::CardinalityExpand)
-            .collect();
-
-        assert!(expansions.len() >= 2);
+        assert!(
+            neighbors
+                .iter()
+                .filter(|n| n.transformation == ParsimoniousTransform::CardinalityExpand)
+                .count()
+                >= 2
+        );
     }
 
     #[test]
@@ -572,8 +579,8 @@ mod tests {
         let neighbors = driver.find_neighbors(&c_major);
 
         // Aucun voisin ne devrait être l'accord lui-même
-        assert!(!neighbors
-            .iter()
-            .any(|n| n.chord.root == 0 && n.chord.chord_type == ChordType::Major));
+        assert!(
+            !neighbors.iter().any(|n| n.chord.root == 0 && n.chord.chord_type == ChordType::Major)
+        );
     }
 }

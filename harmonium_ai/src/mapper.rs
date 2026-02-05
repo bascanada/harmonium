@@ -1,4 +1,4 @@
-//! EmotionMapper - Traducteur Émotions → Paramètres Musicaux
+//! `EmotionMapper` - Traducteur Émotions → Paramètres Musicaux
 //!
 //! Ce module contient toute la logique de mapping qui était auparavant
 //! dispersée dans `update_controls()`. C'est un composant pur, sans état,
@@ -21,9 +21,10 @@
 //!              Low Arousal
 //! ```
 
-use harmonium_core::params::EngineParams;
-use harmonium_core::params::{MusicalParams, HarmonyStrategy};
-use harmonium_core::sequencer::RhythmMode;
+use harmonium_core::{
+    params::{EngineParams, HarmonyStrategy, MusicalParams},
+    sequencer::RhythmMode,
+};
 
 /// Configuration du mapper (seuils, courbes, etc.)
 #[derive(Clone, Debug)]
@@ -64,13 +65,13 @@ impl Default for EmotionMapper {
 }
 
 impl EmotionMapper {
+    #[must_use]
     pub fn new() -> Self {
-        Self {
-            config: MapperConfig::default(),
-        }
+        Self { config: MapperConfig::default() }
     }
 
-    pub fn with_config(config: MapperConfig) -> Self {
+    #[must_use]
+    pub const fn with_config(config: MapperConfig) -> Self {
         Self { config }
     }
 
@@ -78,6 +79,7 @@ impl EmotionMapper {
     ///
     /// C'est la fonction principale qui contient toute la logique de mapping.
     /// Elle est pure (pas d'effets de bord) et peut être testée unitairement.
+    #[must_use]
     pub fn map(&self, emotions: &EngineParams) -> MusicalParams {
         let mut params = MusicalParams::default();
 
@@ -86,7 +88,9 @@ impl EmotionMapper {
         // ═══════════════════════════════════════════════════════════════════
         // Faible arousal = calme = tempo lent
         // Haute arousal = excité = tempo rapide
-        params.bpm = self.config.bpm_min + (emotions.arousal * (self.config.bpm_max - self.config.bpm_min));
+        params.bpm = emotions
+            .arousal
+            .mul_add(self.config.bpm_max - self.config.bpm_min, self.config.bpm_min);
 
         // ═══════════════════════════════════════════════════════════════════
         // RYTHME: Density + Tension → Pattern
@@ -138,11 +142,12 @@ impl EmotionMapper {
         };
 
         // Vitesse de changement d'accords
-        params.harmony_measures_per_chord = if emotions.tension > self.config.fast_chord_change_threshold {
-            1 // Changement rapide
-        } else {
-            2 // Changement normal
-        };
+        params.harmony_measures_per_chord =
+            if emotions.tension > self.config.fast_chord_change_threshold {
+                1 // Changement rapide
+            } else {
+                2 // Changement normal
+            };
 
         // ═══════════════════════════════════════════════════════════════════
         // MÉLODIE: Smoothness → Hurst factor
@@ -182,19 +187,24 @@ impl EmotionMapper {
     }
 
     /// Fonction statique pour usage rapide sans instancier le mapper
+    #[must_use]
     pub fn quick_map(emotions: &EngineParams) -> MusicalParams {
-        EmotionMapper::new().map(emotions)
+        Self::new().map(emotions)
     }
 }
 
 /// Fonctions utilitaires pour le mapping
 impl EmotionMapper {
     /// Calcule le BPM depuis l'arousal (extraction de la logique)
+    #[must_use]
     pub fn arousal_to_bpm(&self, arousal: f32) -> f32 {
-        self.config.bpm_min + (arousal.clamp(0.0, 1.0) * (self.config.bpm_max - self.config.bpm_min))
+        arousal
+            .clamp(0.0, 1.0)
+            .mul_add(self.config.bpm_max - self.config.bpm_min, self.config.bpm_min)
     }
 
     /// Détermine la stratégie harmonique depuis la tension
+    #[must_use]
     pub fn tension_to_strategy(&self, tension: f32) -> HarmonyStrategy {
         if tension > self.config.tension_threshold_high {
             HarmonyStrategy::NeoRiemannian
@@ -206,12 +216,14 @@ impl EmotionMapper {
     }
 
     /// Calcule les pulses depuis la density pour un nombre de steps donné
+    #[must_use]
     pub fn density_to_pulses(density: f32, max_steps: usize) -> usize {
         let scale = (max_steps as f32 * 0.75).max(1.0);
         ((density * scale) as usize + 1).min(max_steps)
     }
 
     /// Calcule la rotation depuis la tension pour un nombre de steps donné
+    #[must_use]
     pub fn tension_to_rotation(tension: f32, max_steps: usize) -> usize {
         let max_rotation = max_steps / 2;
         (tension * max_rotation as f32) as usize
@@ -253,10 +265,10 @@ mod tests {
     #[test]
     fn test_full_mapping() {
         let emotions = EngineParams {
-            arousal: 0.7,        // → ~147 BPM
-            valence: 0.5,       // Major
-            density: 0.4,       // Medium density
-            tension: 0.3,       // Low tension → Steedman
+            arousal: 0.7, // → ~147 BPM
+            valence: 0.5, // Major
+            density: 0.4, // Medium density
+            tension: 0.3, // Low tension → Steedman
             smoothness: 0.7,
             ..Default::default()
         };
@@ -290,11 +302,7 @@ mod tests {
 
     #[test]
     fn test_custom_config() {
-        let config = MapperConfig {
-            bpm_min: 60.0,
-            bpm_max: 200.0,
-            ..Default::default()
-        };
+        let config = MapperConfig { bpm_min: 60.0, bpm_max: 200.0, ..Default::default() };
         let mapper = EmotionMapper::with_config(config);
 
         assert_eq!(mapper.arousal_to_bpm(0.0), 60.0);

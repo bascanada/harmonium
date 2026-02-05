@@ -50,7 +50,8 @@ pub struct VoicedNote {
 }
 
 impl VoicedNote {
-    pub fn new(midi: u8, velocity: u8, duration_steps: u8) -> Self {
+    #[must_use]
+    pub const fn new(midi: u8, velocity: u8, duration_steps: u8) -> Self {
         Self { midi, velocity, duration_steps }
     }
 }
@@ -81,6 +82,7 @@ pub trait Voicer: Send + Sync {
 // === Fonctions utilitaires pour les voicers ===
 
 /// Trouve les N notes de la gamme LCC situées immédiatement sous la note mélodique
+#[must_use]
 pub fn find_scale_notes_below(melody_midi: u8, lcc_scale: &[u8], count: usize) -> Vec<u8> {
     if lcc_scale.is_empty() || count == 0 {
         return vec![];
@@ -106,6 +108,7 @@ pub fn find_scale_notes_below(melody_midi: u8, lcc_scale: &[u8], count: usize) -
 
 /// Retourne les guide tones (tierce et septième) pour un accord donné
 /// Positionne les notes dans une octave appropriée sous la mélodie
+#[must_use]
 pub fn get_guide_tones(chord_root_midi: u8, chord_type: ChordType, below_note: u8) -> (u8, u8) {
     let intervals = chord_type.intervals();
 
@@ -125,11 +128,8 @@ pub fn get_guide_tones(chord_root_midi: u8, chord_type: ChordType, below_note: u
     let seventh_midi = target_octave * 12 + seventh_pc;
 
     // S'assurer que les notes sont sous la mélodie
-    let third_final = if third_midi >= below_note && third_midi >= 12 {
-        third_midi - 12
-    } else {
-        third_midi
-    };
+    let third_final =
+        if third_midi >= below_note && third_midi >= 12 { third_midi - 12 } else { third_midi };
 
     let seventh_final = if seventh_midi >= below_note && seventh_midi >= 12 {
         seventh_midi - 12

@@ -1,13 +1,11 @@
 //! Message Handler - Processes JSON messages from the webview
 
-use serde_json::Value;
 use std::sync::{Arc, Mutex};
 
-use crate::engine::EngineParams;
-use harmonium_core::params::ControlMode;
-use harmonium_core::sequencer::RhythmMode;
-use harmonium_core::harmony::HarmonyMode;
-use crate::vst_plugin::HarmoniumParams;
+use harmonium_core::{harmony::HarmonyMode, params::ControlMode, sequencer::RhythmMode};
+use serde_json::Value;
+
+use crate::{engine::EngineParams, vst_plugin::HarmoniumParams};
 
 /// Handle an incoming message from the webview
 /// Returns true if the message was handled successfully
@@ -347,7 +345,7 @@ fn handle_set(
                 Some(ten),
                 Some(sec_steps),
                 Some(sec_pulses),
-                Some(sec_rot)
+                Some(sec_rot),
             ) = (
                 msg_params.and_then(|p| p.get("mode")).and_then(|v| v.as_i64()),
                 msg_params.and_then(|p| p.get("steps")).and_then(|v| v.as_i64()),
@@ -357,9 +355,9 @@ fn handle_set(
                 msg_params.and_then(|p| p.get("tension")).and_then(|v| v.as_f64()),
                 msg_params.and_then(|p| p.get("secondarySteps")).and_then(|v| v.as_i64()),
                 msg_params.and_then(|p| p.get("secondaryPulses")).and_then(|v| v.as_i64()),
-                msg_params.and_then(|p| p.get("secondaryRotation")).and_then(|v| v.as_i64())
+                msg_params.and_then(|p| p.get("secondaryRotation")).and_then(|v| v.as_i64()),
             ) {
-                 if let Ok(mut mode) = control_mode.lock() {
+                if let Ok(mut mode) = control_mode.lock() {
                     mode.webview_controls_direct = true;
                     mode.direct_params.rhythm_mode = match mode_val {
                         1 => RhythmMode::PerfectBalance,

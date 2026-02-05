@@ -1,20 +1,23 @@
-//! HarmonicDriver - Orchestrateur principal du système harmonique
+//! `HarmonicDriver` - Orchestrateur principal du système harmonique
 //!
-//! Le HarmonicDriver choisit dynamiquement entre:
+//! Le `HarmonicDriver` choisit dynamiquement entre:
 //! - Steedman Grammar (Tension < 0.5): Progressions fonctionnelles narratives
 //! - Neo-Riemannian (Tension > 0.7, triades): Transformations géométriques P/L/R
 //! - Parsimonious (Tension > 0.7, tétracordes): Voice-leading parsimonieux
 //!
 //! Le Lydian Chromatic Concept (LCC) agit comme filtre vertical global.
 
-use super::chord::{Chord, ChordType, PitchClass};
-use super::lydian_chromatic::LydianChromaticConcept;
-use super::neo_riemannian::NeoRiemannianEngine;
-use super::parsimonious::ParsimoniousDriver;
-use super::steedman_grammar::{SteedmanGrammar, GrammarStyle};
-use super::pivot::{PivotDetector, PivotType};
-use super::{HarmonyContext, HarmonyDecision, HarmonyStrategy, RngCore, TransitionType};
 use std::sync::Arc;
+
+use super::{
+    HarmonyContext, HarmonyDecision, HarmonyStrategy, RngCore, TransitionType,
+    chord::{Chord, ChordType, PitchClass},
+    lydian_chromatic::LydianChromaticConcept,
+    neo_riemannian::NeoRiemannianEngine,
+    parsimonious::ParsimoniousDriver,
+    pivot::{PivotDetector, PivotType},
+    steedman_grammar::{GrammarStyle, SteedmanGrammar},
+};
 
 /// Mode de stratégie actuel (version V2 avec Parsimonious)
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -30,12 +33,13 @@ pub enum StrategyMode {
 }
 
 impl StrategyMode {
-    pub fn name(&self) -> &'static str {
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
         match self {
-            StrategyMode::Steedman => "Steedman",
-            StrategyMode::NeoRiemannian => "Neo-Riemannian",
-            StrategyMode::Parsimonious => "Parsimonious",
-            StrategyMode::Transitioning { .. } => "Transitioning",
+            Self::Steedman => "Steedman",
+            Self::NeoRiemannian => "Neo-Riemannian",
+            Self::Parsimonious => "Parsimonious",
+            Self::Transitioning { .. } => "Transitioning",
         }
     }
 }
@@ -89,7 +93,8 @@ pub struct HarmonicDriver {
 }
 
 impl HarmonicDriver {
-    /// Crée un nouveau HarmonicDriver
+    /// Crée un nouveau `HarmonicDriver`
+    #[must_use]
     pub fn new(initial_key: PitchClass) -> Self {
         let lcc = Arc::new(LydianChromaticConcept::new());
 
@@ -115,7 +120,7 @@ impl HarmonicDriver {
     }
 
     /// Définit la tonique globale
-    pub fn set_key(&mut self, key: PitchClass) {
+    pub const fn set_key(&mut self, key: PitchClass) {
         self.global_key = key % 12;
     }
 
@@ -137,7 +142,7 @@ impl HarmonicDriver {
     ///
     /// # Panics
     /// Panique si les seuils ne sont pas dans l'ordre croissant valide:
-    /// steedman_lower < steedman_upper ≤ neo_lower < neo_upper
+    /// `steedman_lower` < `steedman_upper` ≤ `neo_lower` < `neo_upper`
     ///
     /// # Example
     /// ```
@@ -154,21 +159,15 @@ impl HarmonicDriver {
     ) {
         assert!(
             steedman_lower < steedman_upper,
-            "steedman_lower ({}) doit être < steedman_upper ({})",
-            steedman_lower,
-            steedman_upper
+            "steedman_lower ({steedman_lower}) doit être < steedman_upper ({steedman_upper})"
         );
         assert!(
             steedman_upper <= neo_lower,
-            "steedman_upper ({}) doit être ≤ neo_lower ({})",
-            steedman_upper,
-            neo_lower
+            "steedman_upper ({steedman_upper}) doit être ≤ neo_lower ({neo_lower})"
         );
         assert!(
             neo_lower < neo_upper,
-            "neo_lower ({}) doit être < neo_upper ({})",
-            neo_lower,
-            neo_upper
+            "neo_lower ({neo_lower}) doit être < neo_upper ({neo_upper})"
         );
 
         self.steedman_lower = steedman_lower;
@@ -178,19 +177,19 @@ impl HarmonicDriver {
     }
 
     /// Retourne le nom de la stratégie actuelle
-    pub fn current_strategy_name(&self) -> &'static str {
+    pub const fn current_strategy_name(&self) -> &'static str {
         self.current_strategy.name()
     }
 
     /// Retourne l'accord courant
-    pub fn current_chord(&self) -> &Chord {
+    pub const fn current_chord(&self) -> &Chord {
         &self.current_chord
     }
 
     /// Sélectionne la stratégie appropriée basée sur le contexte (implémentation legacy)
     ///
     /// Cette méthode est l'implémentation originale avec des seuils stricts.
-    /// Elle est conservée pour compatibilité et testing, mais select_strategy_probabilistic()
+    /// Elle est conservée pour compatibilité et testing, mais `select_strategy_probabilistic()`
     /// est recommandée pour une transition plus fluide entre stratégies.
     #[allow(dead_code)]
     fn select_strategy(&self, ctx: &HarmonyContext) -> StrategyMode {
@@ -217,7 +216,7 @@ impl HarmonicDriver {
 
     /// Sélectionne la stratégie avec hystérésis et blending probabiliste
     ///
-    /// Cette méthode améliore select_strategy() en:
+    /// Cette méthode améliore `select_strategy()` en:
     /// 1. Utilisant des zones d'hystérésis pour éviter les basculements chaotiques
     /// 2. Appliquant une sélection probabiliste pondérée dans les zones de transition
     /// 3. Biaisant légèrement vers la stratégie précédente pour plus de stabilité
@@ -262,11 +261,8 @@ impl HarmonicDriver {
             return StrategyMode::Parsimonious;
         }
         if neo_w >= 0.99 {
-            let strategy = if is_tetrad {
-                StrategyMode::Parsimonious
-            } else {
-                StrategyMode::NeoRiemannian
-            };
+            let strategy =
+                if is_tetrad { StrategyMode::Parsimonious } else { StrategyMode::NeoRiemannian };
             self.last_strategy = strategy;
             return strategy;
         }
@@ -279,20 +275,20 @@ impl HarmonicDriver {
             StrategyMode::Steedman => {
                 let boost = steedman_w * HYSTERESIS_BOOST;
                 steedman_w += boost;
-                parsimonious_w = (parsimonious_w - boost * 0.5).max(0.0);
-                neo_w = (neo_w - boost * 0.5).max(0.0);
+                parsimonious_w = boost.mul_add(-0.5, parsimonious_w).max(0.0);
+                neo_w = boost.mul_add(-0.5, neo_w).max(0.0);
             }
             StrategyMode::Parsimonious => {
                 let boost = parsimonious_w * HYSTERESIS_BOOST;
                 parsimonious_w += boost;
-                steedman_w = (steedman_w - boost * 0.5).max(0.0);
-                neo_w = (neo_w - boost * 0.5).max(0.0);
+                steedman_w = boost.mul_add(-0.5, steedman_w).max(0.0);
+                neo_w = boost.mul_add(-0.5, neo_w).max(0.0);
             }
             StrategyMode::NeoRiemannian => {
                 let boost = neo_w * HYSTERESIS_BOOST;
                 neo_w += boost;
-                steedman_w = (steedman_w - boost * 0.5).max(0.0);
-                parsimonious_w = (parsimonious_w - boost * 0.5).max(0.0);
+                steedman_w = boost.mul_add(-0.5, steedman_w).max(0.0);
+                parsimonious_w = boost.mul_add(-0.5, parsimonious_w).max(0.0);
             }
             StrategyMode::Transitioning { .. } => {
                 // Pas de biais pour l'état de transition
@@ -340,7 +336,12 @@ impl HarmonicDriver {
     }
 
     /// Génère le prochain accord basé sur l'état émotionnel
-    pub fn next_chord(&mut self, tension: f32, valence: f32, rng: &mut dyn RngCore) -> HarmonyDecision {
+    pub fn next_chord(
+        &mut self,
+        tension: f32,
+        valence: f32,
+        rng: &mut dyn RngCore,
+    ) -> HarmonyDecision {
         // Détecter une chute dramatique de tension (>0.7 -> <0.5)
         let dramatic_tension_drop = self.last_tension > 0.7 && tension < 0.5;
 
@@ -469,14 +470,7 @@ impl HarmonicDriver {
         // Vérifier si l'accord courant est un pivot
         let pivot_type = self.pivot.is_pivot_chord(&ctx.current_chord);
 
-        if pivot_type != PivotType::None {
-            // On est sur un pivot: laisser la stratégie dominante prendre le relais
-            if neo_w > steedman_w {
-                self.neo_riemannian.next_chord(ctx, rng)
-            } else {
-                self.steedman.next_chord(ctx, rng)
-            }
-        } else {
+        if pivot_type == PivotType::None {
             // Pas de pivot: en créer un si nécessaire
             let target = if neo_w > steedman_w {
                 self.neo_riemannian.next_chord(ctx, rng).next_chord
@@ -496,6 +490,13 @@ impl HarmonicDriver {
                 next_chord: pivot_chord,
                 transition_type: TransitionType::Pivot,
                 suggested_scale,
+            }
+        } else {
+            // On est sur un pivot: laisser la stratégie dominante prendre le relais
+            if neo_w > steedman_w {
+                self.neo_riemannian.next_chord(ctx, rng)
+            } else {
+                self.steedman.next_chord(ctx, rng)
             }
         }
     }
@@ -518,7 +519,7 @@ impl HarmonicDriver {
     }
 
     /// Réinitialise la position dans la phrase
-    pub fn reset_phrase(&mut self) {
+    pub const fn reset_phrase(&mut self) {
         self.phrase_position = 0;
     }
 
@@ -540,7 +541,11 @@ impl HarmonicDriver {
 
     /// Force une résolution cadentielle (V -> I ou directement I)
     /// Utilisé lors d'une chute dramatique de tension pour donner un sentiment de résolution
-    fn force_cadential_resolution(&self, ctx: &HarmonyContext, rng: &mut dyn RngCore) -> HarmonyDecision {
+    fn force_cadential_resolution(
+        &self,
+        ctx: &HarmonyContext,
+        rng: &mut dyn RngCore,
+    ) -> HarmonyDecision {
         // Calculer la dominante (V = +7 demi-tons depuis la tonique)
         let dominant_root = (self.global_key + 7) % 12;
 
@@ -552,10 +557,7 @@ impl HarmonicDriver {
             let suggested_scale = self.lcc.get_scale(parent, level);
 
             if cfg!(debug_assertions) {
-                eprintln!(
-                    "  [Resolution] Chute de tension: V → I ({})",
-                    tonic_chord.name()
-                );
+                eprintln!("  [Resolution] Chute de tension: V → I ({})", tonic_chord.name());
             }
 
             return HarmonyDecision {
@@ -570,18 +572,10 @@ impl HarmonicDriver {
         // 2. Aller à la dominante pour préparer la résolution (40%)
         let go_to_tonic = rng.next_f32() < 0.6;
 
-        let target_root = if go_to_tonic {
-            self.global_key
-        } else {
-            dominant_root
-        };
+        let target_root = if go_to_tonic { self.global_key } else { dominant_root };
 
         // Choisir le type d'accord basé sur la valence
-        let chord_type = if ctx.valence > 0.0 {
-            ChordType::Major
-        } else {
-            ChordType::Minor
-        };
+        let chord_type = if ctx.valence > 0.0 { ChordType::Major } else { ChordType::Minor };
 
         let resolution_chord = Chord::new(target_root, chord_type);
         let parent = self.lcc.parent_lydian(&resolution_chord);
@@ -605,16 +599,16 @@ impl HarmonicDriver {
 
     /// Retourne le décalage root en demi-tons depuis la tonique globale
     pub fn root_offset(&self) -> i32 {
-        ((self.current_chord.root as i32) - (self.global_key as i32) + 12) % 12
+        (i32::from(self.current_chord.root) - i32::from(self.global_key) + 12) % 12
     }
 
     /// Retourne si l'accord courant est mineur
-    pub fn is_minor(&self) -> bool {
+    pub const fn is_minor(&self) -> bool {
         self.current_chord.chord_type.is_minor()
     }
 
-    /// Convertit vers le format ChordQuality de l'ancien système (pour compatibilité)
-    pub fn to_basic_quality(&self) -> super::basic::ChordQuality {
+    /// Convertit vers le format `ChordQuality` de l'ancien système (pour compatibilité)
+    pub const fn to_basic_quality(&self) -> super::basic::ChordQuality {
         self.current_chord.to_basic_quality()
     }
 }
@@ -627,7 +621,7 @@ mod tests {
 
     impl RngCore for TestRng {
         fn next_f32(&mut self) -> f32 {
-            self.0 = self.0.wrapping_mul(1103515245).wrapping_add(12345);
+            self.0 = self.0.wrapping_mul(1_103_515_245).wrapping_add(12345);
             ((self.0 >> 16) & 0x7fff) as f32 / 32768.0
         }
 
@@ -724,9 +718,7 @@ mod tests {
         // Au moins 50% des itérations devraient produire un changement
         assert!(
             changes >= iterations / 2,
-            "Steedman devrait produire des changements d'accords: {} changes sur {}",
-            changes,
-            iterations
+            "Steedman devrait produire des changements d'accords: {changes} changes sur {iterations}"
         );
     }
 
@@ -757,9 +749,7 @@ mod tests {
         // Neo-Riemannian devrait TOUJOURS changer l'accord (P, L, R transforment)
         assert!(
             changes >= iterations * 8 / 10,
-            "Neo-Riemannian devrait produire des changements: {} changes sur {}",
-            changes,
-            iterations
+            "Neo-Riemannian devrait produire des changements: {changes} changes sur {iterations}"
         );
     }
 
@@ -790,9 +780,7 @@ mod tests {
         // Parsimonious devrait produire des changements (voisins trouvés)
         assert!(
             changes >= iterations / 2,
-            "Parsimonious devrait produire des changements: {} changes sur {}",
-            changes,
-            iterations
+            "Parsimonious devrait produire des changements: {changes} changes sur {iterations}"
         );
     }
 
@@ -802,11 +790,12 @@ mod tests {
         let mut rng = TestRng(789);
 
         // Collecter les accords sur 20 itérations avec tension variable
-        let mut chords_seen: std::collections::HashSet<(u8, ChordType)> = std::collections::HashSet::new();
+        let mut chords_seen: std::collections::HashSet<(u8, ChordType)> =
+            std::collections::HashSet::new();
 
         for i in 0..20 {
             // Varier la tension pour tester différentes stratégies
-            let tension = (i as f32 / 20.0) * 0.8 + 0.1; // 0.1 à 0.9
+            let tension = (i as f32 / 20.0).mul_add(0.8, 0.1); // 0.1 à 0.9
             let valence = if i % 2 == 0 { 0.5 } else { -0.5 };
 
             let decision = driver.next_chord(tension, valence, &mut rng);
@@ -829,7 +818,7 @@ mod tests {
         // Commencer avec Steedman (basse tension)
         let decision1 = driver.next_chord(0.3, 0.5, &mut rng);
         assert_eq!(driver.current_strategy, StrategyMode::Steedman);
-        let chord_after_steedman = decision1.next_chord.clone();
+        let chord_after_steedman = decision1.next_chord;
 
         // Passer à Neo-Riemannian (haute tension, garder triade)
         driver.current_chord = Chord::new(chord_after_steedman.root, ChordType::Major);
@@ -877,10 +866,10 @@ mod tests {
 
         // Test avec différentes configurations
         let configs = [
-            (0.2, 0.5, ChordType::Major),      // Steedman
-            (0.6, 0.0, ChordType::Minor),      // Parsimonious bridge
-            (0.9, 0.5, ChordType::Major),      // Neo-Riemannian
-            (0.85, -0.5, ChordType::Minor7),   // Parsimonious tetrad
+            (0.2, 0.5, ChordType::Major),    // Steedman
+            (0.6, 0.0, ChordType::Minor),    // Parsimonious bridge
+            (0.9, 0.5, ChordType::Major),    // Neo-Riemannian
+            (0.85, -0.5, ChordType::Minor7), // Parsimonious tetrad
         ];
 
         for (tension, valence, start_type) in configs {
@@ -901,11 +890,7 @@ mod tests {
             // Ne devrait pas rester bloqué plus de 2 fois sur 5
             assert!(
                 same_count <= 2,
-                "Config ({}, {}, {:?}): bloqué {} fois sur 5",
-                tension,
-                valence,
-                start_type,
-                same_count
+                "Config ({tension}, {valence}, {start_type:?}): bloqué {same_count} fois sur 5"
             );
         }
     }
@@ -921,7 +906,7 @@ mod tests {
 
         // Premier mouvement: E -> quelque part
         let decision1 = driver.next_chord(0.3, 0.5, &mut rng);
-        let chord_after_first = decision1.next_chord.clone();
+        let chord_after_first = decision1.next_chord;
 
         // Si on a bougé (pas resté sur E), le système devrait éviter de retourner immédiatement à E
         if chord_after_first.root != 4 || chord_after_first.chord_type != ChordType::Major {
@@ -929,7 +914,9 @@ mod tests {
             let mut returned_to_e = false;
             for _ in 0..5 {
                 let decision = driver.next_chord(0.3, 0.5, &mut rng);
-                if decision.next_chord.root == 4 && decision.next_chord.chord_type == ChordType::Major {
+                if decision.next_chord.root == 4
+                    && decision.next_chord.chord_type == ChordType::Major
+                {
                     returned_to_e = true;
                     break;
                 }
@@ -937,7 +924,7 @@ mod tests {
 
             // On ne devrait pas retourner immédiatement à E (sauf si c'est la tonique)
             assert!(
-                !returned_to_e || 4 == 0,  // Permettre le retour si E est la tonique
+                !returned_to_e || 4 == 0, // Permettre le retour si E est la tonique
                 "Le système a créé une boucle A->B->A"
             );
         }
@@ -956,8 +943,8 @@ mod tests {
         let decision = driver.next_chord(0.3, 0.5, &mut rng);
 
         // Le système devrait forcer une résolution vers I (C) ou V (G)
-        let tonic = 0;      // C
-        let dominant = 7;   // G
+        let tonic = 0; // C
+        let dominant = 7; // G
 
         assert!(
             decision.next_chord.root == tonic || decision.next_chord.root == dominant,
@@ -1037,9 +1024,8 @@ mod tests {
 
         // Générer plusieurs accords et vérifier qu'on ne retourne pas immédiatement
         // au même accord (boucle A -> B -> A)
-        let mut previous_two_chords: Vec<(u8, ChordType)> = vec![
-            (driver.current_chord.root, driver.current_chord.chord_type)
-        ];
+        let mut previous_two_chords: Vec<(u8, ChordType)> =
+            vec![(driver.current_chord.root, driver.current_chord.chord_type)];
 
         for i in 0..10 {
             let old_chord = driver.current_chord.clone();
@@ -1047,12 +1033,14 @@ mod tests {
 
             // Vérifier qu'on n'a pas créé une boucle avec les 2 derniers accords
             // (sauf si c'est la tonique qui est toujours autorisée)
-            if decision.next_chord.root != 0 {  // Si ce n'est pas la tonique
+            if decision.next_chord.root != 0 {
+                // Si ce n'est pas la tonique
                 let new_chord_sig = (decision.next_chord.root, decision.next_chord.chord_type);
 
                 // Le nouvel accord ne devrait pas être dans les 2 derniers
                 // (previous_two_chords contient au maximum les 2 derniers)
-                let is_in_recent_history = previous_two_chords.iter()
+                let is_in_recent_history = previous_two_chords
+                    .iter()
                     .any(|&(r, t)| r == new_chord_sig.0 && t == new_chord_sig.1);
 
                 assert!(
@@ -1087,9 +1075,6 @@ mod tests {
         let proposed_tonic = Chord::new(0, ChordType::Major);
         let would_loop = driver.would_create_aba_loop(&proposed_tonic);
 
-        assert!(
-            !would_loop,
-            "Le retour à la tonique devrait toujours être autorisé"
-        );
+        assert!(!would_loop, "Le retour à la tonique devrait toujours être autorisé");
     }
 }

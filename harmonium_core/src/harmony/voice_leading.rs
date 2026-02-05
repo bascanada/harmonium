@@ -6,19 +6,22 @@
 use super::chord::{Chord, PitchClass};
 
 /// Calcule la distance minimale entre deux pitch classes sur le cercle chromatique
+#[must_use]
 pub fn pitch_class_distance(a: PitchClass, b: PitchClass) -> u8 {
-    let d1 = ((b as i16) - (a as i16)).unsigned_abs() as u8;
+    let d1 = (i16::from(b) - i16::from(a)).unsigned_abs() as u8;
     let d2 = 12 - d1;
     d1.min(d2)
 }
 
 /// Calcule la distance totale de voice-leading entre deux accords
 /// (somme des mouvements minimaux pour chaque voix)
+#[must_use]
 pub fn total_voice_leading_distance(from: &Chord, to: &Chord) -> u32 {
     from.voice_leading_distance(to)
 }
 
 /// Trouve l'assignation optimale des voix pour minimiser le mouvement
+#[must_use]
 pub fn optimal_voice_assignment(from: &[PitchClass], to: &[PitchClass]) -> Vec<(usize, usize)> {
     let n = from.len().min(to.len());
     let mut assignments = Vec::with_capacity(n);
@@ -52,6 +55,7 @@ pub fn optimal_voice_assignment(from: &[PitchClass], to: &[PitchClass]) -> Vec<(
 
 /// Évalue la qualité d'une transition harmonique
 /// Score bas = bonne transition, score haut = transition difficile
+#[must_use]
 pub fn transition_quality_score(from: &Chord, to: &Chord) -> f32 {
     let base_distance = from.voice_leading_distance(to) as f32;
 
@@ -82,6 +86,7 @@ pub fn transition_quality_score(from: &Chord, to: &Chord) -> f32 {
 }
 
 /// Suggère un accord intermédiaire pour améliorer une transition difficile
+#[must_use]
 pub fn suggest_passing_chord(from: &Chord, to: &Chord) -> Option<Chord> {
     let score = transition_quality_score(from, to);
 
@@ -102,20 +107,18 @@ pub fn suggest_passing_chord(from: &Chord, to: &Chord) -> Option<Chord> {
     }
 
     // Pas de note commune: utiliser un accord diminué sur la moyenne
-    let avg_root = ((from.root as u16 + to.root as u16) / 2) as u8 % 12;
+    let avg_root = u16::midpoint(u16::from(from.root), u16::from(to.root)) as u8 % 12;
     Some(Chord::new(avg_root, super::chord::ChordType::Diminished))
 }
 
 /// Calcule le "smoothness" d'une progression (moyenne des distances)
+#[must_use]
 pub fn progression_smoothness(chords: &[Chord]) -> f32 {
     if chords.len() < 2 {
         return 1.0;
     }
 
-    let total_distance: u32 = chords
-        .windows(2)
-        .map(|w| w[0].voice_leading_distance(&w[1]))
-        .sum();
+    let total_distance: u32 = chords.windows(2).map(|w| w[0].voice_leading_distance(&w[1])).sum();
 
     let avg = total_distance as f32 / (chords.len() - 1) as f32;
 
@@ -126,8 +129,7 @@ pub fn progression_smoothness(chords: &[Chord]) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::super::chord::ChordType;
+    use super::{super::chord::ChordType, *};
 
     #[test]
     fn test_pitch_class_distance() {
@@ -144,8 +146,8 @@ mod tests {
     #[test]
     fn test_optimal_assignment() {
         // C Major (C, E, G) -> A Minor (A, C, E)
-        let from = vec![0, 4, 7];  // C, E, G
-        let to = vec![9, 0, 4];    // A, C, E
+        let from = vec![0, 4, 7]; // C, E, G
+        let to = vec![9, 0, 4]; // A, C, E
 
         let assignments = optimal_voice_assignment(&from, &to);
         assert_eq!(assignments.len(), 3);
@@ -173,18 +175,18 @@ mod tests {
     fn test_progression_smoothness() {
         // Progression très lisse: I - vi - IV - V (en C)
         let smooth = vec![
-            Chord::new(0, ChordType::Major),  // C
-            Chord::new(9, ChordType::Minor),  // Am
-            Chord::new(5, ChordType::Major),  // F
-            Chord::new(7, ChordType::Major),  // G
+            Chord::new(0, ChordType::Major), // C
+            Chord::new(9, ChordType::Minor), // Am
+            Chord::new(5, ChordType::Major), // F
+            Chord::new(7, ChordType::Major), // G
         ];
 
         // Progression chaotique: sauts chromatiques
         let chaotic = vec![
-            Chord::new(0, ChordType::Major),   // C
-            Chord::new(6, ChordType::Major),   // F#
-            Chord::new(1, ChordType::Minor),   // C#m
-            Chord::new(8, ChordType::Major),   // G#
+            Chord::new(0, ChordType::Major), // C
+            Chord::new(6, ChordType::Major), // F#
+            Chord::new(1, ChordType::Minor), // C#m
+            Chord::new(8, ChordType::Major), // G#
         ];
 
         let smooth_score = progression_smoothness(&smooth);

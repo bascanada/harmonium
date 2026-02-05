@@ -3,8 +3,13 @@
 //! Implements bilinear interpolation for morphing synthesis parameters
 //! across Russell's Circumplex Model quadrants.
 
-use super::presets::EmotionalPresetBank;
-use super::types::*;
+use super::{
+    presets::EmotionalPresetBank,
+    types::{
+        AdsrValues, ChorusParams, DelayParams, EffectsParams, EnvelopeParams, FilterParams,
+        OscillatorParams, OutputParams, ReverbParams, SynthPreset,
+    },
+};
 
 /// Macro to reduce boilerplate in morph_* functions
 /// Interpolates each field using lerp4 across the 4 emotional corners
@@ -46,14 +51,15 @@ pub struct MorphedPresets {
 /// Weights for 4 quadrants (sum = 1.0)
 #[derive(Debug, Clone, Copy)]
 pub struct QuadWeights {
-    pub calm: f32,     // Q4: Valence +, Arousal -
-    pub joy: f32,      // Q1: Valence +, Arousal +
-    pub sadness: f32,  // Q3: Valence -, Arousal -
-    pub anger: f32,    // Q2: Valence -, Arousal +
+    pub calm: f32,    // Q4: Valence +, Arousal -
+    pub joy: f32,     // Q1: Valence +, Arousal +
+    pub sadness: f32, // Q3: Valence -, Arousal -
+    pub anger: f32,   // Q2: Valence -, Arousal +
 }
 
 impl EmotionalMorpher {
     /// Create a new morpher with the given preset bank
+    #[must_use]
     pub fn new(preset_bank: EmotionalPresetBank) -> Self {
         // Initialize with calm presets as default
         Self {
@@ -72,8 +78,7 @@ impl EmotionalMorpher {
     /// Returns morphed presets for all instruments
     pub fn morph(&mut self, valence: f32, arousal: f32) -> MorphedPresets {
         // Only recalculate if position changed significantly
-        if (valence - self.last_valence).abs() < 0.01
-            && (arousal - self.last_arousal).abs() < 0.01
+        if (valence - self.last_valence).abs() < 0.01 && (arousal - self.last_arousal).abs() < 0.01
         {
             return self.get_cached_presets();
         }
@@ -90,10 +95,10 @@ impl EmotionalMorpher {
 
         // Morph each instrument
         self.cached_bass = self.morph_instrument_presets(
-            &self.preset_bank.calm.bass,      // Q4 (v=1, a=0)
-            &self.preset_bank.joy.bass,       // Q1 (v=1, a=1)
-            &self.preset_bank.sadness.bass,   // Q3 (v=0, a=0)
-            &self.preset_bank.anger.bass,     // Q2 (v=0, a=1)
+            &self.preset_bank.calm.bass,    // Q4 (v=1, a=0)
+            &self.preset_bank.joy.bass,     // Q1 (v=1, a=1)
+            &self.preset_bank.sadness.bass, // Q3 (v=0, a=0)
+            &self.preset_bank.anger.bass,   // Q2 (v=0, a=1)
             &weights,
         );
 
@@ -133,7 +138,7 @@ impl EmotionalMorpher {
     }
 
     /// Calculate bilinear interpolation weights for 4 corners
-    /// Returns (w_calm, w_joy, w_sadness, w_anger) where sum = 1.0
+    /// Returns (`w_calm`, `w_joy`, `w_sadness`, `w_anger`) where sum = 1.0
     ///
     /// Bilinear interpolation formula:
     /// f(x,y) = f(0,0)(1-x)(1-y) + f(1,0)x(1-y) + f(0,1)(1-x)y + f(1,1)xy
@@ -149,10 +154,10 @@ impl EmotionalMorpher {
     ///   (1,1) = Joy      (v+, a+)
     fn calculate_weights(&self, v: f32, a: f32) -> QuadWeights {
         QuadWeights {
-            calm: v * (1.0 - a),               // Q4: (v+, a-)
-            joy: v * a,                         // Q1: (v+, a+)
-            sadness: (1.0 - v) * (1.0 - a),    // Q3: (v-, a-)
-            anger: (1.0 - v) * a,               // Q2: (v-, a+)
+            calm: v * (1.0 - a),            // Q4: (v+, a-)
+            joy: v * a,                     // Q1: (v+, a+)
+            sadness: (1.0 - v) * (1.0 - a), // Q3: (v-, a-)
+            anger: (1.0 - v) * a,           // Q2: (v-, a+)
         }
     }
 
@@ -166,10 +171,7 @@ impl EmotionalMorpher {
         weights: &QuadWeights,
     ) -> SynthPreset {
         SynthPreset {
-            name: format!(
-                "Morphed (V:{:.2} A:{:.2})",
-                self.last_valence, self.last_arousal
-            ),
+            name: format!("Morphed (V:{:.2} A:{:.2})", self.last_valence, self.last_arousal),
             osc: self.morph_oscillator(&calm.osc, &joy.osc, &sadness.osc, &anger.osc, weights),
             filter: self.morph_filter(
                 &calm.filter,
@@ -210,14 +212,22 @@ impl EmotionalMorpher {
         anger: &OscillatorParams,
         w: &QuadWeights,
     ) -> OscillatorParams {
-        lerp_struct!(self, OscillatorParams {
-            waveform_mix,
-            detune,
-            stereo_width,
-            pitch_mod,
-            sub_level,
-            noise_level,
-        }, calm, joy, sadness, anger, w)
+        lerp_struct!(
+            self,
+            OscillatorParams {
+                waveform_mix,
+                detune,
+                stereo_width,
+                pitch_mod,
+                sub_level,
+                noise_level,
+            },
+            calm,
+            joy,
+            sadness,
+            anger,
+            w
+        )
     }
 
     fn morph_filter(
@@ -278,12 +288,15 @@ impl EmotionalMorpher {
         anger: &AdsrValues,
         w: &QuadWeights,
     ) -> AdsrValues {
-        lerp_struct!(self, AdsrValues {
-            attack,
-            decay,
-            sustain,
-            release,
-        }, calm, joy, sadness, anger, w)
+        lerp_struct!(
+            self,
+            AdsrValues { attack, decay, sustain, release },
+            calm,
+            joy,
+            sadness,
+            anger,
+            w
+        )
     }
 
     fn morph_effects(
@@ -296,20 +309,8 @@ impl EmotionalMorpher {
     ) -> EffectsParams {
         EffectsParams {
             delay: self.morph_delay(&calm.delay, &joy.delay, &sadness.delay, &anger.delay, w),
-            chorus: self.morph_chorus(
-                &calm.chorus,
-                &joy.chorus,
-                &sadness.chorus,
-                &anger.chorus,
-                w,
-            ),
-            reverb: self.morph_reverb(
-                &calm.reverb,
-                &joy.reverb,
-                &sadness.reverb,
-                &anger.reverb,
-                w,
-            ),
+            chorus: self.morph_chorus(&calm.chorus, &joy.chorus, &sadness.chorus, &anger.chorus, w),
+            reverb: self.morph_reverb(&calm.reverb, &joy.reverb, &sadness.reverb, &anger.reverb, w),
         }
     }
 
@@ -321,11 +322,7 @@ impl EmotionalMorpher {
         anger: &DelayParams,
         w: &QuadWeights,
     ) -> DelayParams {
-        lerp_struct!(self, DelayParams {
-            time,
-            feedback,
-            mix,
-        }, calm, joy, sadness, anger, w)
+        lerp_struct!(self, DelayParams { time, feedback, mix }, calm, joy, sadness, anger, w)
     }
 
     fn morph_chorus(
@@ -336,11 +333,7 @@ impl EmotionalMorpher {
         anger: &ChorusParams,
         w: &QuadWeights,
     ) -> ChorusParams {
-        lerp_struct!(self, ChorusParams {
-            lfo_freq,
-            depth,
-            mix,
-        }, calm, joy, sadness, anger, w)
+        lerp_struct!(self, ChorusParams { lfo_freq, depth, mix }, calm, joy, sadness, anger, w)
     }
 
     fn morph_reverb(
@@ -351,11 +344,7 @@ impl EmotionalMorpher {
         anger: &ReverbParams,
         w: &QuadWeights,
     ) -> ReverbParams {
-        lerp_struct!(self, ReverbParams {
-            room_size,
-            damping,
-            mix,
-        }, calm, joy, sadness, anger, w)
+        lerp_struct!(self, ReverbParams { room_size, damping, mix }, calm, joy, sadness, anger, w)
     }
 
     fn morph_output(
@@ -366,15 +355,12 @@ impl EmotionalMorpher {
         anger: &OutputParams,
         w: &QuadWeights,
     ) -> OutputParams {
-        lerp_struct!(self, OutputParams {
-            gain,
-            pan,
-        }, calm, joy, sadness, anger, w)
+        lerp_struct!(self, OutputParams { gain, pan }, calm, joy, sadness, anger, w)
     }
 
     /// 4-way linear interpolation (bilinear)
     fn lerp4(&self, calm: f32, joy: f32, sadness: f32, anger: f32, w: &QuadWeights) -> f32 {
-        calm * w.calm + joy * w.joy + sadness * w.sadness + anger * w.anger
+        anger.mul_add(w.anger, sadness.mul_add(w.sadness, calm.mul_add(w.calm, joy * w.joy)))
     }
 
     /// Discrete selection (nearest neighbor) for non-interpolatable values
@@ -418,10 +404,7 @@ mod tests {
                 let sum = weights.calm + weights.joy + weights.sadness + weights.anger;
                 assert!(
                     (sum - 1.0).abs() < 0.0001,
-                    "Weights don't sum to 1.0 at v={}, a={}: sum={}",
-                    v,
-                    a,
-                    sum
+                    "Weights don't sum to 1.0 at v={v}, a={a}: sum={sum}"
                 );
             }
         }

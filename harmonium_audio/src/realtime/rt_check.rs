@@ -1,10 +1,11 @@
+#![allow(unsafe_code)]
 //! Real-time safety checker for audio processing
 //!
 //! This module provides a custom allocator that panics if any allocation or deallocation
 //! occurs while in an audio processing context. This is crucial for real-time audio
 //! where allocations can cause unpredictable latency and glitches.
 //!
-//! The allocator guard is only active in debug builds (#[cfg(debug_assertions)]).
+//! The allocator guard is only active in debug builds (#[`cfg(debug_assertions)`]).
 //! In release builds, the functions are no-ops with zero overhead.
 //!
 //! # Usage
@@ -42,53 +43,49 @@ pub struct RTCheckAllocator;
 #[cfg(debug_assertions)]
 unsafe impl GlobalAlloc for RTCheckAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let in_audio = IN_AUDIO_THREAD.with(|flag| flag.get());
-        if in_audio {
-            panic!(
-                "REAL-TIME VIOLATION: Allocation in audio thread! size={} bytes, align={}",
-                layout.size(),
-                layout.align()
-            );
-        }
+        let in_audio = IN_AUDIO_THREAD.with(std::cell::Cell::get);
+        assert!(
+            !in_audio,
+            "REAL-TIME VIOLATION: Allocation in audio thread! size={} bytes, align={}",
+            layout.size(),
+            layout.align()
+        );
         // SAFETY: We're delegating to the system allocator with the same layout
         unsafe { System.alloc(layout) }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        let in_audio = IN_AUDIO_THREAD.with(|flag| flag.get());
-        if in_audio {
-            panic!(
-                "REAL-TIME VIOLATION: Deallocation in audio thread! size={} bytes, align={}",
-                layout.size(),
-                layout.align()
-            );
-        }
+        let in_audio = IN_AUDIO_THREAD.with(std::cell::Cell::get);
+        assert!(
+            !in_audio,
+            "REAL-TIME VIOLATION: Deallocation in audio thread! size={} bytes, align={}",
+            layout.size(),
+            layout.align()
+        );
         // SAFETY: We're delegating to the system allocator with the same ptr/layout
         unsafe { System.dealloc(ptr, layout) }
     }
 
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        let in_audio = IN_AUDIO_THREAD.with(|flag| flag.get());
-        if in_audio {
-            panic!(
-                "REAL-TIME VIOLATION: Zero allocation in audio thread! size={} bytes, align={}",
-                layout.size(),
-                layout.align()
-            );
-        }
+        let in_audio = IN_AUDIO_THREAD.with(std::cell::Cell::get);
+        assert!(
+            !in_audio,
+            "REAL-TIME VIOLATION: Zero allocation in audio thread! size={} bytes, align={}",
+            layout.size(),
+            layout.align()
+        );
         // SAFETY: We're delegating to the system allocator with the same layout
         unsafe { System.alloc_zeroed(layout) }
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        let in_audio = IN_AUDIO_THREAD.with(|flag| flag.get());
-        if in_audio {
-            panic!(
-                "REAL-TIME VIOLATION: Reallocation in audio thread! old_size={} bytes, new_size={} bytes",
-                layout.size(),
-                new_size
-            );
-        }
+        let in_audio = IN_AUDIO_THREAD.with(std::cell::Cell::get);
+        assert!(
+            !in_audio,
+            "REAL-TIME VIOLATION: Reallocation in audio thread! old_size={} bytes, new_size={} bytes",
+            layout.size(),
+            new_size
+        );
         // SAFETY: We're delegating to the system allocator with the same ptr/layout/new_size
         unsafe { System.realloc(ptr, layout, new_size) }
     }
@@ -126,7 +123,6 @@ pub fn exit_audio_context() {}
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[test]
     #[cfg(debug_assertions)]

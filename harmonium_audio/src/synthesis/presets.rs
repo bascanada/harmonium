@@ -2,19 +2,20 @@
 //!
 //! Defines the 4 corner presets for emotional morphing based on Russell's Circumplex Model.
 
-use super::types::*;
-use serde::{Deserialize, Serialize};
 use std::path::Path;
-use once_cell::sync::Lazy;
+
+use serde::{Deserialize, Serialize};
+
+use super::types::SynthPreset;
 
 // Embed TOML file at compile time
 const DEFAULT_PRESETS_TOML: &str = include_str!("presets.toml");
 
 // Parse on first access (thread-safe singleton)
-static DEFAULT_PRESET_BANK: Lazy<EmotionalPresetBank> = Lazy::new(|| {
-    toml::from_str(DEFAULT_PRESETS_TOML)
-        .expect("Failed to parse embedded presets.toml")
-});
+static DEFAULT_PRESET_BANK: std::sync::LazyLock<EmotionalPresetBank> =
+    std::sync::LazyLock::new(|| {
+        toml::from_str(DEFAULT_PRESETS_TOML).expect("Failed to parse embedded presets.toml")
+    });
 
 /// Holds the 4 corner presets for emotional morphing
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -51,7 +52,7 @@ impl EmotionalPresetBank {
     /// Load from external TOML file (runtime)
     pub fn from_file(path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
         let contents = std::fs::read_to_string(path)?;
-        let bank: EmotionalPresetBank = toml::from_str(&contents)?;
+        let bank: Self = toml::from_str(&contents)?;
         Ok(bank)
     }
 

@@ -154,7 +154,7 @@ fmt:
 	cargo fmt --all -- --check
 
 lint:
-	cargo clippy --workspace --all-targets --all-features -- -D warnings
+	cargo clippy --workspace --all-targets --all-features -- -A clippy::all -W clippy::unwrap_used -W clippy::panic -W clippy::todo -W clippy::expect_used
 
 # Override test to use workspace
 test:

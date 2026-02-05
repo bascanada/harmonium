@@ -1,18 +1,21 @@
 //! Music Generation Integration Tests
 //!
-//! These tests run the ACTUAL music generation (Sequencer + HarmonicDriver)
-//! and export the results to MusicXML for visual review in MuseScore.
+//! These tests run the ACTUAL music generation (Sequencer + `HarmonicDriver`)
+//! and export the results to `MusicXML` for visual review in `MuseScore`.
 //!
 //! Run with: `cargo test -p harmonium_core --test music_generation_tests -- --ignored --nocapture`
 //!
 //! Output files: `target/generated_music/`
 
-use harmonium_core::events::AudioEvent;
-use harmonium_core::params::MusicalParams;
-use harmonium_core::sequencer::{Sequencer, RhythmMode};
-use harmonium_core::harmony::driver::HarmonicDriver;
-use harmonium_core::export::{write_musicxml_with_chords, ChordSymbol};
 use std::path::Path;
+
+use harmonium_core::{
+    events::AudioEvent,
+    export::{ChordSymbol, write_musicxml_with_chords},
+    harmony::driver::HarmonicDriver,
+    params::MusicalParams,
+    sequencer::{RhythmMode, Sequencer},
+};
 
 /// Output directory for generated music
 const OUTPUT_DIR: &str = "target/generated_music";
@@ -24,7 +27,7 @@ const SAMPLES_PER_STEP: usize = 11025;
 struct TestRng(u64);
 
 impl TestRng {
-    fn new(seed: u64) -> Self {
+    const fn new(seed: u64) -> Self {
         Self(seed)
     }
 
@@ -41,7 +44,7 @@ impl TestRng {
 
 impl harmonium_core::harmony::RngCore for TestRng {
     fn next_f32(&mut self) -> f32 {
-        TestRng::next_f32(self)
+        Self::next_f32(self)
     }
 
     fn next_range_usize(&mut self, range: std::ops::Range<usize>) -> usize {
@@ -53,13 +56,8 @@ fn setup_output_dir() {
     std::fs::create_dir_all(OUTPUT_DIR).expect("Failed to create output directory");
 }
 
-/// Generate music and export to MusicXML
-fn generate_and_export(
-    name: &str,
-    params: &MusicalParams,
-    measures: usize,
-    seed: u64,
-) {
+/// Generate music and export to `MusicXML`
+fn generate_and_export(name: &str, params: &MusicalParams, measures: usize, seed: u64) {
     setup_output_dir();
 
     let mut rng = TestRng::new(seed);
@@ -71,7 +69,7 @@ fn generate_and_export(
         params.rhythm_steps,
         params.rhythm_pulses,
         params.bpm,
-        params.rhythm_mode.clone(),
+        params.rhythm_mode,
     );
     // Set density and tension, then regenerate pattern
     sequencer.density = params.rhythm_density;
@@ -82,29 +80,26 @@ fn generate_and_export(
     let mut driver = HarmonicDriver::new(params.key_root);
 
     // Collect events and chord symbols
-    let mut events: Vec<(f64, AudioEvent)> = Vec::new();  // Changed to f64 for step-based timestamps
+    let mut events: Vec<(f64, AudioEvent)> = Vec::new(); // Changed to f64 for step-based timestamps
     let mut chord_symbols: Vec<ChordSymbol> = Vec::new();
     let mut current_chord = driver.current_chord().clone();
     let mut steps_in_chord = 0;
     let steps_per_chord = params.harmony_measures_per_chord * steps_per_measure;
 
     // Record initial chord at step 0
-    chord_symbols.push(ChordSymbol::new(
-        0,
-        current_chord.root,
-        current_chord.chord_type.suffix(),
-    ));
+    chord_symbols.push(ChordSymbol::new(0, current_chord.root, current_chord.chord_type.suffix()));
 
     // Active notes for NoteOff tracking
     let mut active_bass: Option<u8> = None;
     let mut active_lead: Option<u8> = None;
 
     for step in 0..total_steps {
-        let timestamp = step as f64;  // Use step directly as timestamp
+        let timestamp = step as f64; // Use step directly as timestamp
 
         // === HARMONY: Change chord every N measures ===
         if steps_in_chord >= steps_per_chord {
-            let decision = driver.next_chord(params.harmony_tension, params.harmony_valence, &mut rng);
+            let decision =
+                driver.next_chord(params.harmony_tension, params.harmony_valence, &mut rng);
             current_chord = decision.next_chord;
             steps_in_chord = 0;
 
@@ -132,7 +127,7 @@ fn generate_and_export(
                 36 // Fixed C1 for drum kit mode
             } else {
                 // Harmonized bass: chord root in octave 2
-                36 + (current_chord.root as u8)
+                36 + current_chord.root
             };
             let velocity = (trigger.velocity * 100.0) as u8;
             events.push((timestamp, AudioEvent::NoteOn { note: bass_note, velocity, channel: 0 }));
@@ -152,7 +147,7 @@ fn generate_and_export(
         if trigger.hat {
             let velocity = (trigger.velocity * 70.0) as u8;
             events.push((timestamp, AudioEvent::NoteOn { note: 42, velocity, channel: 3 }));
-            let off_time = timestamp + 0.25;  // Quarter step
+            let off_time = timestamp + 0.25; // Quarter step
             events.push((off_time, AudioEvent::NoteOff { note: 42, channel: 3 }));
         }
 
@@ -170,10 +165,13 @@ fn generate_and_export(
             // MIDI formula: 12 * (octave + 1) + pitch_class
             let chord_pitches = current_chord.pitch_classes();
             let melody_octave = params.melody_octave as u8;
-            let base_pitch = chord_pitches[rng.next_range(0..chord_pitches.len())] as u8;
+            let base_pitch = chord_pitches[rng.next_range(0..chord_pitches.len())];
             let melody_note = 12 * (melody_octave + 1) + base_pitch; // +1 to convert to MIDI octave
 
-            events.push((timestamp, AudioEvent::NoteOn { note: melody_note, velocity: 80, channel: 1 }));
+            events.push((
+                timestamp,
+                AudioEvent::NoteOn { note: melody_note, velocity: 80, channel: 1 },
+            ));
             active_lead = Some(melody_note);
         }
     }
@@ -191,12 +189,17 @@ fn generate_and_export(
     events.sort_by(|(t1, _), (t2, _)| t1.partial_cmp(t2).unwrap());
 
     // Export to MusicXML with chord symbols
-    let path = Path::new(OUTPUT_DIR).join(format!("{}.musicxml", name));
+    let path = Path::new(OUTPUT_DIR).join(format!("{name}.musicxml"));
     write_musicxml_with_chords(&events, &chord_symbols, params, SAMPLES_PER_STEP, &path)
-        .expect(&format!("Failed to write {}", name));
+        .unwrap_or_else(|_| panic!("Failed to write {name}"));
 
-    println!("Generated: {} ({} measures, {} events, {} chords)",
-             path.display(), measures, events.len(), chord_symbols.len());
+    println!(
+        "Generated: {} ({} measures, {} events, {} chords)",
+        path.display(),
+        measures,
+        events.len(),
+        chord_symbols.len()
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -480,7 +483,7 @@ fn test_scenario_jazz_swing() {
 fn generate_all_music_tests() {
     println!("\n========================================");
     println!("Generating music with REAL generation...");
-    println!("Output: {}/", OUTPUT_DIR);
+    println!("Output: {OUTPUT_DIR}/");
     println!("========================================\n");
 
     // Rhythm tests

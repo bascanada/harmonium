@@ -1,11 +1,11 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 // --- RHYTHM MODE (Strategy Pattern) ---
 
-#[derive(Clone, Copy, Debug, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum RhythmMode {
     #[default]
-    Euclidean,      // Algorithme de Bjorklund (Classique)
+    Euclidean, // Algorithme de Bjorklund (Classique)
     PerfectBalance, // Algorithme Additif (XronoMorph style) - Polygones réguliers
     ClassicGroove,  // Patterns de batterie réalistes (ghost notes, grooves)
 }
@@ -14,16 +14,17 @@ pub enum RhythmMode {
 /// Indique quelles voix doivent jouer
 #[derive(Clone, Copy, Debug, Default)]
 pub struct StepTrigger {
-    pub kick: bool,     // Fondation (Square/Octagon)
-    pub snare: bool,    // Tension (Triangle/Backbeat)
-    pub hat: bool,      // Remplissage (Euclidean Fills)
-    pub bass: bool,     // NEW: Harmonie Basse (Channel 0)
-    pub lead: bool,     // NEW: Mélodie (Channel 1)
-    pub velocity: f32,  // Dynamique générale (0.0 à 1.0)
+    pub kick: bool,    // Fondation (Square/Octagon)
+    pub snare: bool,   // Tension (Triangle/Backbeat)
+    pub hat: bool,     // Remplissage (Euclidean Fills)
+    pub bass: bool,    // NEW: Harmonie Basse (Channel 0)
+    pub lead: bool,    // NEW: Mélodie (Channel 1)
+    pub velocity: f32, // Dynamique générale (0.0 à 1.0)
 }
 
 impl StepTrigger {
-    pub fn is_any(&self) -> bool {
+    #[must_use]
+    pub const fn is_any(&self) -> bool {
         self.kick || self.snare || self.hat || self.bass || self.lead
     }
 }
@@ -48,20 +49,27 @@ pub struct Polygon {
 
 impl Polygon {
     /// Standard constructor
-    pub fn new(vertices: usize, rotation_offset: usize, velocity: f32) -> Self {
+    #[must_use]
+    pub const fn new(vertices: usize, rotation_offset: usize, velocity: f32) -> Self {
         Self { vertices, rotation_offset, velocity }
     }
 
     /// Checks if this polygon has an active vertex at the given step.
-    /// Uses a fast path when total_steps is divisible by vertices,
+    /// Uses a fast path when `total_steps` is divisible by vertices,
     /// and falls back to a Euclidean rhythm algorithm for non-divisible cases.
-    pub fn hits(&self, step: usize, total_steps: usize) -> bool {
-        if self.vertices == 0 || total_steps == 0 { return false; }
+    #[must_use]
+    pub const fn hits(&self, step: usize, total_steps: usize) -> bool {
+        if self.vertices == 0 || total_steps == 0 {
+            return false;
+        }
         // If vertices are more than total_steps, it's not meaningful to have hits in a polygon context.
         // This also prevents the Euclidean algorithm from always returning true.
-        if self.vertices > total_steps { return false; }
+        if self.vertices > total_steps {
+            return false;
+        }
 
-        let adjusted_step = (step + total_steps - (self.rotation_offset % total_steps)) % total_steps;
+        let adjusted_step =
+            (step + total_steps - (self.rotation_offset % total_steps)) % total_steps;
 
         if total_steps.is_multiple_of(self.vertices) {
             // Fast path for when vertices is a divisor of total_steps.
@@ -72,7 +80,8 @@ impl Polygon {
         } else {
             // Fallback for non-divisors, generates a Euclidean rhythm.
             let prev_adjusted_step = (adjusted_step + total_steps - 1) % total_steps;
-            (adjusted_step * self.vertices) / total_steps != (prev_adjusted_step * self.vertices) / total_steps
+            (adjusted_step * self.vertices) / total_steps
+                != (prev_adjusted_step * self.vertices) / total_steps
         }
     }
 }
@@ -93,12 +102,14 @@ pub struct Sequencer {
 }
 
 impl Sequencer {
+    #[must_use]
     pub fn new(steps: usize, pulses: usize, bpm: f32) -> Self {
         Self::new_with_mode(steps, pulses, bpm, RhythmMode::Euclidean)
     }
 
+    #[must_use]
     pub fn new_with_mode(steps: usize, pulses: usize, bpm: f32, mode: RhythmMode) -> Self {
-        let mut seq = Sequencer {
+        let mut seq = Self {
             steps,
             pulses,
             pattern: vec![StepTrigger::default(); steps],
@@ -114,6 +125,7 @@ impl Sequencer {
         seq
     }
 
+    #[must_use]
     pub fn new_with_rotation(steps: usize, pulses: usize, bpm: f32, rotation: usize) -> Self {
         let mut seq = Self::new(steps, pulses, bpm);
         seq.set_rotation(rotation);
@@ -132,14 +144,17 @@ impl Sequencer {
             RhythmMode::Euclidean => {
                 // Mode classique : On map le booléen sur Kick + Hat
                 let bools = generate_euclidean_bools(self.steps, self.pulses);
-                bools.into_iter().map(|b| StepTrigger {
-                    kick: b,
-                    snare: false,
-                    hat: b, // Layering simple
-                    bass: b, // Sync bass with kick in Euclidean mode
-                    lead: false,
-                    velocity: if b { 1.0 } else { 0.0 },
-                }).collect()
+                bools
+                    .into_iter()
+                    .map(|b| StepTrigger {
+                        kick: b,
+                        snare: false,
+                        hat: b,  // Layering simple
+                        bass: b, // Sync bass with kick in Euclidean mode
+                        lead: false,
+                        velocity: if b { 1.0 } else { 0.0 },
+                    })
+                    .collect()
             }
             RhythmMode::PerfectBalance => {
                 // Mode XronoMorph : Polygones réguliers superposés
@@ -195,13 +210,22 @@ impl Sequencer {
 }
 
 /// Génère les booléens de Bjorklund (Legacy)
+#[must_use]
 pub fn generate_euclidean_bools(steps: usize, pulses: usize) -> Vec<bool> {
-    if pulses == 0 { return vec![false; steps]; }
-    if pulses >= steps { return vec![true; steps]; }
+    if pulses == 0 {
+        return vec![false; steps];
+    }
+    if pulses >= steps {
+        return vec![true; steps];
+    }
 
     let mut pattern: Vec<Vec<u8>> = Vec::new();
-    for _ in 0..pulses { pattern.push(vec![1]); }
-    for _ in 0..(steps - pulses) { pattern.push(vec![0]); }
+    for _ in 0..pulses {
+        pattern.push(vec![1]);
+    }
+    for _ in 0..(steps - pulses) {
+        pattern.push(vec![0]);
+    }
 
     let mut count = std::cmp::min(pulses, steps - pulses);
     let mut remainder = pattern.len() - count;
@@ -231,6 +255,7 @@ pub fn generate_euclidean_bools(steps: usize, pulses: usize) -> Vec<bool> {
 
 /// Generates a pattern based on the superposition of regular polygons.
 /// Respects the Perfect Balance theorem (sum of vectors is zero).
+#[must_use]
 pub fn generate_balanced_layers_48(steps: usize, density: f32, tension: f32) -> Vec<StepTrigger> {
     let mut triggers = vec![StepTrigger::default(); steps];
 
@@ -256,6 +281,7 @@ pub fn generate_balanced_layers_48(steps: usize, density: f32, tension: f32) -> 
     // On 48 steps, a full shift = steps / vertices.
     let max_snare_shift = steps / snare_vertices;
     // Using simple casting for integer arithmetic on grid
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let snare_offset = (tension * max_snare_shift as f32) as usize;
 
     let snare_gon = Polygon::new(snare_vertices, snare_offset, 0.9);
@@ -263,9 +289,9 @@ pub fn generate_balanced_layers_48(steps: usize, density: f32, tension: f32) -> 
     // LAYER C: HI-HAT (Fill)
     // High frequency shapes.
     let hat_vertices = if density < 0.25 {
-        6  // Triplet eighths
+        6 // Triplet eighths
     } else if density < 0.6 {
-        8  // Straight eighths
+        8 // Straight eighths
     } else if density < 0.85 {
         12 // Sixteenths
     } else {
@@ -274,11 +300,9 @@ pub fn generate_balanced_layers_48(steps: usize, density: f32, tension: f32) -> 
 
     // The Hat often "floats" around the beat to create groove.
     // Use tension to slightly shift the Hat (Mathematical Swing).
-    let hat_offset = if tension > 0.3 {
-        (tension * (steps / hat_vertices) as f32 * 0.5) as usize
-    } else {
-        0
-    };
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let hat_offset =
+        if tension > 0.3 { (tension * (steps / hat_vertices) as f32 * 0.5) as usize } else { 0 };
 
     let hat_gon = Polygon::new(hat_vertices, hat_offset, 0.6 * density.max(0.5));
 
@@ -287,6 +311,7 @@ pub fn generate_balanced_layers_48(steps: usize, density: f32, tension: f32) -> 
 
     // LAYER E: LEAD (Melody)
     let lead_vertices = if density < 0.3 { 3 } else { 5 };
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let lead_offset = (tension * (steps / lead_vertices) as f32) as usize;
     let lead_gon = Polygon::new(lead_vertices, lead_offset, 0.7);
 
@@ -326,8 +351,12 @@ pub fn generate_balanced_layers_48(steps: usize, density: f32, tension: f32) -> 
             }
         }
 
-        if hit_bass { trigger.bass = true; }
-        if hit_lead { trigger.lead = true; }
+        if hit_bass {
+            trigger.bass = true;
+        }
+        if hit_lead {
+            trigger.lead = true;
+        }
     }
 
     triggers
@@ -340,13 +369,15 @@ pub fn generate_balanced_layers_48(steps: usize, density: f32, tension: f32) -> 
 
 /// Generates realistic drum patterns based on common grooves.
 /// Uses density for kick complexity and tension for ghost notes/syncopation.
+#[allow(clippy::too_many_lines)]
+#[must_use]
 pub fn generate_classic_groove(steps: usize, density: f32, tension: f32) -> Vec<StepTrigger> {
     let mut pattern = vec![StepTrigger::default(); steps];
 
     // === SUBDIVISIONS ===
-    let beat = steps / 4;           // Noire (12 pour 48, 24 pour 96)
-    let eighth = beat / 2;          // Croche
-    let sixteenth = beat / 4;       // Double-croche
+    let beat = steps / 4; // Noire (12 pour 48, 24 pour 96)
+    let eighth = beat / 2; // Croche
+    let sixteenth = beat / 4; // Double-croche
 
     // === KICK PATTERNS ===
     // Basés sur des grooves réels de batterie
@@ -374,7 +405,7 @@ pub fn generate_classic_groove(steps: usize, density: f32, tension: f32) -> Vec<
             // Groove avec anticipation: 1, 2-and, 3, 4
             pattern[0].kick = true;
             pattern[0].velocity = 1.0;
-            pattern[beat + eighth].kick = true;  // "2-and" (anticipation du 3)
+            pattern[beat + eighth].kick = true; // "2-and" (anticipation du 3)
             pattern[beat + eighth].velocity = 0.7;
             pattern[2 * beat].kick = true;
             pattern[2 * beat].velocity = 0.9;
@@ -388,7 +419,7 @@ pub fn generate_classic_groove(steps: usize, density: f32, tension: f32) -> Vec<
             pattern[beat + eighth].kick = true;
             pattern[beat + eighth].velocity = 0.75;
             if sixteenth > 0 {
-                pattern[2 * beat + sixteenth].kick = true;  // "3-e"
+                pattern[2 * beat + sixteenth].kick = true; // "3-e"
                 pattern[2 * beat + sixteenth].velocity = 0.7;
             }
             pattern[3 * beat].kick = true;
@@ -471,7 +502,9 @@ pub fn generate_classic_groove(steps: usize, density: f32, tension: f32) -> Vec<
         if sixteenth > 0 {
             for i in 0..16 {
                 let pos = i * sixteenth;
-                if pos >= steps { break; }
+                if pos >= steps {
+                    break;
+                }
 
                 // Skip si kick ou snare principal
                 if pattern[pos].kick || (pattern[pos].snare && pattern[pos].velocity > 0.5) {
@@ -509,12 +542,12 @@ pub fn generate_classic_groove(steps: usize, density: f32, tension: f32) -> Vec<
     for i in 0..steps {
         if pattern[i].kick {
             pattern[i].bass = true;
-        } else if tension > 0.4 && i >= sixteenth && pattern[i-sixteenth].kick {
-             // Syncopated bass after kick if high tension
-             pattern[i].bass = true;
+        } else if tension > 0.4 && i >= sixteenth && pattern[i - sixteenth].kick {
+            // Syncopated bass after kick if high tension
+            pattern[i].bass = true;
         }
     }
-    
+
     // === LEAD PATTERNS ===
     // Mélodie simple sur division principale
     let melody_interval = if density < 0.4 { beat } else { eighth };

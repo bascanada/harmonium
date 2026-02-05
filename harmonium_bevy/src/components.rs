@@ -1,17 +1,18 @@
 use bevy::prelude::*;
-use crate::mirror::{BevyRhythmMode, BevyEngineParams};
 
-/// The main component to attach to an entity (e.g. "MusicManager")
+use crate::mirror::{BevyEngineParams, BevyRhythmMode};
+
+/// The main component to attach to an entity (e.g. "`MusicManager`")
 /// to control the generative engine.
 #[derive(Component, Reflect)]
 #[reflect(Component)]
 pub struct HarmoniumSource {
     /// 1. Enable/Disable note generation
     pub is_enabled: bool,
-    
+
     /// 2. Technical configuration of the algorithm
     pub config: GenerativeConfig,
-    
+
     /// 3. Synth configuration (Odin 2)
     pub synth: OdinConfig,
 
@@ -34,10 +35,10 @@ impl Default for HarmoniumSource {
 #[derive(Clone, Reflect, Debug)]
 pub struct GenerativeConfig {
     pub rhythm_mode: BevyRhythmMode,
-    pub steps: usize,      // 16, 32, 48...
-    pub density: f32,      // 0.0 - 1.0 (Probability of note)
-    pub tension: f32,      // 0.0 - 1.0 (Dissonance / Complexity)
-    pub tempo: f32,        // BPM
+    pub steps: usize, // 16, 32, 48...
+    pub density: f32, // 0.0 - 1.0 (Probability of note)
+    pub tension: f32, // 0.0 - 1.0 (Dissonance / Complexity)
+    pub tempo: f32,   // BPM
 }
 
 impl Default for GenerativeConfig {
@@ -58,10 +59,10 @@ use crate::assets::OdinAsset;
 #[derive(Clone, Reflect, Default, Debug)]
 pub struct OdinConfig {
     /// Handle to the loaded .odin asset
-    /// Set this handle via AssetServer.load("my_preset.odin")
+    /// Set this handle via `AssetServer.load("my_preset.odin`")
     pub preset: Handle<OdinAsset>,
-    
-    /// Or selection by Bank/Program if using SoundFonts
+
+    /// Or selection by Bank/Program if using `SoundFonts`
     pub bank_id: u32,
     pub program_id: u8,
 }
@@ -78,11 +79,9 @@ pub struct HarmoniumTag {
 }
 
 impl HarmoniumTag {
+    #[must_use]
     pub fn new(tags: &[&str], weight: f32) -> Self {
-        Self {
-            tags: tags.iter().map(|s| s.to_string()).collect(),
-            weight,
-        }
+        Self { tags: tags.iter().map(std::string::ToString::to_string).collect(), weight }
     }
 }
 
@@ -93,10 +92,10 @@ impl HarmoniumTag {
 pub struct AiDriver {
     /// 0.0 = Pure Manual (UI Sliders), 1.0 = Pure AI, 0.5 = Mix
     pub ai_influence: f32,
-    
+
     /// Detection radius in game units
     pub detection_radius: f32,
-    
+
     /// Scan frequency
     pub scan_timer: Timer,
 

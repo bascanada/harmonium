@@ -1,8 +1,9 @@
-use crate::backend::AudioRenderer;
+use std::{fs::File, io::BufWriter};
+
 use harmonium_core::events::AudioEvent;
 use hound::{WavSpec, WavWriter};
-use std::fs::File;
-use std::io::BufWriter;
+
+use crate::backend::AudioRenderer;
 
 pub struct WavBackend {
     inner: Box<dyn AudioRenderer>,
@@ -10,7 +11,11 @@ pub struct WavBackend {
 }
 
 impl WavBackend {
-    pub fn new(inner: Box<dyn AudioRenderer>, path: &str, sample_rate: u32) -> Result<Self, hound::Error> {
+    pub fn new(
+        inner: Box<dyn AudioRenderer>,
+        path: &str,
+        sample_rate: u32,
+    ) -> Result<Self, hound::Error> {
         let spec = WavSpec {
             channels: 2,
             sample_rate,
@@ -33,5 +38,7 @@ impl AudioRenderer for WavBackend {
             self.writer.write_sample(*sample).ok();
         }
     }
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
 }

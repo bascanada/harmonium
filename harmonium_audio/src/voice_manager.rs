@@ -1,9 +1,10 @@
-use fundsp::hacker32::*;
-use harmonium_core::events::AudioEvent;
 use std::io::Cursor;
+
+use fundsp::hacker32::Shared;
+use harmonium_core::events::AudioEvent;
 use rand::Rng;
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ChannelType {
     FundSP,
     Oxisynth { bank: u32 },
@@ -49,19 +50,31 @@ pub struct VoiceManager {
 
 impl VoiceManager {
     #[allow(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new(
         sf2_bytes: Option<&[u8]>,
         sample_rate: f32,
-        frequency_lead: Shared, gate_lead: Shared,
-        frequency_bass: Shared, gate_bass: Shared,
-        gate_snare: Shared, gate_hat: Shared,
-        cutoff: Shared, resonance: Shared, distortion: Shared,
-        fm_ratio: Shared, fm_amount: Shared, timbre_mix: Shared, reverb_mix: Shared,
-        gain_lead: Shared, gain_bass: Shared, gain_snare: Shared, gain_hat: Shared,
+        frequency_lead: Shared,
+        gate_lead: Shared,
+        frequency_bass: Shared,
+        gate_bass: Shared,
+        gate_snare: Shared,
+        gate_hat: Shared,
+        cutoff: Shared,
+        resonance: Shared,
+        distortion: Shared,
+        fm_ratio: Shared,
+        fm_amount: Shared,
+        timbre_mix: Shared,
+        reverb_mix: Shared,
+        gain_lead: Shared,
+        gain_bass: Shared,
+        gain_snare: Shared,
+        gain_hat: Shared,
     ) -> Self {
         let mut synth = oxisynth::Synth::default();
         synth.set_sample_rate(sample_rate);
-        
+
         if let Some(_bytes) = sf2_bytes {
             // Don't load here, use add_font below
             // let mut cursor = Cursor::new(bytes);
@@ -77,13 +90,27 @@ impl VoiceManager {
             synth,
             channel_routing,
             current_banks,
-            frequency_lead, gate_lead, gate_timer_lead: 0,
-            frequency_bass, gate_bass, gate_timer_bass: 0,
-            gate_snare, gate_timer_snare: 0,
-            gate_hat, gate_timer_hat: 0,
-            cutoff, resonance, distortion,
-            fm_ratio, fm_amount, timbre_mix, reverb_mix,
-            gain_lead, gain_bass, gain_snare, gain_hat,
+            frequency_lead,
+            gate_lead,
+            gate_timer_lead: 0,
+            frequency_bass,
+            gate_bass,
+            gate_timer_bass: 0,
+            gate_snare,
+            gate_timer_snare: 0,
+            gate_hat,
+            gate_timer_hat: 0,
+            cutoff,
+            resonance,
+            distortion,
+            fm_ratio,
+            fm_amount,
+            timbre_mix,
+            reverb_mix,
+            gain_lead,
+            gain_bass,
+            gain_snare,
+            gain_hat,
         };
 
         if let Some(bytes) = sf2_bytes {
@@ -104,23 +131,24 @@ impl VoiceManager {
     pub fn set_channel_route(&mut self, channel: usize, mode: ChannelType) {
         if channel < 16 {
             self.channel_routing[channel] = mode;
-            
+
             // If switching to Oxisynth, ensure bank is selected
             if let ChannelType::Oxisynth { bank } = mode
-                && self.current_banks[channel] != bank {
-                    // Send Bank Select (CC 0)
-                    let _ = self.synth.send_event(oxisynth::MidiEvent::ControlChange { 
-                        channel: channel as u8, 
-                        ctrl: 0, 
-                        value: bank as u8 
-                    });
-                    // Send Program Change (default to 0 for now)
-                    let _ = self.synth.send_event(oxisynth::MidiEvent::ProgramChange { 
-                        channel: channel as u8, 
-                        program_id: 0 
-                    });
-                    self.current_banks[channel] = bank;
-                }
+                && self.current_banks[channel] != bank
+            {
+                // Send Bank Select (CC 0)
+                let _ = self.synth.send_event(oxisynth::MidiEvent::ControlChange {
+                    channel: channel as u8,
+                    ctrl: 0,
+                    value: bank as u8,
+                });
+                // Send Program Change (default to 0 for now)
+                let _ = self.synth.send_event(oxisynth::MidiEvent::ProgramChange {
+                    channel: channel as u8,
+                    program_id: 0,
+                });
+                self.current_banks[channel] = bank;
+            }
         }
     }
 
@@ -128,27 +156,29 @@ impl VoiceManager {
         match event {
             AudioEvent::NoteOn { note, velocity, channel } => {
                 if let ChannelType::Oxisynth { .. } = self.channel_routing[channel as usize] {
-                    let _ = self.synth.send_event(oxisynth::MidiEvent::NoteOn { 
-                        channel, 
-                        key: note, 
-                        vel: velocity 
+                    let _ = self.synth.send_event(oxisynth::MidiEvent::NoteOn {
+                        channel,
+                        key: note,
+                        vel: velocity,
                     });
                     return;
                 }
 
-                let freq = 440.0 * 2.0_f32.powf((note as f32 - 69.0) / 12.0);
-                let vel = velocity as f32 / 127.0;
+                let freq = 440.0 * ((f32::from(note) - 69.0) / 12.0).exp2();
+                let vel = f32::from(velocity) / 127.0;
 
                 match channel {
-                    0 => { // Bass
+                    0 => {
+                        // Bass
                         self.frequency_bass.set_value(freq);
                         self.gate_bass.set_value(vel);
                         self.gate_timer_bass = (samples_per_step as f32 * 0.6) as usize;
-                    },
-                    1 => { // Lead
+                    }
+                    1 => {
+                        // Lead
                         self.frequency_lead.set_value(freq);
                         self.gate_lead.set_value(vel);
-                        // Duration logic was: if kick 0.8 else 0.4. 
+                        // Duration logic was: if kick 0.8 else 0.4.
                         // We might need to pass duration in event or handle it differently.
                         // For now, let's assume a default or pass it via velocity/channel logic?
                         // The original code had logic based on "is_strong" (kick).
@@ -157,27 +187,27 @@ impl VoiceManager {
                         // The user said "NoteOn / NoteOff resolves this implicitly".
                         // But here we are using gate timers for "one-shot" style triggering in the original code.
                         // If we switch to full NoteOn/NoteOff, we need to handle NoteOff events.
-                        
+
                         // For now, let's keep the timer logic for compatibility, but maybe NoteOff can clear it?
-                        self.gate_timer_lead = (samples_per_step as f32 * 0.5) as usize; 
-                    },
-                    2 => { // Snare
+                        self.gate_timer_lead = (samples_per_step as f32 * 0.5) as usize;
+                    }
+                    2 => {
+                        // Snare
                         self.gate_snare.set_value(vel);
                         self.gate_timer_snare = (samples_per_step as f32 * 0.3) as usize;
-                    },
-                    3 => { // Hat
+                    }
+                    3 => {
+                        // Hat
                         self.gate_hat.set_value(vel);
                         self.gate_timer_hat = (samples_per_step as f32 * 0.1) as usize;
-                    },
+                    }
                     _ => {}
                 }
-            },
+            }
             AudioEvent::NoteOff { note, channel } => {
                 if let ChannelType::Oxisynth { .. } = self.channel_routing[channel as usize] {
-                    let _ = self.synth.send_event(oxisynth::MidiEvent::NoteOff { 
-                        channel, 
-                        key: note 
-                    });
+                    let _ =
+                        self.synth.send_event(oxisynth::MidiEvent::NoteOff { channel, key: note });
                     return;
                 }
 
@@ -188,12 +218,12 @@ impl VoiceManager {
                     3 => self.gate_hat.set_value(0.0),
                     _ => {}
                 }
-            },
+            }
             AudioEvent::AllNotesOff { channel } => {
                 // Envoyer All Notes Off (CC 123) + Sustain Off (CC 64) pour vraiment couper
                 let _ = self.synth.send_event(oxisynth::MidiEvent::ControlChange {
                     channel,
-                    ctrl: 64,  // Sustain pedal off
+                    ctrl: 64, // Sustain pedal off
                     value: 0,
                 });
                 let _ = self.synth.send_event(oxisynth::MidiEvent::ControlChange {
@@ -210,18 +240,19 @@ impl VoiceManager {
                     3 => self.gate_hat.set_value(0.0),
                     _ => {}
                 }
-            },
+            }
             AudioEvent::ControlChange { ctrl, value, channel } => {
                 // Send CC to specific channel
                 let _ = self.synth.send_event(oxisynth::MidiEvent::ControlChange {
                     channel,
                     ctrl,
-                    value
+                    value,
                 });
 
-                let val_norm = value as f32 / 127.0;
+                let val_norm = f32::from(value) / 127.0;
                 match ctrl {
-                    1 => { // Modulation / Tension
+                    1 => {
+                        // Modulation / Tension
                         // Original: fm_ratio = 1.0 + (tension * 4.0)
                         // We can map CC1 to tension-like effects
                         self.fm_ratio.set_value(1.0 + (val_norm * 4.0));
@@ -240,15 +271,15 @@ impl VoiceManager {
                                 // Resonance (CC 71): 0 -> 90 (resonant)
                                 let res_val = (val_norm * 90.0) as i32;
 
-                                let _ = self.synth.send_event(oxisynth::MidiEvent::ControlChange { 
-                                    channel: ch as u8, 
-                                    ctrl: 74, 
-                                    value: cutoff_val.clamp(0, 127) as u8
+                                let _ = self.synth.send_event(oxisynth::MidiEvent::ControlChange {
+                                    channel: ch as u8,
+                                    ctrl: 74,
+                                    value: cutoff_val.clamp(0, 127) as u8,
                                 });
-                                let _ = self.synth.send_event(oxisynth::MidiEvent::ControlChange { 
-                                    channel: ch as u8, 
-                                    ctrl: 71, 
-                                    value: res_val.clamp(0, 127) as u8
+                                let _ = self.synth.send_event(oxisynth::MidiEvent::ControlChange {
+                                    channel: ch as u8,
+                                    ctrl: 71,
+                                    value: res_val.clamp(0, 127) as u8,
                                 });
 
                                 // 2. Horror: Pitch Instability (Detune)
@@ -261,42 +292,59 @@ impl VoiceManager {
                                     8192
                                 };
 
-                                let _ = self.synth.send_event(oxisynth::MidiEvent::PitchBend { 
-                                    channel: ch as u8, 
-                                    value: bend_val.clamp(0, 16383) as u16
+                                let _ = self.synth.send_event(oxisynth::MidiEvent::PitchBend {
+                                    channel: ch as u8,
+                                    value: bend_val.clamp(0, 16383) as u16,
                                 });
                             }
                         }
-                    },
-                    11 => { // Expression / Arousal
-                         self.distortion.set_value(val_norm * 0.8);
-                    },
-                    91 => { // Reverb
+                    }
+                    11 => {
+                        // Expression / Arousal
+                        self.distortion.set_value(val_norm * 0.8);
+                    }
+                    91 => {
+                        // Reverb
                         self.reverb_mix.set_value(0.1 + (val_norm * 0.4));
-                    },
+                    }
                     _ => {}
                 }
-            },
-            AudioEvent::TimingUpdate { .. } | AudioEvent::UpdateMusicalParams { .. } | AudioEvent::LoadFont { .. } | AudioEvent::SetChannelRoute { .. } | AudioEvent::StartRecording { .. } | AudioEvent::StopRecording { .. } | AudioEvent::SetMixerGains { .. } | AudioEvent::LoadOdinPreset { .. } => {},
+            }
+            AudioEvent::TimingUpdate { .. }
+            | AudioEvent::UpdateMusicalParams { .. }
+            | AudioEvent::LoadFont { .. }
+            | AudioEvent::SetChannelRoute { .. }
+            | AudioEvent::StartRecording { .. }
+            | AudioEvent::StopRecording { .. }
+            | AudioEvent::SetMixerGains { .. }
+            | AudioEvent::LoadOdinPreset { .. } => {}
         }
     }
 
     pub fn update_timers(&mut self) {
-        if self.gate_timer_lead > 0 { 
-            self.gate_timer_lead -= 1; 
-            if self.gate_timer_lead == 0 { self.gate_lead.set_value(0.0); } 
+        if self.gate_timer_lead > 0 {
+            self.gate_timer_lead -= 1;
+            if self.gate_timer_lead == 0 {
+                self.gate_lead.set_value(0.0);
+            }
         }
-        if self.gate_timer_bass > 0 { 
-            self.gate_timer_bass -= 1; 
-            if self.gate_timer_bass == 0 { self.gate_bass.set_value(0.0); } 
+        if self.gate_timer_bass > 0 {
+            self.gate_timer_bass -= 1;
+            if self.gate_timer_bass == 0 {
+                self.gate_bass.set_value(0.0);
+            }
         }
-        if self.gate_timer_snare > 0 { 
-            self.gate_timer_snare -= 1; 
-            if self.gate_timer_snare == 0 { self.gate_snare.set_value(0.0); } 
+        if self.gate_timer_snare > 0 {
+            self.gate_timer_snare -= 1;
+            if self.gate_timer_snare == 0 {
+                self.gate_snare.set_value(0.0);
+            }
         }
-        if self.gate_timer_hat > 0 { 
-            self.gate_timer_hat -= 1; 
-            if self.gate_timer_hat == 0 { self.gate_hat.set_value(0.0); } 
+        if self.gate_timer_hat > 0 {
+            self.gate_timer_hat -= 1;
+            if self.gate_timer_hat == 0 {
+                self.gate_hat.set_value(0.0);
+            }
         }
     }
 

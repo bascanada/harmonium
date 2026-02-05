@@ -1,10 +1,16 @@
-use crate::backend::AudioRenderer;
-use harmonium_core::events::{AudioEvent, RecordFormat};
-use harmonium_core::params::MusicalParams;
+use std::{
+    io::{Cursor, Seek, Write},
+    sync::{Arc, Mutex},
+};
+
+use harmonium_core::{
+    events::{AudioEvent, RecordFormat},
+    params::MusicalParams,
+};
 use hound::{WavSpec, WavWriter};
-use midly::{Header, Smf, TrackEvent, TrackEventKind, MidiMessage, MetaMessage, Format, Timing};
-use std::sync::{Arc, Mutex};
-use std::io::{Cursor, Write, Seek};
+use midly::{Format, Header, MetaMessage, MidiMessage, Smf, Timing, TrackEvent, TrackEventKind};
+
+use crate::backend::AudioRenderer;
 
 type FinishedRecordings = Arc<Mutex<Vec<(RecordFormat, Vec<u8>)>>>;
 
@@ -15,9 +21,7 @@ struct SharedWriter {
 
 impl SharedWriter {
     fn new() -> Self {
-        Self {
-            buffer: Arc::new(Mutex::new(Cursor::new(Vec::with_capacity(1024 * 1024)))),
-        }
+        Self { buffer: Arc::new(Mutex::new(Cursor::new(Vec::with_capacity(1024 * 1024)))) }
     }
 }
 
@@ -48,12 +52,12 @@ pub struct RecorderBackend {
 
     // MIDI State
     midi_track: Option<Vec<TrackEvent<'static>>>,
-    midi_steps_since_last: f64,  // Changed from midi_samples_since_last: u64
+    midi_steps_since_last: f64, // Changed from midi_samples_since_last: u64
     current_samples_per_step: usize,
 
     // MusicXML State
-    musicxml_events: Option<Vec<(f64, AudioEvent)>>,  // Changed from Vec<(u64, AudioEvent)>
-    musicxml_steps_elapsed: f64,  // Changed from musicxml_samples_elapsed: u64
+    musicxml_events: Option<Vec<(f64, AudioEvent)>>, // Changed from Vec<(u64, AudioEvent)>
+    musicxml_steps_elapsed: f64,                     // Changed from musicxml_samples_elapsed: u64
     musicxml_params: MusicalParams,
 }
 
@@ -61,7 +65,7 @@ impl RecorderBackend {
     pub fn new(
         inner: Box<dyn AudioRenderer>,
         finished_recordings: FinishedRecordings,
-        sample_rate: u32
+        sample_rate: u32,
     ) -> Self {
         Self {
             inner,
@@ -70,10 +74,10 @@ impl RecorderBackend {
             wav_output: None,
             sample_rate,
             midi_track: None,
-            midi_steps_since_last: 0.0,  // Changed to f64
+            midi_steps_since_last: 0.0, // Changed to f64
             current_samples_per_step: 11025,
             musicxml_events: None,
-            musicxml_steps_elapsed: 0.0,  // Changed to f64
+            musicxml_steps_elapsed: 0.0, // Changed to f64
             musicxml_params: MusicalParams::default(),
         }
     }
@@ -100,15 +104,16 @@ impl RecorderBackend {
     fn stop_wav(&mut self) {
         // Drop writer to finalize
         self.wav_writer = None;
-        
+
         if let Some(shared) = self.wav_output.take()
             && let Ok(mutex) = Arc::try_unwrap(shared.buffer)
-                && let Ok(cursor) = mutex.into_inner() {
-                    let data = cursor.into_inner();
-                    if let Ok(mut queue) = self.finished_recordings.lock() {
-                        queue.push((RecordFormat::Wav, data));
-                    }
-                }
+            && let Ok(cursor) = mutex.into_inner()
+        {
+            let data = cursor.into_inner();
+            if let Ok(mut queue) = self.finished_recordings.lock() {
+                queue.push((RecordFormat::Wav, data));
+            }
+        }
     }
 
     fn start_midi(&mut self) {
@@ -120,7 +125,7 @@ impl RecorderBackend {
         }];
 
         self.midi_track = Some(track);
-        self.midi_steps_since_last = 0.0;  // Reset to f64
+        self.midi_steps_since_last = 0.0; // Reset to f64
     }
 
     fn stop_midi(&mut self) {
@@ -137,29 +142,36 @@ impl RecorderBackend {
 
             let mut buffer = Vec::new();
             if smf.write(&mut buffer).is_ok()
-                && let Ok(mut queue) = self.finished_recordings.lock() {
-                    queue.push((RecordFormat::Midi, buffer));
-                }
+                && let Ok(mut queue) = self.finished_recordings.lock()
+            {
+                queue.push((RecordFormat::Midi, buffer));
+            }
         }
     }
 
     fn start_musicxml(&mut self) {
         self.musicxml_events = Some(Vec::new());
-        self.musicxml_steps_elapsed = 0.0;  // Reset to f64
+        self.musicxml_steps_elapsed = 0.0; // Reset to f64
     }
 
     fn stop_musicxml(&mut self) {
         if let Some(events) = self.musicxml_events.take() {
             // Debug: Count captured events by type
-            let note_on_count = events.iter().filter(|(_, e)| matches!(e, AudioEvent::NoteOn { .. })).count();
-            let note_off_count = events.iter().filter(|(_, e)| matches!(e, AudioEvent::NoteOff { .. })).count();
-            eprintln!("MusicXML recorder: Captured {} NoteOn events, {} NoteOff events (total {} events)",
-                     note_on_count, note_off_count, events.len());
+            let note_on_count =
+                events.iter().filter(|(_, e)| matches!(e, AudioEvent::NoteOn { .. })).count();
+            let note_off_count =
+                events.iter().filter(|(_, e)| matches!(e, AudioEvent::NoteOff { .. })).count();
+            eprintln!(
+                "MusicXML recorder: Captured {} NoteOn events, {} NoteOff events (total {} events)",
+                note_on_count,
+                note_off_count,
+                events.len()
+            );
 
             let xml = harmonium_core::export::to_musicxml(
                 &events,
                 &self.musicxml_params,
-                1,  // Dummy value - no longer used for conversion with step-based events
+                1, // Dummy value - no longer used for conversion with step-based events
             );
             if let Ok(mut queue) = self.finished_recordings.lock() {
                 queue.push((RecordFormat::MusicXml, xml.into_bytes()));
@@ -179,68 +191,67 @@ impl AudioRenderer for RecorderBackend {
     fn handle_event(&mut self, event: AudioEvent) {
         // Intercept recording commands
         match &event {
-            AudioEvent::StartRecording { format } => {
-                match format {
-                    RecordFormat::Wav => self.start_wav(),
-                    RecordFormat::Midi => self.start_midi(),
-                    RecordFormat::MusicXml => self.start_musicxml(),
-                }
+            AudioEvent::StartRecording { format } => match format {
+                RecordFormat::Wav => self.start_wav(),
+                RecordFormat::Midi => self.start_midi(),
+                RecordFormat::MusicXml => self.start_musicxml(),
             },
-            AudioEvent::StopRecording { format } => {
-                match format {
-                    RecordFormat::Wav => self.stop_wav(),
-                    RecordFormat::Midi => self.stop_midi(),
-                    RecordFormat::MusicXml => self.stop_musicxml(),
-                }
+            AudioEvent::StopRecording { format } => match format {
+                RecordFormat::Wav => self.stop_wav(),
+                RecordFormat::Midi => self.stop_midi(),
+                RecordFormat::MusicXml => self.stop_musicxml(),
             },
             AudioEvent::TimingUpdate { samples_per_step } => {
                 self.current_samples_per_step = *samples_per_step;
-            },
+            }
             AudioEvent::UpdateMusicalParams { params } => {
                 self.musicxml_params = *params.clone();
-            },
+            }
             AudioEvent::NoteOn { .. } | AudioEvent::NoteOff { .. } => {
                 // Capture MusicXML with step timestamp
                 if let Some(events) = &mut self.musicxml_events {
                     events.push((self.musicxml_steps_elapsed, event.clone()));
                 }
-            },
+            }
             _ => {}
         }
 
         // MIDI recording logic - convert step delta to ticks
         match &event {
-             AudioEvent::NoteOn { note, velocity, channel } => {
+            AudioEvent::NoteOn { note, velocity, channel } => {
                 // Compute delta before mutable borrow
                 let delta = self.steps_to_ticks(self.midi_steps_since_last);
                 if let Some(track) = &mut self.midi_track {
-                    self.midi_steps_since_last = 0.0;  // Reset to 0.0
+                    self.midi_steps_since_last = 0.0; // Reset to 0.0
                     track.push(TrackEvent {
                         delta: delta.into(),
                         kind: TrackEventKind::Midi {
                             channel: (*channel).into(),
-                            message: MidiMessage::NoteOn { key: (*note).into(), vel: (*velocity).into() }
-                        }
+                            message: MidiMessage::NoteOn {
+                                key: (*note).into(),
+                                vel: (*velocity).into(),
+                            },
+                        },
                     });
                 }
-            },
+            }
             AudioEvent::NoteOff { note, channel } => {
                 // Compute delta before mutable borrow
                 let delta = self.steps_to_ticks(self.midi_steps_since_last);
                 if let Some(track) = &mut self.midi_track {
-                    self.midi_steps_since_last = 0.0;  // Reset to 0.0
+                    self.midi_steps_since_last = 0.0; // Reset to 0.0
                     track.push(TrackEvent {
                         delta: delta.into(),
                         kind: TrackEventKind::Midi {
                             channel: (*channel).into(),
-                            message: MidiMessage::NoteOff { key: (*note).into(), vel: 0.into() }
-                        }
+                            message: MidiMessage::NoteOff { key: (*note).into(), vel: 0.into() },
+                        },
                     });
                 }
-            },
+            }
             _ => {}
         }
-        
+
         self.inner.handle_event(event);
     }
 
@@ -272,7 +283,9 @@ impl AudioRenderer for RecorderBackend {
             }
         }
     }
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
 
     #[cfg(feature = "odin2")]
     fn odin2_backend_mut(&mut self) -> Option<&mut crate::backend::odin2_backend::Odin2Backend> {

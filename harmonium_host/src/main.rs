@@ -1,19 +1,19 @@
+use std::{
+    env, fs,
+    net::UdpSocket,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+    time::Duration,
+};
+
 #[cfg(feature = "ai")]
 use harmonium::ai::EmotionEngine;
-use harmonium::audio;
-use harmonium::audio::AudioBackendType;
-use harmonium::engine::EngineParams;
-use harmonium::harmony::HarmonyMode;
-use harmonium::log;
+use harmonium::{audio, audio::AudioBackendType, engine::EngineParams, harmony::HarmonyMode, log};
 use rand::Rng;
 use rosc::{OscPacket, OscType};
-use std::env;
-use std::fs;
-use std::net::UdpSocket;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
 
 fn perform_graceful_shutdown(
     target_params_input: &Arc<Mutex<triple_buffer::Input<EngineParams>>>,
@@ -23,16 +23,15 @@ fn perform_graceful_shutdown(
     record_musicxml: &Option<String>,
 ) -> bool {
     // Step 1: Calculate expected number of recordings
-    let expected_recordings =
-        (if record_wav.is_some() { 1 } else { 0 }) +
-        (if record_midi.is_some() { 1 } else { 0 }) +
-        (if record_musicxml.is_some() { 1 } else { 0 });
+    let expected_recordings = i32::from(record_wav.is_some())
+        + i32::from(record_midi.is_some())
+        + i32::from(record_musicxml.is_some());
 
     if expected_recordings == 0 {
         return true; // Nothing to save
     }
 
-    log::info(&format!("Stopping {} recording(s)...", expected_recordings));
+    log::info(&format!("Stopping {expected_recordings} recording(s)..."));
 
     // Step 2: Mute all channels to stop new note generation (but let existing notes finish)
     // This ensures we capture all NoteOff events for notes that are still playing
@@ -80,7 +79,7 @@ fn perform_graceful_shutdown(
         if let Ok(mut queue) = finished_recordings.lock() {
             let queue_size = queue.len();
             if queue_size > 0 {
-                log::info(&format!("Found {} recording(s) in queue", queue_size));
+                log::info(&format!("Found {queue_size} recording(s) in queue"));
             }
 
             while let Some((fmt, data)) = queue.pop() {
@@ -108,7 +107,7 @@ fn perform_graceful_shutdown(
                 ));
 
                 if let Err(e) = fs::write(filename, &data) {
-                    log::warn(&format!("Failed to write {}: {}", filename, e));
+                    log::warn(&format!("Failed to write {filename}: {e}"));
                 } else {
                     saved_count += 1;
                 }
@@ -126,10 +125,7 @@ fn perform_graceful_shutdown(
     }
 
     if saved_count < expected_recordings {
-        log::warn(&format!(
-            "Timeout: Only saved {}/{} recordings",
-            saved_count, expected_recordings
-        ));
+        log::warn(&format!("Timeout: Only saved {saved_count}/{expected_recordings} recordings"));
     }
 
     // Success if we saved all expected recordings
@@ -203,25 +199,26 @@ fn main() {
             }
             "--duration" => {
                 if i + 1 < args.len()
-                    && let Ok(d) = args[i + 1].parse::<u64>() {
-                        duration_secs = d;
-                        i += 1;
-                    }
+                    && let Ok(d) = args[i + 1].parse::<u64>()
+                {
+                    duration_secs = d;
+                    i += 1;
+                }
             }
             "--poly-steps" | "-p" => {
                 if i + 1 < args.len()
-                    && let Ok(s) = args[i + 1].parse::<usize>() {
-                        // Valider: multiple de 4, entre 16 et 384
-                        let valid = (s / 4) * 4;
-                        poly_steps = valid.clamp(16, 384);
-                        if valid != s {
-                            log::warn(&format!(
-                                "Poly steps adjusted to {} (must be multiple of 4)",
-                                poly_steps
-                            ));
-                        }
-                        i += 1;
+                    && let Ok(s) = args[i + 1].parse::<usize>()
+                {
+                    // Valider: multiple de 4, entre 16 et 384
+                    let valid = (s / 4) * 4;
+                    poly_steps = valid.clamp(16, 384);
+                    if valid != s {
+                        log::warn(&format!(
+                            "Poly steps adjusted to {poly_steps} (must be multiple of 4)"
+                        ));
                     }
+                    i += 1;
+                }
             }
             "--backend" | "-b" => {
                 if i + 1 < args.len() {
@@ -249,9 +246,13 @@ fn main() {
                 );
                 println!("  --record-wav [PATH]        Record to WAV file (default: output.wav)");
                 println!("  --record-midi [PATH]       Record to MIDI file (default: output.mid)");
-                println!("  --record-musicxml [PATH]   Record to MusicXML file (default: output.musicxml)");
+                println!(
+                    "  --record-musicxml [PATH]   Record to MusicXML file (default: output.musicxml)"
+                );
                 println!("  --osc                      Enable OSC control (UDP 8080)");
-                println!("  --duration <SECONDS>       Recording duration (0 = infinite, Ctrl+C to stop)");
+                println!(
+                    "  --duration <SECONDS>       Recording duration (0 = infinite, Ctrl+C to stop)"
+                );
                 println!(
                     "  --poly-steps, -p <STEPS>   Polyrythm resolution: 48, 96, 192... (default: 48)"
                 );
@@ -264,7 +265,7 @@ fn main() {
                 return;
             }
             arg => {
-                if !arg.starts_with("-") && sf2_path.is_none() {
+                if !arg.starts_with('-') && sf2_path.is_none() {
                     sf2_path = Some(arg.to_string());
                 }
             }
@@ -272,21 +273,21 @@ fn main() {
         i += 1;
     }
 
-    log::info(&format!("🎹 Harmony Mode: {:?}", harmony_mode));
-    log::info(&format!("🎛️ Audio Backend: {:?}", backend_type));
+    log::info(&format!("🎹 Harmony Mode: {harmony_mode:?}"));
+    log::info(&format!("🎛️ Audio Backend: {backend_type:?}"));
     if fixed_kick {
         log::info("🥁 Drum Kit Mode: ON (Kick fixed on C1)");
     }
 
     let sf2_data = if let Some(path) = sf2_path {
-        log::info(&format!("📂 Loading SoundFont: {}", path));
+        log::info(&format!("📂 Loading SoundFont: {path}"));
         match fs::read(&path) {
             Ok(bytes) => {
                 log::info("SoundFont loaded successfully");
                 Some(bytes)
             }
             Err(e) => {
-                log::warn(&format!("Failed to read SoundFont: {}", e));
+                log::warn(&format!("Failed to read SoundFont: {e}"));
                 None
             }
         }
@@ -306,19 +307,15 @@ fn main() {
 
     // === 1. État Partagé (Lock-free avec Triple Buffer) ===
     // Phase 3: Create triple buffer for lock-free UI→Audio parameter updates
-    let initial_params = EngineParams {
-        harmony_mode,
-        poly_steps,
-        fixed_kick,
-        ..Default::default()
-    };
+    let initial_params =
+        EngineParams { harmony_mode, poly_steps, fixed_kick, ..Default::default() };
 
     let (target_params_input, target_params_output) = triple_buffer::triple_buffer(&initial_params);
     // Wrap Input in Arc<Mutex> for sharing across UI threads (OSC, simulator, main)
     // This is OK since Input is on UI side, not real-time audio side
     let target_params_input = Arc::new(Mutex::new(target_params_input));
 
-    log::info(&format!("🎵 Poly Steps: {}", poly_steps));
+    log::info(&format!("🎵 Poly Steps: {poly_steps}"));
 
     // Si on a un SoundFont, on active le routing Oxisynth par défaut pour tester
     if sf2_data.is_some() {
@@ -342,16 +339,16 @@ fn main() {
         let osc_record_midi = record_midi.clone();
         let osc_record_musicxml = record_musicxml.clone();
         // Clone muted channels to preserve across updates
-        let osc_muted_channels = initial_params.muted_channels.clone();
+        let osc_muted_channels = initial_params.muted_channels;
         thread::spawn(move || {
             let addr = "127.0.0.1:8080";
             let socket = match UdpSocket::bind(addr) {
                 Ok(s) => {
-                    log::info(&format!("OSC Listener bound to {}", addr));
+                    log::info(&format!("OSC Listener bound to {addr}"));
                     s
                 }
                 Err(e) => {
-                    log::error(&format!("Failed to bind OSC socket: {}", e));
+                    log::error(&format!("Failed to bind OSC socket: {e}"));
                     return;
                 }
             };
@@ -368,25 +365,22 @@ fn main() {
                     && fs::metadata(tokenizer_path).is_ok()
                 {
                     log::info("Loading AI Model for OSC...");
-                    match (
-                        fs::read(config_path),
-                        fs::read(weights_path),
-                        fs::read(tokenizer_path),
-                    ) {
-                        (Ok(c), Ok(w), Ok(t)) => match EmotionEngine::new(&c, &w, &t) {
+                    if let (Ok(c), Ok(w), Ok(t)) =
+                        (fs::read(config_path), fs::read(weights_path), fs::read(tokenizer_path))
+                    {
+                        match EmotionEngine::new(&c, &w, &t) {
                             Ok(engine) => {
                                 log::info("AI Model loaded successfully!");
                                 Some(engine)
                             }
                             Err(e) => {
-                                log::error(&format!("Failed to init AI engine: {:?}", e));
+                                log::error(&format!("Failed to init AI engine: {e:?}"));
                                 None
                             }
-                        },
-                        _ => {
-                            log::error("Failed to read model files");
-                            None
                         }
+                    } else {
+                        log::error("Failed to read model files");
+                        None
                     }
                 } else {
                     log::warn(
@@ -404,94 +398,90 @@ fn main() {
             loop {
                 match socket.recv_from(&mut buf) {
                     Ok((size, _addr)) => {
-                        if let Ok((_, OscPacket::Message(msg))) = rosc::decoder::decode_udp(&buf[..size]) {
+                        if let Ok((_, OscPacket::Message(msg))) =
+                            rosc::decoder::decode_udp(&buf[..size])
+                        {
                             #[cfg(feature = "ai")]
                             if msg.addr == "/harmonium/label" {
-                                    let args = msg.args.clone();
-                                    if let Some(OscType::String(label)) = args.first() {
-                                        log::info(&format!("OSC LABEL RECEIVED: {}", label));
+                                let args = msg.args.clone();
+                                if let Some(OscType::String(label)) = args.first() {
+                                    log::info(&format!("OSC LABEL RECEIVED: {label}"));
 
-                                        if let Some(engine) = &emotion_engine {
-                                            match engine.predict_native(label) {
-                                                Ok(predicted_params) => {
-                                                    // Phase 3: Use triple buffer write (lock Input on UI side)
-                                                    if let Ok(mut input) =
-                                                        osc_params_input.lock()
-                                                    {
-                                                        let mut current =
-                                                            input.input_buffer_mut().clone();
-                                                        current.arousal =
-                                                            predicted_params.arousal;
-                                                        current.valence =
-                                                            predicted_params.valence;
-                                                        current.density =
-                                                            predicted_params.density;
-                                                        current.tension =
-                                                            predicted_params.tension;
-                                                        // IMPORTANT: Preserve recording flags and muted channels
-                                                        current.record_wav = osc_record_wav.is_some();
-                                                        current.record_midi = osc_record_midi.is_some();
-                                                        current.record_musicxml = osc_record_musicxml.is_some();
-                                                        current.muted_channels = osc_muted_channels.clone();
-                                                        input.write(current);
-                                                        log::info(&format!(
-                                                            "AI UPDATE: Arousal {:.2} | Valence {:.2} | Density {:.2} | Tension {:.2}",
-                                                            predicted_params.arousal,
-                                                            predicted_params.valence,
-                                                            predicted_params.density,
-                                                            predicted_params.tension
-                                                        ));
-                                                    }
+                                    if let Some(engine) = &emotion_engine {
+                                        match engine.predict_native(label) {
+                                            Ok(predicted_params) => {
+                                                // Phase 3: Use triple buffer write (lock Input on UI side)
+                                                if let Ok(mut input) = osc_params_input.lock() {
+                                                    let mut current =
+                                                        input.input_buffer_mut().clone();
+                                                    current.arousal = predicted_params.arousal;
+                                                    current.valence = predicted_params.valence;
+                                                    current.density = predicted_params.density;
+                                                    current.tension = predicted_params.tension;
+                                                    // IMPORTANT: Preserve recording flags and muted channels
+                                                    current.record_wav = osc_record_wav.is_some();
+                                                    current.record_midi = osc_record_midi.is_some();
+                                                    current.record_musicxml =
+                                                        osc_record_musicxml.is_some();
+                                                    current.muted_channels =
+                                                        osc_muted_channels.clone();
+                                                    input.write(current);
+                                                    log::info(&format!(
+                                                        "AI UPDATE: Arousal {:.2} | Valence {:.2} | Density {:.2} | Tension {:.2}",
+                                                        predicted_params.arousal,
+                                                        predicted_params.valence,
+                                                        predicted_params.density,
+                                                        predicted_params.tension
+                                                    ));
                                                 }
-                                                Err(e) => log::error(&format!(
-                                                    "AI Prediction failed: {}",
-                                                    e
-                                                )),
                                             }
-                                        } else {
-                                            log::warn("AI Engine not loaded. Ignoring label.");
+                                            Err(e) => {
+                                                log::error(&format!("AI Prediction failed: {e}"));
+                                            }
                                         }
+                                    } else {
+                                        log::warn("AI Engine not loaded. Ignoring label.");
                                     }
                                 }
+                            }
 
-                                if msg.addr == "/harmonium/params" {
-                                    // Fallback for manual control
-                                    let args = msg.args;
-                                    if args.len() >= 4 {
-                                        let get_float = |arg: &OscType| -> f32 {
-                                            match arg {
-                                                OscType::Float(f) => *f,
-                                                OscType::Double(d) => *d as f32,
-                                                _ => 0.0,
-                                            }
-                                        };
-
-                                        let arousal = get_float(&args[0]);
-                                        let valence = get_float(&args[1]);
-                                        let density = get_float(&args[2]);
-                                        let tension = get_float(&args[3]);
-
-                                        // Phase 3: Use triple buffer write (lock Input on UI side)
-                                        if let Ok(mut input) = osc_params_input.lock() {
-                                            let mut current = input.input_buffer_mut().clone();
-                                            current.arousal = arousal;
-                                            current.valence = valence;
-                                            current.density = density;
-                                            current.tension = tension;
-                                            // IMPORTANT: Preserve recording flags and muted channels
-                                            current.record_wav = osc_record_wav.is_some();
-                                            current.record_midi = osc_record_midi.is_some();
-                                            current.record_musicxml = osc_record_musicxml.is_some();
-                                            current.muted_channels = osc_muted_channels.clone();
-                                            input.write(current);
+                            if msg.addr == "/harmonium/params" {
+                                // Fallback for manual control
+                                let args = msg.args;
+                                if args.len() >= 4 {
+                                    let get_float = |arg: &OscType| -> f32 {
+                                        match arg {
+                                            OscType::Float(f) => *f,
+                                            OscType::Double(d) => *d as f32,
+                                            _ => 0.0,
                                         }
+                                    };
+
+                                    let arousal = get_float(&args[0]);
+                                    let valence = get_float(&args[1]);
+                                    let density = get_float(&args[2]);
+                                    let tension = get_float(&args[3]);
+
+                                    // Phase 3: Use triple buffer write (lock Input on UI side)
+                                    if let Ok(mut input) = osc_params_input.lock() {
+                                        let mut current = input.input_buffer_mut().clone();
+                                        current.arousal = arousal;
+                                        current.valence = valence;
+                                        current.density = density;
+                                        current.tension = tension;
+                                        // IMPORTANT: Preserve recording flags and muted channels
+                                        current.record_wav = osc_record_wav.is_some();
+                                        current.record_midi = osc_record_midi.is_some();
+                                        current.record_musicxml = osc_record_musicxml.is_some();
+                                        current.muted_channels = osc_muted_channels.clone();
+                                        input.write(current);
                                     }
                                 }
                             }
                         }
                     }
                     Err(e) => {
-                        log::error(&format!("Error receiving UDP packet: {}", e));
+                        log::error(&format!("Error receiving UDP packet: {e}"));
                     }
                 }
             }
@@ -507,7 +497,7 @@ fn main() {
         let simulator_record_midi = record_midi.clone();
         let simulator_record_musicxml = record_musicxml.clone();
         // Clone muted channels to preserve across updates
-        let simulator_muted_channels = initial_params.muted_channels.clone();
+        let simulator_muted_channels = initial_params.muted_channels;
         let simulator_shutdown_flag = shutdown_flag.clone();
 
         thread::spawn(move || {
@@ -566,8 +556,7 @@ fn main() {
 
                     input.write(params);
                     log::info(&format!(
-                        "EMOTION CHANGE: Arousal {:.2} (→ {:.0} BPM) | Valence {:.2} | Density {:.2} | Tension {:.2}",
-                        arousal, bpm, valence, density, tension
+                        "EMOTION CHANGE: Arousal {arousal:.2} (→ {bpm:.0} BPM) | Valence {valence:.2} | Density {density:.2} | Tension {tension:.2}"
                     ));
                 }
             }
@@ -579,13 +568,8 @@ fn main() {
     let control_mode =
         std::sync::Arc::new(std::sync::Mutex::new(harmonium::params::ControlMode::default()));
     let (_stream, config, _harmony_state, _event_queue, _font_queue, finished_recordings) =
-        audio::create_stream(
-            target_params_output,
-            control_mode,
-            sf2_data.as_deref(),
-            backend_type,
-        )
-        .expect("Failed to create audio stream");
+        audio::create_stream(target_params_output, control_mode, sf2_data.as_deref(), backend_type)
+            .expect("Failed to create audio stream");
 
     // Démarrage de l'enregistrement si demandé
     if record_wav.is_some() || record_midi.is_some() || record_musicxml.is_some() {
@@ -653,28 +637,25 @@ fn main() {
 
         // Vérification des enregistrements terminés (only poll when NOT shutting down)
         if !shutdown_flag.load(Ordering::Relaxed)
-            && let Ok(mut queue) = finished_recordings.lock() {
-                while let Some((fmt, data)) = queue.pop() {
-                    let filename = match fmt {
-                        harmonium::events::RecordFormat::Wav => {
-                            record_wav.as_deref().unwrap_or("output.wav")
-                        }
-                        harmonium::events::RecordFormat::Midi => {
-                            record_midi.as_deref().unwrap_or("output.mid")
-                        }
-                        harmonium::events::RecordFormat::MusicXml => {
-                            record_musicxml.as_deref().unwrap_or("output.musicxml")
-                        }
-                    };
-                    log::info(&format!(
-                        "Saving recording to {} ({} bytes)",
-                        filename,
-                        data.len()
-                    ));
-                    if let Err(e) = fs::write(filename, &data) {
-                        log::warn(&format!("Failed to write file: {}", e));
+            && let Ok(mut queue) = finished_recordings.lock()
+        {
+            while let Some((fmt, data)) = queue.pop() {
+                let filename = match fmt {
+                    harmonium::events::RecordFormat::Wav => {
+                        record_wav.as_deref().unwrap_or("output.wav")
                     }
+                    harmonium::events::RecordFormat::Midi => {
+                        record_midi.as_deref().unwrap_or("output.mid")
+                    }
+                    harmonium::events::RecordFormat::MusicXml => {
+                        record_musicxml.as_deref().unwrap_or("output.musicxml")
+                    }
+                };
+                log::info(&format!("Saving recording to {} ({} bytes)", filename, data.len()));
+                if let Err(e) = fs::write(filename, &data) {
+                    log::warn(&format!("Failed to write file: {e}"));
                 }
             }
+        }
     }
 }

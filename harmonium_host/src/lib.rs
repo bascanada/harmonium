@@ -1,35 +1,26 @@
-#[cfg(feature = "wasm")]
-use wasm_bindgen::prelude::*;
-
 #[cfg(feature = "standalone")]
 use std::sync::{Arc, Mutex};
+
 #[cfg(feature = "standalone")]
 use triple_buffer::Input;
+#[cfg(feature = "wasm")]
+use wasm_bindgen::prelude::*;
 
 pub mod engine;
 
 // Re-exports from workspace crates
-pub use harmonium_core::sequencer;
-pub use harmonium_core::harmony;
-pub use harmonium_core::log;
-pub use harmonium_core::fractal;
-pub use harmonium_core::events;
-pub use harmonium_core::params;
-pub use harmonium_audio::backend;
-pub use harmonium_audio::synthesis;
-pub use harmonium_audio::voice_manager;
-pub use harmonium_audio::voicing;
-pub use harmonium_audio::realtime;
-pub use harmonium_ai::mapper;
-
 #[cfg(feature = "ai")]
 pub use harmonium_ai::ai;
+pub use harmonium_ai::mapper;
+pub use harmonium_audio::{backend, realtime, synthesis, voice_manager, voicing};
+pub use harmonium_core::{events, fractal, harmony, log, params, sequencer};
 
 // Real-time safety: Global allocator that panics on allocations in audio thread (debug builds only)
 // Uses fully qualified path to avoid local mod ambiguity
 #[cfg(debug_assertions)]
 #[global_allocator]
-static GLOBAL: harmonium_audio::realtime::rt_check::RTCheckAllocator = harmonium_audio::realtime::rt_check::RTCheckAllocator;
+static GLOBAL: harmonium_audio::realtime::rt_check::RTCheckAllocator =
+    harmonium_audio::realtime::rt_check::RTCheckAllocator;
 
 // Audio module (only for standalone/WASM builds with cpal)
 #[cfg(feature = "standalone")]
@@ -44,21 +35,17 @@ pub mod vst_plugin;
 pub mod vst_gui;
 
 // Re-exports pour compatibilité avec l'ancien code
-pub use harmonium_core::harmony::basic as progression;
-pub use harmonium_core::harmony::melody as harmony_melody;
-
-pub use harmonium_core::sequencer::RhythmMode;
-pub use harmonium_core::harmony::HarmonyMode;
-
-// Re-exports pour la nouvelle architecture découplée
-// Note: HarmonyStrategy removed if not in core/params or changed
-pub use harmonium_core::params::{MusicalParams, ControlMode}; 
-pub use harmonium_ai::mapper::{EmotionMapper, MapperConfig};
-
 // Re-export audio backend type (for runtime switching)
 #[cfg(feature = "standalone")]
 pub use audio::AudioBackendType;
-
+pub use harmonium_ai::mapper::{EmotionMapper, MapperConfig};
+// Re-exports pour la nouvelle architecture découplée
+// Note: HarmonyStrategy removed if not in core/params or changed
+pub use harmonium_core::params::{ControlMode, MusicalParams};
+pub use harmonium_core::{
+    harmony::{HarmonyMode, basic as progression, melody as harmony_melody},
+    sequencer::RhythmMode,
+};
 // Re-export VST plugin when building with vst feature
 #[cfg(feature = "vst")]
 pub use vst_plugin::HarmoniumPlugin;
@@ -160,9 +147,10 @@ impl Handle {
             }
             // Update cache if we got at least one state
             if let Some(state) = latest
-                && let Ok(mut cache) = self.cached_harmony_state.lock() {
-                    *cache = state;
-                }
+                && let Ok(mut cache) = self.cached_harmony_state.lock()
+            {
+                *cache = state;
+            }
         }
     }
 
@@ -235,10 +223,13 @@ impl Handle {
     /// Obtenir le mode d'harmonie actuel depuis l'état du moteur (0 = Basic, 1 = Driver)
     pub fn get_harmony_mode(&self) -> u8 {
         self.update_harmony_state_cache();
-        self.cached_harmony_state.lock().map(|s| match s.harmony_mode {
-            HarmonyMode::Basic => 0,
-            HarmonyMode::Driver => 1,
-        }).unwrap_or(1)
+        self.cached_harmony_state
+            .lock()
+            .map(|s| match s.harmony_mode {
+                HarmonyMode::Basic => 0,
+                HarmonyMode::Driver => 1,
+            })
+            .unwrap_or(1)
     }
 
     // === Getters pour l'état actuel ===
@@ -282,7 +273,8 @@ impl Handle {
     /// Obtenir le nom de l'accord courant ("I", "vi", "IV", "V")
     pub fn get_current_chord_name(&self) -> String {
         self.update_harmony_state_cache();
-        self.cached_harmony_state.lock()
+        self.cached_harmony_state
+            .lock()
             .map(|s| s.chord_name.to_string())
             .unwrap_or_else(|_| "?".to_string())
     }
@@ -320,7 +312,8 @@ impl Handle {
     /// Obtenir le nom de la progression harmonique active
     pub fn get_progression_name(&self) -> String {
         self.update_harmony_state_cache();
-        self.cached_harmony_state.lock()
+        self.cached_harmony_state
+            .lock()
             .map(|s| s.progression_name.to_string())
             .unwrap_or_else(|_| "?".to_string())
     }
@@ -368,7 +361,8 @@ impl Handle {
     /// Phase 2.5: Reads only up to primary_steps from fixed-size array
     pub fn get_primary_pattern(&self) -> Vec<u8> {
         self.update_harmony_state_cache();
-        self.cached_harmony_state.lock()
+        self.cached_harmony_state
+            .lock()
             .map(|s| {
                 let len = s.primary_steps.min(192);
                 s.primary_pattern[..len].iter().map(|&b| if b { 1 } else { 0 }).collect()
@@ -380,7 +374,8 @@ impl Handle {
     /// Phase 2.5: Reads only up to secondary_steps from fixed-size array
     pub fn get_secondary_pattern(&self) -> Vec<u8> {
         self.update_harmony_state_cache();
-        self.cached_harmony_state.lock()
+        self.cached_harmony_state
+            .lock()
             .map(|s| {
                 let len = s.secondary_steps.min(192);
                 s.secondary_pattern[..len].iter().map(|&b| if b { 1 } else { 0 }).collect()
@@ -573,17 +568,15 @@ impl Handle {
     /// Récupère le dernier enregistrement terminé (WAV, MIDI, or MusicXML)
     pub fn pop_finished_recording(&self) -> Option<RecordedData> {
         if let Ok(mut queue) = self.finished_recordings.lock()
-            && let Some((fmt, data)) = queue.pop() {
-                let format_str = match fmt {
-                    events::RecordFormat::Wav => "wav".to_string(),
-                    events::RecordFormat::Midi => "midi".to_string(),
-                    events::RecordFormat::MusicXml => "musicxml".to_string(),
-                };
-                return Some(RecordedData {
-                    format_str,
-                    data,
-                });
-            }
+            && let Some((fmt, data)) = queue.pop()
+        {
+            let format_str = match fmt {
+                events::RecordFormat::Wav => "wav".to_string(),
+                events::RecordFormat::Midi => "midi".to_string(),
+                events::RecordFormat::MusicXml => "musicxml".to_string(),
+            };
+            return Some(RecordedData { format_str, data });
+        }
         None
     }
 
@@ -657,7 +650,18 @@ impl Handle {
 
     /// Set all rhythm parameters at once (avoids read-modify-write race)
     #[allow(clippy::too_many_arguments)]
-    pub fn set_all_rhythm_params(&self, mode: u8, steps: usize, pulses: usize, rotation: usize, density: f32, tension: f32, secondary_steps: usize, secondary_pulses: usize, secondary_rotation: usize) {
+    pub fn set_all_rhythm_params(
+        &self,
+        mode: u8,
+        steps: usize,
+        pulses: usize,
+        rotation: usize,
+        density: f32,
+        tension: f32,
+        secondary_steps: usize,
+        secondary_pulses: usize,
+        secondary_rotation: usize,
+    ) {
         if let Ok(mut m) = self.control_mode.lock() {
             m.direct_params.rhythm_mode = match mode {
                 0 => RhythmMode::Euclidean,
@@ -804,9 +808,10 @@ impl Handle {
     /// Définit tous les paramètres directs depuis un JSON
     pub fn set_direct_params_json(&self, json: &str) {
         if let Ok(params) = serde_json::from_str::<MusicalParams>(json)
-            && let Ok(mut mode) = self.control_mode.lock() {
-                mode.direct_params = params;
-            }
+            && let Ok(mut mode) = self.control_mode.lock()
+        {
+            mode.direct_params = params;
+        }
     }
 
     // === Getters pour l'UI en mode direct ===
@@ -829,13 +834,14 @@ impl Handle {
 
     /// Retourne le mode rythmique (0 = Euclidean, 1 = PerfectBalance, 2 = ClassicGroove)
     pub fn get_direct_rhythm_mode(&self) -> u8 {
-        self.control_mode.lock().map(|m| {
-            match m.direct_params.rhythm_mode {
+        self.control_mode
+            .lock()
+            .map(|m| match m.direct_params.rhythm_mode {
                 RhythmMode::Euclidean => 0,
                 RhythmMode::PerfectBalance => 1,
                 RhythmMode::ClassicGroove => 2,
-            }
-        }).unwrap_or(0)
+            })
+            .unwrap_or(0)
     }
 
     pub fn get_direct_rhythm_steps(&self) -> usize {
@@ -916,14 +922,20 @@ pub fn start_with_backend(sf2_bytes: Option<Box<[u8]>>, backend: &str) -> Result
     };
 
     // Phase 3: Create triple buffer for lock-free UI→Audio parameter updates
-    let (target_params_input, target_params_output) = triple_buffer::triple_buffer(&engine::EngineParams::default());
+    let (target_params_input, target_params_output) =
+        triple_buffer::triple_buffer(&engine::EngineParams::default());
     let control_mode = Arc::new(Mutex::new(params::ControlMode::default()));
 
     let control_mode_clone = control_mode.clone();
 
     let (stream, config, harmony_state_rx, event_queue_rx, font_queue, finished_recordings) =
-        audio::create_stream(target_params_output, control_mode, sf2_bytes.as_deref(), backend_type)
-            .map_err(|e| JsValue::from_str(&e))?;
+        audio::create_stream(
+            target_params_output,
+            control_mode,
+            sf2_bytes.as_deref(),
+            backend_type,
+        )
+        .map_err(|e| JsValue::from_str(&e))?;
 
     // Phase 2: Create cached harmony state
     let cached_harmony_state = Arc::new(Mutex::new(engine::HarmonyState::default()));
@@ -958,4 +970,3 @@ pub fn get_available_backends() -> Vec<JsValue> {
     backends.push(JsValue::from_str("odin2"));
     backends
 }
-
