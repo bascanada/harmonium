@@ -62,6 +62,12 @@ pub struct HarmonyNavigator {
 }
 
 impl HarmonyNavigator {
+    /// Phrase energy decay rate per step (calibrated for ~12 steps before rest likely)
+    pub const DECAY_RATE: f32 = 0.08;
+
+    /// Minimum phrase length in steps (prevents stutter by enforcing at least 4 steps between rests)
+    pub const MIN_PHRASE_LENGTH: usize = 4;
+
     pub fn new(root_note: PitchSymbol, scale_type: ScaleType, octave: i32) -> Self {
         let pitch = Pitch::from(root_note);
         let scale = Scale::new(scale_type, pitch, octave as u8, None, Direction::Ascending).unwrap();
@@ -272,13 +278,11 @@ impl HarmonyNavigator {
     fn should_rest(&mut self, is_strong_beat: bool, is_new_measure: bool) -> bool {
         // === ENERGY DECAY ===
         // Each step consumes energy (faster decay = shorter phrases)
-        const DECAY_RATE: f32 = 0.08; // Calibrated for ~12 steps before rest likely
-        self.phrase_energy -= DECAY_RATE;
+        self.phrase_energy -= Self::DECAY_RATE;
 
         // === MINIMUM PHRASE LENGTH ===
         // Don't rest if we just rested (prevents stutter)
-        const MIN_PHRASE_LENGTH: usize = 4; // At least 4 steps between rests
-        if self.steps_since_rest < MIN_PHRASE_LENGTH {
+        if self.steps_since_rest < Self::MIN_PHRASE_LENGTH {
             self.steps_since_rest += 1;
             return false;
         }
@@ -754,14 +758,14 @@ mod tests {
         let can_rest = nav.should_rest(true, true);
         assert!(!can_rest, "Should not rest when steps_since_rest < MIN_PHRASE_LENGTH");
 
-        // After 4 steps, should be allowed to rest
-        nav.steps_since_rest = 4; // Now at minimum
+        // After MIN_PHRASE_LENGTH steps, should be allowed to rest
+        nav.steps_since_rest = HarmonyNavigator::MIN_PHRASE_LENGTH; // Now at minimum
         nav.phrase_energy = 0.0;
 
         // Try multiple times since it's probabilistic (70% chance with 0 energy)
         let mut rested = false;
         for _ in 0..20 {
-            nav.steps_since_rest = 4;
+            nav.steps_since_rest = HarmonyNavigator::MIN_PHRASE_LENGTH;
             nav.phrase_energy = 0.0;
             if nav.should_rest(true, true) {
                 rested = true;
@@ -817,9 +821,8 @@ mod tests {
         let mut energy_before_rest_check = nav.phrase_energy;
 
         // Manually decay (simulating the decay formula without the rest check)
-        const DECAY_RATE: f32 = 0.08;
         for _ in 0..12 {
-            energy_before_rest_check -= DECAY_RATE;
+            energy_before_rest_check -= HarmonyNavigator::DECAY_RATE;
         }
 
         assert!(energy_before_rest_check < 0.1,
@@ -1007,6 +1010,7 @@ mod tests {
         nav.set_chord_context(5, ChordQuality::Major); // IV (F Major)
         // C (0) is in F Major (F, A, C, E), so should still be stable
         // The set_chord_context should update last_note_stable accordingly
+        assert!(nav.last_note_stable, "Tonic (C) should be stable in IV chord (F Major)");
     }
 
     #[test]

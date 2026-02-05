@@ -599,6 +599,81 @@ impl HarmoniumEngine {
         }
     }
 
+    /// Helper method to play a melody note with optional legato articulation
+    ///
+    /// Handles the common logic for both NoteOn and Legato events:
+    /// - MIDI note calculation and velocity adjustment
+    /// - VoicerContext setup with LCC scale
+    /// - Stopping previous notes
+    /// - Voicing or solo playback
+    ///
+    /// # Parameters
+    /// * `melody_midi` - The MIDI note number to play
+    /// * `base_vel` - The base velocity (before any articulation adjustments)
+    /// * `is_legato` - If true, applies legato velocity reduction (0.85x)
+    fn play_melody_note(&mut self, melody_midi: u8, base_vel: u8, is_legato: bool) {
+        // Apply legato reduction if needed
+        let adjusted_vel = if is_legato {
+            ((base_vel as f32) * 0.85) as u8
+        } else {
+            base_vel
+        };
+
+        // Phase 2: Read from local cache (no lock needed)
+        let chord_root_offset = self.last_harmony_state.chord_root_offset;
+        let chord_root = 36 + chord_root_offset as u8;
+
+        // Calculer la gamme LCC courante
+        let chord = harmonium_core::harmony::chord::Chord::new(
+            (chord_root_offset as u8) % 12,
+            self.current_chord_type,
+        );
+        let lcc_level = self.lcc.level_for_tension(self.current_state.tension);
+        let parent = self.lcc.parent_lydian(&chord);
+        let lcc_scale = self.lcc.get_scale(parent, lcc_level);
+
+        // Créer le contexte pour le voicer
+        let ctx = VoicerContext {
+            chord_root_midi: chord_root,
+            chord_type: self.current_chord_type,
+            lcc_scale,
+            tension: self.musical_params.voicing_tension,
+            density: self.musical_params.voicing_density,
+            current_step: self.sequencer_primary.current_step,
+            total_steps: self.sequencer_primary.steps,
+        };
+
+        // Stop previous notes
+        if !self.active_lead_notes.is_empty() {
+            self.events_buffer.push(AudioEvent::AllNotesOff { channel: 1 });
+            self.active_lead_notes.clear();
+        }
+
+        // Utiliser le voicer pour décider du style (si activé)
+        let voicing_enabled = self.musical_params.enable_voicing;
+        if voicing_enabled && self.voicer.should_voice(&ctx) {
+            // Voicing: use adjusted_vel for all voiced notes
+            let voiced_notes = self.voicer.process_note(melody_midi, adjusted_vel, &ctx);
+            for vn in voiced_notes {
+                self.events_buffer.push(AudioEvent::NoteOn {
+                    note: vn.midi,
+                    velocity: vn.velocity,
+                    channel: 1,
+                });
+                self.active_lead_notes.push(vn.midi);
+            }
+        } else {
+            // Solo: apply additional 0.7x reduction for lighter articulation
+            let solo_vel = (adjusted_vel as f32 * 0.7) as u8;
+            self.events_buffer.push(AudioEvent::NoteOn {
+                note: melody_midi,
+                velocity: solo_vel,
+                channel: 1,
+            });
+            self.active_lead_notes.push(melody_midi);
+        }
+    }
+
     fn tick(&mut self) {
         let trigger_primary = self.sequencer_primary.tick();
         let trigger_secondary = if self.sequencer_primary.mode == RhythmMode::Euclidean {
@@ -864,119 +939,16 @@ impl HarmoniumEngine {
                         return;
                     }
 
-                    // Note changed: Perform legato transition (soft attack)
-                    let base_vel = ((90 + (self.current_state.arousal * 30.0) as u8) as f32 * 0.85) as u8;
-
-                    // Phase 2: Read from local cache (no lock needed)
-                    let chord_root_offset = self.last_harmony_state.chord_root_offset;
-                    let chord_root = 36 + chord_root_offset as u8;
-
-                    // Calculer la gamme LCC courante
-                    let chord = harmonium_core::harmony::chord::Chord::new(
-                        (chord_root_offset as u8) % 12,
-                        self.current_chord_type,
-                    );
-                    let lcc_level = self.lcc.level_for_tension(self.current_state.tension);
-                    let parent = self.lcc.parent_lydian(&chord);
-                    let lcc_scale = self.lcc.get_scale(parent, lcc_level);
-
-                    // Créer le contexte pour le voicer
-                    let ctx = VoicerContext {
-                        chord_root_midi: chord_root,
-                        chord_type: self.current_chord_type,
-                        lcc_scale,
-                        tension: self.musical_params.voicing_tension,
-                        density: self.musical_params.voicing_density,
-                        current_step: self.sequencer_primary.current_step,
-                        total_steps: self.sequencer_primary.steps,
-                    };
-
-                    // Stop previous notes
-                    if !self.active_lead_notes.is_empty() {
-                        self.events_buffer.push(AudioEvent::AllNotesOff { channel: 1 });
-                        self.active_lead_notes.clear();
-                    }
-
-                    // Process with voicing (same as NoteOn logic)
-                    let voicing_enabled = self.musical_params.enable_voicing;
-                    if voicing_enabled && self.voicer.should_voice(&ctx) {
-                        let voiced_notes = self.voicer.process_note(melody_midi, base_vel, &ctx);
-                        for vn in voiced_notes {
-                            self.events_buffer.push(AudioEvent::NoteOn {
-                                note: vn.midi,
-                                velocity: vn.velocity,
-                                channel: 1,
-                            });
-                            self.active_lead_notes.push(vn.midi);
-                        }
-                    } else {
-                        self.events_buffer.push(AudioEvent::NoteOn {
-                            note: melody_midi,
-                            velocity: base_vel,
-                            channel: 1,
-                        });
-                        self.active_lead_notes.push(melody_midi);
-                    }
+                    // Note changed: Perform legato transition using helper method
+                    let base_vel = 90 + (self.current_state.arousal * 30.0) as u8;
+                    self.play_melody_note(melody_midi, base_vel, true);
                 }
 
                 MelodicEvent::NoteOn { frequency } => {
-                    // EXISTING LOGIC: Standard note handling
+                    // Standard note with strong attack - use helper method
                     let melody_midi = (69.0_f32 + 12.0_f32 * (frequency / 440.0_f32).log2()).round() as u8;
                     let base_vel = 90 + (self.current_state.arousal * 30.0) as u8;
-
-                    // Phase 2: Read from local cache (no lock needed)
-                    let chord_root_offset = self.last_harmony_state.chord_root_offset;
-                    let chord_root = 36 + chord_root_offset as u8;
-
-                    // Calculer la gamme LCC courante
-                    let chord = harmonium_core::harmony::chord::Chord::new(
-                        (chord_root_offset as u8) % 12,
-                        self.current_chord_type,
-                    );
-                    let lcc_level = self.lcc.level_for_tension(self.current_state.tension);
-                    let parent = self.lcc.parent_lydian(&chord);
-                    let lcc_scale = self.lcc.get_scale(parent, lcc_level);
-
-                    // Créer le contexte pour le voicer
-                    let ctx = VoicerContext {
-                        chord_root_midi: chord_root,
-                        chord_type: self.current_chord_type,
-                        lcc_scale,
-                        tension: self.musical_params.voicing_tension,
-                        density: self.musical_params.voicing_density,
-                        current_step: self.sequencer_primary.current_step,
-                        total_steps: self.sequencer_primary.steps,
-                    };
-
-                    // D'abord: couper toutes les notes précédentes sur le channel Lead
-                    if !self.active_lead_notes.is_empty() {
-                        self.events_buffer.push(AudioEvent::AllNotesOff { channel: 1 });
-                        self.active_lead_notes.clear();
-                    }
-
-                    // Utiliser le voicer pour décider du style (si activé)
-                    let voicing_enabled = self.musical_params.enable_voicing;
-                    if voicing_enabled && self.voicer.should_voice(&ctx) {
-                        // Beat fort: jouer l'accord complet
-                        let voiced_notes = self.voicer.process_note(melody_midi, base_vel, &ctx);
-                        for vn in voiced_notes {
-                            self.events_buffer.push(AudioEvent::NoteOn {
-                                note: vn.midi,
-                                velocity: vn.velocity,
-                                channel: 1,
-                            });
-                            self.active_lead_notes.push(vn.midi);
-                        }
-                    } else {
-                        // Beat faible: jouer la mélodie seule (plus légère)
-                        let solo_vel = (base_vel as f32 * 0.7) as u8;
-                        self.events_buffer.push(AudioEvent::NoteOn {
-                            note: melody_midi,
-                            velocity: solo_vel,
-                            channel: 1,
-                        });
-                        self.active_lead_notes.push(melody_midi);
-                    }
+                    self.play_melody_note(melody_midi, base_vel, false);
                 }
             }
         }
