@@ -1,4 +1,3 @@
-#[cfg(feature = "standalone")]
 use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "standalone")]

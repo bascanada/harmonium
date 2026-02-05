@@ -10,9 +10,6 @@ jobs:
   quality:
     name: Lint & Format
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./harmonium
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
@@ -21,33 +18,27 @@ jobs:
           components: clippy, rustfmt
       
       - name: Check Formatting
-        run: cargo fmt --all -- --check
+        run: make fmt
 
       - name: Clippy Linting
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: make lint
 
   security:
     name: Security Scan
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./harmonium
     steps:
       - uses: actions/checkout@v4
       - name: Install cargo-audit
         run: cargo install cargo-audit
       - name: Security Audit
-        run: cargo audit
+        run: make audit
 
   test:
     name: Unit Tests
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./harmonium
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Run Tests
-        run: cargo test --workspace
+        run: make test
