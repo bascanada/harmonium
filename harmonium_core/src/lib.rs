@@ -6,6 +6,9 @@ pub mod fractal;
 pub mod log;
 pub mod export;
 
+#[cfg(test)]
+mod tests;
+
 // Re-export common types
 pub use events::AudioEvent;
 pub use params::{MusicalParams, EngineParams};
