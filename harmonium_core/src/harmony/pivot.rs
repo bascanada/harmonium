@@ -123,7 +123,7 @@ impl PivotDetector {
 
     /// Vérifie si on est dans la zone de transition
     pub fn is_in_transition_zone(&self, tension: f32) -> bool {
-        tension >= STEEDMAN_THRESHOLD && tension <= NEO_RIEMANNIAN_THRESHOLD
+        (STEEDMAN_THRESHOLD..=NEO_RIEMANNIAN_THRESHOLD).contains(&tension)
     }
 
     /// Génère un accord pivot approprié pour la transition

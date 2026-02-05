@@ -1,24 +1,24 @@
-/// Real-time safety checker for audio processing
-///
-/// This module provides a custom allocator that panics if any allocation or deallocation
-/// occurs while in an audio processing context. This is crucial for real-time audio
-/// where allocations can cause unpredictable latency and glitches.
-///
-/// The allocator guard is only active in debug builds (#[cfg(debug_assertions)]).
-/// In release builds, the functions are no-ops with zero overhead.
-///
-/// # Usage
-///
-/// ```rust,ignore
-/// pub fn process_buffer(&mut self, output: &mut [f32], channels: usize) {
-///     crate::realtime::rt_check::enter_audio_context();
-///
-///     // ... audio processing code ...
-///     // Any allocation here will panic in debug builds
-///
-///     crate::realtime::rt_check::exit_audio_context();
-/// }
-/// ```
+//! Real-time safety checker for audio processing
+//!
+//! This module provides a custom allocator that panics if any allocation or deallocation
+//! occurs while in an audio processing context. This is crucial for real-time audio
+//! where allocations can cause unpredictable latency and glitches.
+//!
+//! The allocator guard is only active in debug builds (#[cfg(debug_assertions)]).
+//! In release builds, the functions are no-ops with zero overhead.
+//!
+//! # Usage
+//!
+//! ```rust,ignore
+//! pub fn process_buffer(&mut self, output: &mut [f32], channels: usize) {
+//!     crate::realtime::rt_check::enter_audio_context();
+//!
+//!     // ... audio processing code ...
+//!     // Any allocation here will panic in debug builds
+//!
+//!     crate::realtime::rt_check::exit_audio_context();
+//! }
+//! ```
 
 #[cfg(debug_assertions)]
 use std::alloc::{GlobalAlloc, Layout, System};
@@ -29,7 +29,7 @@ use std::cell::Cell;
 thread_local! {
     // Thread-local flag indicating whether we're currently in an audio processing context
     // Using thread_local! ensures tests don't interfere with each other
-    static IN_AUDIO_THREAD: Cell<bool> = Cell::new(false);
+    static IN_AUDIO_THREAD: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Custom allocator that checks for real-time violations

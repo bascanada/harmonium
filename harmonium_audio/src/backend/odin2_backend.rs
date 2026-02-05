@@ -275,12 +275,11 @@ impl Odin2Backend {
         let x = valence;
 
         for i in 0..5 {
-            if let Some(quadrant) = &self.presets[i] {
-                if let Some(engine) = &mut self.engines[i] {
+            if let Some(quadrant) = &self.presets[i]
+                && let Some(engine) = &mut self.engines[i] {
                     let morphed_config = quadrant.morph(x, y);
                     engine.load_config(morphed_config);
                 }
-            }
         }
     }
 }

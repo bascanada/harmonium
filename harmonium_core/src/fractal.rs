@@ -18,7 +18,7 @@ impl PinkNoise {
 
     /// Génère la prochaine valeur (approximativement 1/f)
     /// Retourne une valeur flottante centrée autour de 0.0
-    pub fn next(&mut self) -> f32 {
+    pub fn next_value(&mut self) -> f32 {
         let mut rng = rand::thread_rng();
         
         // Algorithme Voss-McCartney: on met à jour une rangée différente à chaque étape

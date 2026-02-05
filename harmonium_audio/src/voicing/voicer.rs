@@ -141,7 +141,7 @@ pub fn get_guide_tones(chord_root_midi: u8, chord_type: ChordType, below_note: u
 }
 
 /// Applique un Drop-2 voicing: descend la 2ème note la plus haute d'une octave
-pub fn apply_drop_two(notes: &mut Vec<VoicedNote>) {
+pub fn apply_drop_two(notes: &mut [VoicedNote]) {
     if notes.len() >= 2 {
         // Trier par hauteur (décroissant)
         notes.sort_by(|a, b| b.midi.cmp(&a.midi));

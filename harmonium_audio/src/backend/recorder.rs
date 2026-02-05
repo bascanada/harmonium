@@ -6,6 +6,8 @@ use midly::{Header, Smf, TrackEvent, TrackEventKind, MidiMessage, MetaMessage, F
 use std::sync::{Arc, Mutex};
 use std::io::{Cursor, Write, Seek};
 
+type FinishedRecordings = Arc<Mutex<Vec<(RecordFormat, Vec<u8>)>>>;
+
 #[derive(Clone)]
 struct SharedWriter {
     buffer: Arc<Mutex<Cursor<Vec<u8>>>>,
@@ -37,7 +39,7 @@ impl Seek for SharedWriter {
 pub struct RecorderBackend {
     inner: Box<dyn AudioRenderer>,
     // Shared storage for finished recordings
-    finished_recordings: Arc<Mutex<Vec<(RecordFormat, Vec<u8>)>>>,
+    finished_recordings: FinishedRecordings,
 
     // WAV State
     wav_writer: Option<WavWriter<SharedWriter>>,
@@ -58,7 +60,7 @@ pub struct RecorderBackend {
 impl RecorderBackend {
     pub fn new(
         inner: Box<dyn AudioRenderer>,
-        finished_recordings: Arc<Mutex<Vec<(RecordFormat, Vec<u8>)>>>,
+        finished_recordings: FinishedRecordings,
         sample_rate: u32
     ) -> Self {
         Self {
@@ -99,27 +101,23 @@ impl RecorderBackend {
         // Drop writer to finalize
         self.wav_writer = None;
         
-        if let Some(shared) = self.wav_output.take() {
-            if let Ok(mutex) = Arc::try_unwrap(shared.buffer) {
-                if let Ok(cursor) = mutex.into_inner() {
+        if let Some(shared) = self.wav_output.take()
+            && let Ok(mutex) = Arc::try_unwrap(shared.buffer)
+                && let Ok(cursor) = mutex.into_inner() {
                     let data = cursor.into_inner();
                     if let Ok(mut queue) = self.finished_recordings.lock() {
                         queue.push((RecordFormat::Wav, data));
                     }
                 }
-            }
-        }
     }
 
     fn start_midi(&mut self) {
-        let mut track = Vec::new();
-
         // Add tempo meta event at the start (default 120 BPM = 500000 microseconds per quarter note)
         // This will be overridden if the engine sends a tempo change
-        track.push(TrackEvent {
+        let track = vec![TrackEvent {
             delta: 0.into(),
             kind: TrackEventKind::Meta(MetaMessage::Tempo(500000.into())),
-        });
+        }];
 
         self.midi_track = Some(track);
         self.midi_steps_since_last = 0.0;  // Reset to f64
@@ -138,11 +136,10 @@ impl RecorderBackend {
             smf.tracks.push(track_events);
 
             let mut buffer = Vec::new();
-            if smf.write(&mut buffer).is_ok() {
-                if let Ok(mut queue) = self.finished_recordings.lock() {
+            if smf.write(&mut buffer).is_ok()
+                && let Ok(mut queue) = self.finished_recordings.lock() {
                     queue.push((RecordFormat::Midi, buffer));
                 }
-            }
         }
     }
 

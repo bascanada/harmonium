@@ -79,7 +79,7 @@ pub struct BevyEngineParams {
 
     pub record_wav: bool,
     pub record_midi: bool,
-    pub record_abc: bool,
+    pub record_musicxml: bool,
 
     pub enable_synthesis_morphing: bool,
     
@@ -109,7 +109,7 @@ impl Default for BevyEngineParams {
             harmony_mode: BevyHarmonyMode::default(),
             record_wav: false,
             record_midi: false,
-            record_abc: false,
+            record_musicxml: false,
             enable_synthesis_morphing: true,
             gain_lead: 1.0,
             gain_bass: 1.0,
@@ -137,7 +137,7 @@ impl From<BevyEngineParams> for EngineParams {
             harmony_mode: params.harmony_mode.into(),
             record_wav: params.record_wav,
             record_midi: params.record_midi,
-            record_abc: params.record_abc,
+            record_musicxml: params.record_musicxml,
             enable_synthesis_morphing: params.enable_synthesis_morphing,
             gain_lead: params.gain_lead,
             gain_bass: params.gain_bass,
@@ -165,7 +165,7 @@ impl From<EngineParams> for BevyEngineParams {
             harmony_mode: params.harmony_mode.into(),
             record_wav: params.record_wav,
             record_midi: params.record_midi,
-            record_abc: params.record_abc,
+            record_musicxml: params.record_musicxml,
             enable_synthesis_morphing: params.enable_synthesis_morphing,
             gain_lead: params.gain_lead,
             gain_bass: params.gain_bass,

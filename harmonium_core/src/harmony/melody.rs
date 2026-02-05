@@ -146,7 +146,7 @@ impl HarmonyNavigator {
     /// Cela crée des mélodies plus organiques et structurées que les chaînes de Markov
     pub fn next_note_fractal(&mut self) -> f32 {
         // 1. Obtenir une valeur "tendance" du bruit fractal
-        let fractal_drift = self.pink_noise.next();
+        let fractal_drift = self.pink_noise.next_value();
 
         // 2. Mapper cette valeur à un index dans la gamme (autour d'un centre)
         // Cela remplace la marche aléatoire pure par une évolution structurée
@@ -177,7 +177,7 @@ impl HarmonyNavigator {
         let mut rng = rand::thread_rng();
 
         // 1. LE GPS (Bruit Fractal) : Quelle est la "tendance" globale ?
-        let fractal_drift = self.pink_noise.next();
+        let fractal_drift = self.pink_noise.next_value();
         let center_index = 0;
         let target_index = center_index + (fractal_drift * 12.0) as i32;
 
@@ -346,9 +346,9 @@ impl HarmonyNavigator {
         let note_octave = note.octave as i32 + octave_shift;
 
         let midi_note = (note_octave + 1) * 12 + pc_val;
-        let freq = 440.0 * 2.0_f32.powf((midi_note as f32 - 69.0) / 12.0);
+        
 
-        freq
+        440.0 * 2.0_f32.powf((midi_note as f32 - 69.0) / 12.0)
     }
 
     pub fn set_hurst_factor(&mut self, factor: f32) {

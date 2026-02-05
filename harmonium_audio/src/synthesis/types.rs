@@ -94,6 +94,7 @@ impl Default for FilterParams {
 
 /// ADSR Envelope parameters
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct EnvelopeParams {
     /// Amplitude envelope
     pub amp: AdsrValues,
@@ -102,14 +103,6 @@ pub struct EnvelopeParams {
     pub filter: AdsrValues,
 }
 
-impl Default for EnvelopeParams {
-    fn default() -> Self {
-        Self {
-            amp: AdsrValues::default(),
-            filter: AdsrValues::default(),
-        }
-    }
-}
 
 /// ADSR values for a single envelope
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -140,6 +133,7 @@ impl Default for AdsrValues {
 
 /// Effects parameters (global effects chain)
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct EffectsParams {
     /// Delay settings
     pub delay: DelayParams,
@@ -151,15 +145,6 @@ pub struct EffectsParams {
     pub reverb: ReverbParams,
 }
 
-impl Default for EffectsParams {
-    fn default() -> Self {
-        Self {
-            delay: DelayParams::default(),
-            chorus: ChorusParams::default(),
-            reverb: ReverbParams::default(),
-        }
-    }
-}
 
 /// Delay effect parameters
 #[derive(Clone, Debug, Serialize, Deserialize)]

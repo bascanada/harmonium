@@ -63,12 +63,12 @@ impl Polygon {
 
         let adjusted_step = (step + total_steps - (self.rotation_offset % total_steps)) % total_steps;
 
-        if total_steps % self.vertices == 0 {
+        if total_steps.is_multiple_of(self.vertices) {
             // Fast path for when vertices is a divisor of total_steps.
             let interval = total_steps / self.vertices;
             // interval cannot be 0 here because we already checked self.vertices > total_steps
             // and total_steps is not 0.
-            adjusted_step % interval == 0
+            adjusted_step.is_multiple_of(interval)
         } else {
             // Fallback for non-divisors, generates a Euclidean rhythm.
             let prev_adjusted_step = (adjusted_step + total_steps - 1) % total_steps;
@@ -169,7 +169,7 @@ impl Sequencer {
             self.steps = new_steps;
             self.current_step = 0;
             // Clamp rotation to new step count to prevent overflow in regenerate_pattern
-            self.rotation = self.rotation % new_steps;
+            self.rotation %= new_steps;
             self.pattern = vec![StepTrigger::default(); new_steps];
             self.regenerate_pattern();
         }
@@ -292,7 +292,7 @@ pub fn generate_balanced_layers_48(steps: usize, density: f32, tension: f32) -> 
 
     // --- 2. RASTERIZATION (Collision Calculation) ---
 
-    for i in 0..steps {
+    for (i, trigger) in triggers.iter_mut().enumerate().take(steps) {
         let hit_kick = kick_gon.hits(i, steps);
         let hit_snare = snare_gon.hits(i, steps);
         let hit_hat = hat_gon.hits(i, steps);
@@ -302,14 +302,14 @@ pub fn generate_balanced_layers_48(steps: usize, density: f32, tension: f32) -> 
         // --- 3. CONFLICT RESOLUTION & VELOCITY ---
 
         if hit_kick {
-            triggers[i].kick = true;
-            triggers[i].velocity = kick_gon.velocity;
+            trigger.kick = true;
+            trigger.velocity = kick_gon.velocity;
         }
 
         if hit_snare {
-            triggers[i].snare = true;
+            trigger.snare = true;
             // If snare hits same time as kick, accentuate it
-            triggers[i].velocity = if hit_kick { 1.0 } else { snare_gon.velocity };
+            trigger.velocity = if hit_kick { 1.0 } else { snare_gon.velocity };
         }
 
         if hit_hat {
@@ -318,16 +318,16 @@ pub fn generate_balanced_layers_48(steps: usize, density: f32, tension: f32) -> 
             let mask = (hit_kick || hit_snare) && density < 0.75;
 
             if !mask {
-                triggers[i].hat = true;
+                trigger.hat = true;
                 // If it's the only element, apply its velocity
                 if !hit_kick && !hit_snare {
-                    triggers[i].velocity = hat_gon.velocity;
+                    trigger.velocity = hat_gon.velocity;
                 }
             }
         }
 
-        if hit_bass { triggers[i].bass = true; }
-        if hit_lead { triggers[i].lead = true; }
+        if hit_bass { trigger.bass = true; }
+        if hit_lead { trigger.lead = true; }
     }
 
     triggers

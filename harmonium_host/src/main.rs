@@ -17,7 +17,7 @@ use std::time::Duration;
 
 fn perform_graceful_shutdown(
     target_params_input: &Arc<Mutex<triple_buffer::Input<EngineParams>>>,
-    finished_recordings: &Arc<Mutex<Vec<(harmonium::events::RecordFormat, Vec<u8>)>>>,
+    finished_recordings: &harmonium::FinishedRecordings,
     record_wav: &Option<String>,
     record_midi: &Option<String>,
     record_musicxml: &Option<String>,
@@ -202,16 +202,15 @@ fn main() {
                 }
             }
             "--duration" => {
-                if i + 1 < args.len() {
-                    if let Ok(d) = args[i + 1].parse::<u64>() {
+                if i + 1 < args.len()
+                    && let Ok(d) = args[i + 1].parse::<u64>() {
                         duration_secs = d;
                         i += 1;
                     }
-                }
             }
             "--poly-steps" | "-p" => {
-                if i + 1 < args.len() {
-                    if let Ok(s) = args[i + 1].parse::<usize>() {
+                if i + 1 < args.len()
+                    && let Ok(s) = args[i + 1].parse::<usize>() {
                         // Valider: multiple de 4, entre 16 et 384
                         let valid = (s / 4) * 4;
                         poly_steps = valid.clamp(16, 384);
@@ -223,7 +222,6 @@ fn main() {
                         }
                         i += 1;
                     }
-                }
             }
             "--backend" | "-b" => {
                 if i + 1 < args.len() {
@@ -308,10 +306,12 @@ fn main() {
 
     // === 1. État Partagé (Lock-free avec Triple Buffer) ===
     // Phase 3: Create triple buffer for lock-free UI→Audio parameter updates
-    let mut initial_params = EngineParams::default();
-    initial_params.harmony_mode = harmony_mode;
-    initial_params.poly_steps = poly_steps;
-    initial_params.fixed_kick = fixed_kick;
+    let initial_params = EngineParams {
+        harmony_mode,
+        poly_steps,
+        fixed_kick,
+        ..Default::default()
+    };
 
     let (target_params_input, target_params_output) = triple_buffer::triple_buffer(&initial_params);
     // Wrap Input in Arc<Mutex> for sharing across UI threads (OSC, simulator, main)
@@ -404,93 +404,89 @@ fn main() {
             loop {
                 match socket.recv_from(&mut buf) {
                     Ok((size, _addr)) => {
-                        if let Ok((_, packet)) = rosc::decoder::decode_udp(&buf[..size]) {
-                            match packet {
-                                OscPacket::Message(msg) => {
-                                    #[cfg(feature = "ai")]
-                                    if msg.addr == "/harmonium/label" {
-                                        let args = msg.args.clone();
-                                        if let Some(OscType::String(label)) = args.get(0) {
-                                            log::info(&format!("OSC LABEL RECEIVED: {}", label));
+                        if let Ok((_, OscPacket::Message(msg))) = rosc::decoder::decode_udp(&buf[..size]) {
+                            #[cfg(feature = "ai")]
+                            if msg.addr == "/harmonium/label" {
+                                    let args = msg.args.clone();
+                                    if let Some(OscType::String(label)) = args.first() {
+                                        log::info(&format!("OSC LABEL RECEIVED: {}", label));
 
-                                            if let Some(engine) = &emotion_engine {
-                                                match engine.predict_native(label) {
-                                                    Ok(predicted_params) => {
-                                                        // Phase 3: Use triple buffer write (lock Input on UI side)
-                                                        if let Ok(mut input) =
-                                                            osc_params_input.lock()
-                                                        {
-                                                            let mut current =
-                                                                input.input_buffer_mut().clone();
-                                                            current.arousal =
-                                                                predicted_params.arousal;
-                                                            current.valence =
-                                                                predicted_params.valence;
-                                                            current.density =
-                                                                predicted_params.density;
-                                                            current.tension =
-                                                                predicted_params.tension;
-                                                            // IMPORTANT: Preserve recording flags and muted channels
-                                                            current.record_wav = osc_record_wav.is_some();
-                                                            current.record_midi = osc_record_midi.is_some();
-                                                            current.record_musicxml = osc_record_musicxml.is_some();
-                                                            current.muted_channels = osc_muted_channels.clone();
-                                                            input.write(current);
-                                                            log::info(&format!(
-                                                                "AI UPDATE: Arousal {:.2} | Valence {:.2} | Density {:.2} | Tension {:.2}",
-                                                                predicted_params.arousal,
-                                                                predicted_params.valence,
-                                                                predicted_params.density,
-                                                                predicted_params.tension
-                                                            ));
-                                                        }
+                                        if let Some(engine) = &emotion_engine {
+                                            match engine.predict_native(label) {
+                                                Ok(predicted_params) => {
+                                                    // Phase 3: Use triple buffer write (lock Input on UI side)
+                                                    if let Ok(mut input) =
+                                                        osc_params_input.lock()
+                                                    {
+                                                        let mut current =
+                                                            input.input_buffer_mut().clone();
+                                                        current.arousal =
+                                                            predicted_params.arousal;
+                                                        current.valence =
+                                                            predicted_params.valence;
+                                                        current.density =
+                                                            predicted_params.density;
+                                                        current.tension =
+                                                            predicted_params.tension;
+                                                        // IMPORTANT: Preserve recording flags and muted channels
+                                                        current.record_wav = osc_record_wav.is_some();
+                                                        current.record_midi = osc_record_midi.is_some();
+                                                        current.record_musicxml = osc_record_musicxml.is_some();
+                                                        current.muted_channels = osc_muted_channels.clone();
+                                                        input.write(current);
+                                                        log::info(&format!(
+                                                            "AI UPDATE: Arousal {:.2} | Valence {:.2} | Density {:.2} | Tension {:.2}",
+                                                            predicted_params.arousal,
+                                                            predicted_params.valence,
+                                                            predicted_params.density,
+                                                            predicted_params.tension
+                                                        ));
                                                     }
-                                                    Err(e) => log::error(&format!(
-                                                        "AI Prediction failed: {}",
-                                                        e
-                                                    )),
                                                 }
-                                            } else {
-                                                log::warn("AI Engine not loaded. Ignoring label.");
+                                                Err(e) => log::error(&format!(
+                                                    "AI Prediction failed: {}",
+                                                    e
+                                                )),
                                             }
-                                        }
-                                    }
-
-                                    if msg.addr == "/harmonium/params" {
-                                        // Fallback for manual control
-                                        let args = msg.args;
-                                        if args.len() >= 4 {
-                                            let get_float = |arg: &OscType| -> f32 {
-                                                match arg {
-                                                    OscType::Float(f) => *f,
-                                                    OscType::Double(d) => *d as f32,
-                                                    _ => 0.0,
-                                                }
-                                            };
-
-                                            let arousal = get_float(&args[0]);
-                                            let valence = get_float(&args[1]);
-                                            let density = get_float(&args[2]);
-                                            let tension = get_float(&args[3]);
-
-                                            // Phase 3: Use triple buffer write (lock Input on UI side)
-                                            if let Ok(mut input) = osc_params_input.lock() {
-                                                let mut current = input.input_buffer_mut().clone();
-                                                current.arousal = arousal;
-                                                current.valence = valence;
-                                                current.density = density;
-                                                current.tension = tension;
-                                                // IMPORTANT: Preserve recording flags and muted channels
-                                                current.record_wav = osc_record_wav.is_some();
-                                                current.record_midi = osc_record_midi.is_some();
-                                                current.record_musicxml = osc_record_musicxml.is_some();
-                                                current.muted_channels = osc_muted_channels.clone();
-                                                input.write(current);
-                                            }
+                                        } else {
+                                            log::warn("AI Engine not loaded. Ignoring label.");
                                         }
                                     }
                                 }
-                                _ => {}
+
+                                if msg.addr == "/harmonium/params" {
+                                    // Fallback for manual control
+                                    let args = msg.args;
+                                    if args.len() >= 4 {
+                                        let get_float = |arg: &OscType| -> f32 {
+                                            match arg {
+                                                OscType::Float(f) => *f,
+                                                OscType::Double(d) => *d as f32,
+                                                _ => 0.0,
+                                            }
+                                        };
+
+                                        let arousal = get_float(&args[0]);
+                                        let valence = get_float(&args[1]);
+                                        let density = get_float(&args[2]);
+                                        let tension = get_float(&args[3]);
+
+                                        // Phase 3: Use triple buffer write (lock Input on UI side)
+                                        if let Ok(mut input) = osc_params_input.lock() {
+                                            let mut current = input.input_buffer_mut().clone();
+                                            current.arousal = arousal;
+                                            current.valence = valence;
+                                            current.density = density;
+                                            current.tension = tension;
+                                            // IMPORTANT: Preserve recording flags and muted channels
+                                            current.record_wav = osc_record_wav.is_some();
+                                            current.record_midi = osc_record_midi.is_some();
+                                            current.record_musicxml = osc_record_musicxml.is_some();
+                                            current.muted_channels = osc_muted_channels.clone();
+                                            input.write(current);
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -656,8 +652,8 @@ fn main() {
         }
 
         // Vérification des enregistrements terminés (only poll when NOT shutting down)
-        if !shutdown_flag.load(Ordering::Relaxed) {
-            if let Ok(mut queue) = finished_recordings.lock() {
+        if !shutdown_flag.load(Ordering::Relaxed)
+            && let Ok(mut queue) = finished_recordings.lock() {
                 while let Some((fmt, data)) = queue.pop() {
                     let filename = match fmt {
                         harmonium::events::RecordFormat::Wav => {
@@ -680,6 +676,5 @@ fn main() {
                     }
                 }
             }
-        }
     }
 }

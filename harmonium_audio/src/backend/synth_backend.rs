@@ -55,12 +55,12 @@ impl SynthBackend {
         // Mix & Envelope
         let env_lead = var(&gate_lead) >> adsr_live(0.005, 0.2, 0.5, 0.15);
         let lead_mix = (organic_voice * (1.0 - var(&timbre_mix))) + (fm_voice * var(&timbre_mix));
-        let lead_out = ((lead_mix * env_lead | var(&cutoff) | var(&resonance)) >> lowpass()) * var(&gain_lead) >> pan(0.3);
+        let lead_out = ((((lead_mix * env_lead) | var(&cutoff) | var(&resonance)) >> lowpass()) * var(&gain_lead)) >> pan(0.3);
 
         // --- INSTRUMENT 2: BASS ---
         let bass_osc = (var(&frequency_bass) >> sine()) * 0.7 + (var(&frequency_bass) >> saw()) * 0.3;
         let env_bass = var(&gate_bass) >> adsr_live(0.005, 0.1, 0.6, 0.1);
-        let bass_out = ((bass_osc * env_bass) >> lowpass_hz(800.0, 0.5)) * var(&gain_bass) >> pan(0.0);
+        let bass_out = (((bass_osc * env_bass) >> lowpass_hz(800.0, 0.5)) * var(&gain_bass)) >> pan(0.0);
 
         // --- INSTRUMENT 3: SNARE (Noise Burst + Tone) ---
         // Bruit blanc filtré passe-bande pour le "claquement"
@@ -70,14 +70,14 @@ impl SynthBackend {
         let snare_tone = sine_hz(180.0) >> saw(); 
         let snare_src = (snare_noise * 0.8) + (snare_tone * 0.2);
         let env_snare = var(&gate_snare) >> adsr_live(0.001, 0.1, 0.0, 0.1);
-        let snare_out = (snare_src * env_snare) * var(&gain_snare) >> pan(-0.2);
+        let snare_out = ((snare_src * env_snare) * var(&gain_snare)) >> pan(-0.2);
 
         // --- INSTRUMENT 4: HAT (High Frequency Noise) ---
         // Bruit rose filtré passe-haut
         let hat_src = noise() >> highpass_hz(6000.0, 0.8);
         // Enveloppe très courte
         let env_hat = var(&gate_hat) >> adsr_live(0.001, 0.05, 0.0, 0.05);
-        let hat_out = (hat_src * env_hat) * var(&gain_hat) >> pan(0.2);
+        let hat_out = ((hat_src * env_hat) * var(&gain_hat)) >> pan(0.2);
 
         // --- MIXAGE FINAL ---
         let mix = lead_out + bass_out + snare_out + hat_out;

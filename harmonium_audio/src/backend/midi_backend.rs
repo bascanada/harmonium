@@ -9,6 +9,12 @@ pub struct MidiBackend {
     current_samples_per_step: usize,
 }
 
+impl Default for MidiBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MidiBackend {
     pub fn new() -> Self {
         Self {

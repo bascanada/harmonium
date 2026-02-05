@@ -313,14 +313,10 @@ impl HarmonicDriver {
 
         let strategy = if rand_val < steedman_w_norm {
             StrategyMode::Steedman
-        } else if rand_val < steedman_w_norm + parsimonious_w_norm {
+        } else if rand_val < steedman_w_norm + parsimonious_w_norm || is_tetrad {
             StrategyMode::Parsimonious
         } else {
-            if is_tetrad {
-                StrategyMode::Parsimonious
-            } else {
-                StrategyMode::NeoRiemannian
-            }
+            StrategyMode::NeoRiemannian
         };
 
         // Debug logging: afficher les changements de stratégie

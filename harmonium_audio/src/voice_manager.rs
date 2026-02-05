@@ -48,6 +48,7 @@ pub struct VoiceManager {
 }
 
 impl VoiceManager {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         sf2_bytes: Option<&[u8]>,
         sample_rate: f32,
@@ -105,8 +106,8 @@ impl VoiceManager {
             self.channel_routing[channel] = mode;
             
             // If switching to Oxisynth, ensure bank is selected
-            if let ChannelType::Oxisynth { bank } = mode {
-                if self.current_banks[channel] != bank {
+            if let ChannelType::Oxisynth { bank } = mode
+                && self.current_banks[channel] != bank {
                     // Send Bank Select (CC 0)
                     let _ = self.synth.send_event(oxisynth::MidiEvent::ControlChange { 
                         channel: channel as u8, 
@@ -120,7 +121,6 @@ impl VoiceManager {
                     });
                     self.current_banks[channel] = bank;
                 }
-            }
         }
     }
 
@@ -129,7 +129,7 @@ impl VoiceManager {
             AudioEvent::NoteOn { note, velocity, channel } => {
                 if let ChannelType::Oxisynth { .. } = self.channel_routing[channel as usize] {
                     let _ = self.synth.send_event(oxisynth::MidiEvent::NoteOn { 
-                        channel: channel, 
+                        channel, 
                         key: note, 
                         vel: velocity 
                     });
@@ -175,7 +175,7 @@ impl VoiceManager {
             AudioEvent::NoteOff { note, channel } => {
                 if let ChannelType::Oxisynth { .. } = self.channel_routing[channel as usize] {
                     let _ = self.synth.send_event(oxisynth::MidiEvent::NoteOff { 
-                        channel: channel, 
+                        channel, 
                         key: note 
                     });
                     return;

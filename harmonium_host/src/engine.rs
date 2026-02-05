@@ -25,7 +25,7 @@ pub struct HarmoniumEngine {
     harmony_state_tx: rtrb::Producer<HarmonyState>, // Audio thread writes harmony state
     event_queue_tx: rtrb::Producer<VisualizationEvent>, // Audio thread writes visualization events
     last_harmony_state: HarmonyState, // Cache to avoid sending duplicate harmony states
-    pub font_queue: Arc<Mutex<Vec<(u32, Vec<u8>)>>>, // Queue de chargement de SoundFonts (Phase 5 will replace)
+    pub font_queue: crate::FontQueue, // Queue de chargement de SoundFonts (Phase 5 will replace)
     current_state: CurrentState,
     // === POLYRYTHMIE: Plusieurs séquenceurs avec cycles différents ===
     sequencer_primary: Sequencer,   // Cycle principal (16 steps)
@@ -394,8 +394,8 @@ impl HarmoniumEngine {
 
         // === SYNTHESIS MORPHING (emotional timbre control) ===
         #[cfg(feature = "odin2")]
-        if target_params.enable_synthesis_morphing {
-            if let Some(odin2) = self.renderer.odin2_backend_mut() {
+        if target_params.enable_synthesis_morphing
+            && let Some(odin2) = self.renderer.odin2_backend_mut() {
                 odin2.apply_emotional_morphing(
                     self.current_state.valence,
                     self.current_state.arousal,
@@ -403,7 +403,6 @@ impl HarmoniumEngine {
                     self.current_state.density,
                 );
             }
-        }
 
         // === MELODY SMOOTHNESS → Hurst Factor ===
         // Applique le smoothness au navigateur harmonique pour le comportement mélodique
@@ -618,7 +617,7 @@ impl HarmoniumEngine {
                 HarmonyMode::Basic => {
                     // === MODE BASIC: Progressions par quadrants émotionnels ===
                     // Palette Selection (Hysteresis)
-                    if self.measure_counter % 4 == 0 {
+                    if self.measure_counter.is_multiple_of(4) {
                         let valence_delta =
                             (self.current_state.valence - self.last_valence_choice).abs();
                         let tension_delta =
@@ -652,7 +651,7 @@ impl HarmoniumEngine {
                     } else {
                         2
                     };
-                    if self.measure_counter % measures_per_chord == 0 {
+                    if self.measure_counter.is_multiple_of(measures_per_chord) {
                         self.progression_index =
                             (self.progression_index + 1) % self.current_progression.len();
                         let chord = &self.current_progression[self.progression_index];
@@ -689,8 +688,8 @@ impl HarmoniumEngine {
                     } else {
                         2
                     };
-                    if self.measure_counter % measures_per_chord == 0 {
-                        if let Some(ref mut driver) = self.harmonic_driver {
+                    if self.measure_counter.is_multiple_of(measures_per_chord)
+                        && let Some(ref mut driver) = self.harmonic_driver {
                             let mut rng = rand::thread_rng();
 
                             // NOTE: Chord name capture removed to prevent allocation
@@ -733,7 +732,6 @@ impl HarmoniumEngine {
                                 ArrayString::from("Driver").unwrap();
                             self.last_harmony_state.progression_length = 0; // Driver n'a pas de longueur fixe
                         }
-                    }
                 }
             }
         }
@@ -797,8 +795,7 @@ impl HarmoniumEngine {
             && trigger_primary.kick
             && !self
                 .musical_params
-                .muted_channels
-                .get(0)
+                .muted_channels.first()
                 .copied()
                 .unwrap_or(false)
         {
@@ -968,7 +965,7 @@ impl HarmoniumEngine {
             else if is_high_density {
                 if self.current_state.tension > 0.7 {
                     hat_note = 51; // Ride Cymbal (Section intense)
-                } else if self.sequencer_primary.current_step % 2 != 0 {
+                } else if !self.sequencer_primary.current_step.is_multiple_of(2) {
                     hat_note = 46; // Open Hi-Hat (Off-beat)
                 }
             }
@@ -1025,7 +1022,7 @@ impl HarmoniumEngine {
         // Phase 2: Push harmony state to queue for UI updates
         // Push every 4 ticks to balance update frequency vs allocation cost
         // This ensures smooth visualization while minimizing memory allocations
-        if self.sequencer_primary.current_step % 4 == 0 {
+        if self.sequencer_primary.current_step.is_multiple_of(4) {
             let _ = self.harmony_state_tx.push(self.last_harmony_state.clone());
         }
     }

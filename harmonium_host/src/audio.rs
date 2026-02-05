@@ -27,7 +27,7 @@ pub fn create_stream(
     control_mode: Arc<Mutex<ControlMode>>,
     sf2_bytes: Option<&[u8]>,
     backend_type: AudioBackendType,
-) -> Result<(cpal::Stream, SessionConfig, Arc<Mutex<rtrb::Consumer<HarmonyState>>>, Arc<Mutex<rtrb::Consumer<VisualizationEvent>>>, Arc<Mutex<Vec<(u32, Vec<u8>)>>>, Arc<Mutex<Vec<(RecordFormat, Vec<u8>)>>>), String> {
+) -> Result<(cpal::Stream, SessionConfig, Arc<Mutex<rtrb::Consumer<HarmonyState>>>, Arc<Mutex<rtrb::Consumer<VisualizationEvent>>>, crate::FontQueue, crate::FinishedRecordings), String> {
     // 1. Setup CPAL
     let host = cpal::default_host();
 

@@ -354,6 +354,7 @@ impl SteedmanGrammar {
     }
 
     /// Ajoute une règle de réécriture (version étendue)
+    #[allow(clippy::too_many_arguments)]
     fn add_rule_ext(
         &mut self,
         lhs: RomanNumeral,

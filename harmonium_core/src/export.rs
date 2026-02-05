@@ -106,6 +106,12 @@ pub struct GitVersion {
     pub sha: String,
 }
 
+impl std::fmt::Display for GitVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}-{}", self.tag, self.sha)
+    }
+}
+
 impl GitVersion {
     /// Get git version captured at compile time
     ///
@@ -117,11 +123,6 @@ impl GitVersion {
         let tag = env!("GIT_VERSION_TAG").to_string();
         let sha = env!("GIT_VERSION_SHA").to_string();
         GitVersion { tag, sha }
-    }
-
-    /// Format as "tag-sha" string
-    pub fn to_string(&self) -> String {
-        format!("{}-{}", self.tag, self.sha)
     }
 }
 
@@ -1058,7 +1059,7 @@ impl MusicXmlBuilder {
             .map(|n| n.start_step + n.duration_steps)
             .max()
             .unwrap_or(0);
-        (max_step + steps_per_measure - 1) / steps_per_measure
+        max_step.div_ceil(steps_per_measure)
     }
 }
 

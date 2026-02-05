@@ -94,6 +94,10 @@ impl RecordedData {
     }
 }
 
+// Type aliases for complex types
+pub type FontQueue = Arc<Mutex<Vec<(u32, Vec<u8>)>>>;
+pub type FinishedRecordings = Arc<Mutex<Vec<(events::RecordFormat, Vec<u8>)>>>;
+
 // Handle and WASM bindings only available with standalone feature (cpal)
 #[cfg(feature = "standalone")]
 #[cfg_attr(feature = "wasm", wasm_bindgen)]
@@ -113,9 +117,9 @@ pub struct Handle {
     /// Phase 2: Cached harmony state (updated by draining consumer)
     cached_harmony_state: Arc<Mutex<engine::HarmonyState>>,
     /// Queue de chargement de SoundFonts
-    font_queue: Arc<Mutex<Vec<(u32, Vec<u8>)>>>,
+    font_queue: FontQueue,
     /// Enregistrements terminés
-    finished_recordings: Arc<Mutex<Vec<(events::RecordFormat, Vec<u8>)>>>,
+    finished_recordings: FinishedRecordings,
     bpm: f32,
     key: String,
     scale: String,
@@ -155,11 +159,10 @@ impl Handle {
                 latest = Some(state);
             }
             // Update cache if we got at least one state
-            if let Some(state) = latest {
-                if let Ok(mut cache) = self.cached_harmony_state.lock() {
+            if let Some(state) = latest
+                && let Ok(mut cache) = self.cached_harmony_state.lock() {
                     *cache = state;
                 }
-            }
         }
     }
 
@@ -569,8 +572,8 @@ impl Handle {
 
     /// Récupère le dernier enregistrement terminé (WAV, MIDI, or MusicXML)
     pub fn pop_finished_recording(&self) -> Option<RecordedData> {
-        if let Ok(mut queue) = self.finished_recordings.lock() {
-            if let Some((fmt, data)) = queue.pop() {
+        if let Ok(mut queue) = self.finished_recordings.lock()
+            && let Some((fmt, data)) = queue.pop() {
                 let format_str = match fmt {
                     events::RecordFormat::Wav => "wav".to_string(),
                     events::RecordFormat::Midi => "midi".to_string(),
@@ -581,7 +584,6 @@ impl Handle {
                     data,
                 });
             }
-        }
         None
     }
 
@@ -654,6 +656,7 @@ impl Handle {
     }
 
     /// Set all rhythm parameters at once (avoids read-modify-write race)
+    #[allow(clippy::too_many_arguments)]
     pub fn set_all_rhythm_params(&self, mode: u8, steps: usize, pulses: usize, rotation: usize, density: f32, tension: f32, secondary_steps: usize, secondary_pulses: usize, secondary_rotation: usize) {
         if let Ok(mut m) = self.control_mode.lock() {
             m.direct_params.rhythm_mode = match mode {
@@ -800,11 +803,10 @@ impl Handle {
 
     /// Définit tous les paramètres directs depuis un JSON
     pub fn set_direct_params_json(&self, json: &str) {
-        if let Ok(params) = serde_json::from_str::<MusicalParams>(json) {
-            if let Ok(mut mode) = self.control_mode.lock() {
+        if let Ok(params) = serde_json::from_str::<MusicalParams>(json)
+            && let Ok(mut mode) = self.control_mode.lock() {
                 mode.direct_params = params;
             }
-        }
     }
 
     // === Getters pour l'UI en mode direct ===

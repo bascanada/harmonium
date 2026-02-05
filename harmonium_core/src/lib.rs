@@ -100,7 +100,7 @@ impl MusicKernel {
                  // Bass line on Channel 0 (Bass instrument per Odin2Backend mapping)
                  // TODO: Future refactoring - unify kick/bass or separate into dedicated percussion channel
                  // Simple Octave pattern: Root (C2) or Octave (C3)
-                 let note = if self.sequencer.current_step % 8 == 0 { 36 } else { 48 };
+                 let note = if self.sequencer.current_step.is_multiple_of(8) { 36 } else { 48 };
                  events.push(CoreAudioEvent::NoteOff { channel: 0, note });
                  events.push(CoreAudioEvent::NoteOn { channel: 0, note, velocity });
                  self.active_notes.push((0, note, note_duration * 1.5));
