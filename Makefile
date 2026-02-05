@@ -147,6 +147,27 @@ python/run:
 	. .venv/bin/activate && python3 scripts/video_to_osc.py --video "$(VIDEO)"
 
 # ════════════════════════════════════════════════════════════════════
+# QUALITY & CI
+# ════════════════════════════════════════════════════════════════════
+
+fmt:
+	cargo fmt --all -- --check
+
+lint:
+	cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+# Override test to use workspace
+test:
+	cargo test --workspace
+
+audit:
+	# Checks for security vulnerabilities in dependencies
+	cargo audit
+
+quality: fmt lint test
+	@echo "✨ All Rust quality checks passed!"
+
+# ════════════════════════════════════════════════════════════════════
 # RELEASE BUILDS (Universal macOS binaries)
 # ════════════════════════════════════════════════════════════════════
 
