@@ -303,7 +303,12 @@ fn main() {
         // Only set the atomic flag - no logging here to avoid allocations in signal handler
         shutdown_flag_handler.store(true, Ordering::Relaxed);
     })
-    .expect("Error setting Ctrl+C handler");
+    .unwrap_or_else(|e| {
+        #[allow(clippy::panic)]
+        {
+            panic!("Error setting Ctrl+C handler: {}", e);
+        }
+    });
 
     // === 1. État Partagé (Lock-free avec Triple Buffer) ===
     // Phase 3: Create triple buffer for lock-free UI→Audio parameter updates
@@ -569,7 +574,12 @@ fn main() {
         std::sync::Arc::new(std::sync::Mutex::new(harmonium::params::ControlMode::default()));
     let (_stream, config, _harmony_state, _event_queue, _font_queue, finished_recordings) =
         audio::create_stream(target_params_output, control_mode, sf2_data.as_deref(), backend_type)
-            .expect("Failed to create audio stream");
+            .unwrap_or_else(|e| {
+                #[allow(clippy::panic)]
+                {
+                    panic!("Failed to create audio stream: {}", e);
+                }
+            });
 
     // Démarrage de l'enregistrement si demandé
     if record_wav.is_some() || record_midi.is_some() || record_musicxml.is_some() {

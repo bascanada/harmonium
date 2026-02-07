@@ -46,7 +46,12 @@ impl HarmonyNavigator {
                     None,
                     Direction::Ascending,
                 )
-                .expect("Invariant: Default scale must be valid")
+                .unwrap_or_else(|_| {
+                    #[allow(clippy::panic)]
+                    {
+                        panic!("Invariant: Default scale must be valid")
+                    }
+                })
             });
         let scale_len = scale.notes().len();
 

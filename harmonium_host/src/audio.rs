@@ -23,6 +23,7 @@ pub enum AudioBackendType {
     Odin2,
 }
 
+#[allow(clippy::type_complexity)]
 pub fn create_stream(
     mut target_params: triple_buffer::Output<EngineParams>,
     control_mode: Arc<Mutex<ControlMode>>,

@@ -15,7 +15,10 @@ const DEFAULT_PRESETS_TOML: &str = include_str!("presets.toml");
 static DEFAULT_PRESET_BANK: std::sync::LazyLock<EmotionalPresetBank> =
     std::sync::LazyLock::new(|| {
         toml::from_str(DEFAULT_PRESETS_TOML).unwrap_or_else(|e| {
-            panic!("Failed to parse embedded presets.toml: {}", e);
+            #[allow(clippy::panic)]
+            {
+                panic!("Failed to parse embedded presets.toml: {}", e);
+            }
         })
     });
 

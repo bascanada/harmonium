@@ -710,7 +710,7 @@ impl HarmoniumEngine {
                             ArrayString::from(&chord_name).unwrap_or_default();
                         self.last_harmony_state.measure_number = self.measure_counter;
                         self.last_harmony_state.progression_name =
-                            ArrayString::from("Driver").unwrap();
+                            ArrayString::from("Driver").unwrap_or_default();
                         self.last_harmony_state.progression_length = 0; // Driver n'a pas de longueur fixe
                     }
                 }

@@ -52,14 +52,17 @@ pub struct HarmoniumPlugin;
 impl Plugin for HarmoniumPlugin {
     fn build(&self, app: &mut App) {
         // 1. Initialize Kira
-        let mut audio_manager =
-            match AudioManager::<DefaultBackend>::new(AudioManagerSettings::default()) {
-                Ok(manager) => manager,
-                Err(e) => {
-                    error!("Failed to initialize Kira AudioManager: {}. Harmonium audio will be disabled.", e);
-                    return;
-                }
-            };
+        let settings = AudioManagerSettings::default();
+        let mut audio_manager = match AudioManager::<DefaultBackend>::new(settings) {
+            Ok(manager) => manager,
+            Err(e) => {
+                error!(
+                    "Failed to initialize Kira AudioManager: {}. Harmonium audio will be disabled.",
+                    e
+                );
+                return;
+            }
+        };
 
         // 2. Create communication channel (RingBuffer)
         let (producer, consumer) = RingBuffer::new(1024);

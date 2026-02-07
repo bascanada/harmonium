@@ -90,10 +90,7 @@ impl EmotionMapper {
             .arousal
             .mul_add(self.config.bpm_max - self.config.bpm_min, self.config.bpm_min);
 
-        let mut params = MusicalParams {
-            bpm,
-            ..MusicalParams::default()
-        };
+        let mut params = MusicalParams { bpm, ..MusicalParams::default() };
 
         // ═══════════════════════════════════════════════════════════════════
         // RYTHME: Density + Tension → Pattern

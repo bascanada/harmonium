@@ -27,16 +27,28 @@ impl SharedWriter {
 
 impl Write for SharedWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.buffer.lock().expect("SharedWriter lock poisoned").write(buf)
+        let mut guard = match self.buffer.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        guard.write(buf)
     }
     fn flush(&mut self) -> std::io::Result<()> {
-        self.buffer.lock().expect("SharedWriter lock poisoned").flush()
+        let mut guard = match self.buffer.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        guard.flush()
     }
 }
 
 impl Seek for SharedWriter {
     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
-        self.buffer.lock().expect("SharedWriter lock poisoned").seek(pos)
+        let mut guard = match self.buffer.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        guard.seek(pos)
     }
 }
 
