@@ -12,10 +12,14 @@ pub fn sync_harmonium_params(
     // We look for the entity with HarmoniumSource
     // Changed<T> optimizes to run only if modified
     query: Query<&HarmoniumSource>, // Changed removed to allow asset check every frame (cheap handle check)
-    mut harmonium: ResMut<Harmonium>,
+    mut harmonium: Option<ResMut<Harmonium>>,
     mut last_preset: Local<Option<Handle<OdinAsset>>>, // Track last loaded handle to avoid spam
     assets: Res<Assets<OdinAsset>>,
 ) {
+    let Some(harmonium) = harmonium.as_deref_mut() else {
+        return;
+    };
+
     // Take the first component found (usually unique)
     if let Some(source) = query.iter().next() {
         // 1. Enable/Disable Management
@@ -69,9 +73,13 @@ pub fn scan_environment_system(
     // 3. Source of Manual configuration
     source_query: Query<&HarmoniumSource>,
     // 4. Global resources
-    mut harmonium: ResMut<Harmonium>,
+    mut harmonium: Option<ResMut<Harmonium>>,
     semantic_engine: Local<SemanticEngine>, // Local = system internal state
 ) {
+    let Some(harmonium) = harmonium.as_deref_mut() else {
+        return;
+    };
+
     let dt = time.delta_secs();
 
     // Attempt to get the manual params (source of truth for manual override)

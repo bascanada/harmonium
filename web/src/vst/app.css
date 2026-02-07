@@ -3,5 +3,5 @@
 @plugin '@tailwindcss/typography';
 
 /* Tell Tailwind to scan these paths for class usage */
-@source "../lib/**/*.svelte";
-@source "./*.svelte";
+@source '../lib/**/*.svelte';
+@source './*.svelte';

@@ -81,16 +81,19 @@ impl EmotionMapper {
     /// Elle est pure (pas d'effets de bord) et peut être testée unitairement.
     #[must_use]
     pub fn map(&self, emotions: &EngineParams) -> MusicalParams {
-        let mut params = MusicalParams::default();
-
         // ═══════════════════════════════════════════════════════════════════
         // BPM: Arousal → Tempo
         // ═══════════════════════════════════════════════════════════════════
         // Faible arousal = calme = tempo lent
         // Haute arousal = excité = tempo rapide
-        params.bpm = emotions
+        let bpm = emotions
             .arousal
             .mul_add(self.config.bpm_max - self.config.bpm_min, self.config.bpm_min);
+
+        let mut params = MusicalParams {
+            bpm,
+            ..MusicalParams::default()
+        };
 
         // ═══════════════════════════════════════════════════════════════════
         // RYTHME: Density + Tension → Pattern

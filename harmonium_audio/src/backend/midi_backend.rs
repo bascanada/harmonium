@@ -38,7 +38,10 @@ impl MidiBackend {
     }
 
     pub fn save(&self, path: &str) -> std::io::Result<()> {
-        let track_guard = self.track.lock().unwrap();
+        let track_guard = match self.track.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
         // Clone events to create a track
         let track: Track = track_guard.clone();
 
@@ -64,7 +67,10 @@ impl AudioRenderer for MidiBackend {
                 let delta = self.samples_to_ticks(self.samples_since_last_event);
                 self.samples_since_last_event = 0;
 
-                let mut track = self.track.lock().unwrap();
+                let mut track = match self.track.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
                 track.push(TrackEvent {
                     delta: delta.into(),
                     kind: TrackEventKind::Midi {
@@ -77,7 +83,10 @@ impl AudioRenderer for MidiBackend {
                 let delta = self.samples_to_ticks(self.samples_since_last_event);
                 self.samples_since_last_event = 0;
 
-                let mut track = self.track.lock().unwrap();
+                let mut track = match self.track.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
                 track.push(TrackEvent {
                     delta: delta.into(),
                     kind: TrackEventKind::Midi {

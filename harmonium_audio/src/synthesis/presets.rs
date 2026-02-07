@@ -14,7 +14,9 @@ const DEFAULT_PRESETS_TOML: &str = include_str!("presets.toml");
 // Parse on first access (thread-safe singleton)
 static DEFAULT_PRESET_BANK: std::sync::LazyLock<EmotionalPresetBank> =
     std::sync::LazyLock::new(|| {
-        toml::from_str(DEFAULT_PRESETS_TOML).expect("Failed to parse embedded presets.toml")
+        toml::from_str(DEFAULT_PRESETS_TOML).unwrap_or_else(|e| {
+            panic!("Failed to parse embedded presets.toml: {}", e);
+        })
     });
 
 /// Holds the 4 corner presets for emotional morphing

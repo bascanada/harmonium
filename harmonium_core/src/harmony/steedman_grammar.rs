@@ -617,7 +617,15 @@ impl SteedmanGrammar {
 
     /// Génère le prochain accord de la progression (stateful via `RwLock`)
     fn generate_next_stateful(&self, ctx: &HarmonyContext, rng: &mut dyn RngCore) -> RomanNumeral {
-        let mut state = self.state.write().unwrap();
+        let mut state = match self.state.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                // If the lock is poisoned, we can try to recover the data
+                // or just return a default value to prevent a crash.
+                // For a music generator, robustness is preferred.
+                poisoned.into_inner()
+            }
+        };
 
         // Si on a une progression en attente, la consommer
         if !state.pending_progression.is_empty() {

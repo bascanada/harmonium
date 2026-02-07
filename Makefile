@@ -164,8 +164,16 @@ audit:
 	# Checks for security vulnerabilities in dependencies
 	cargo audit
 
-quality: fmt lint test
-	@echo "✨ All Rust quality checks passed!"
+quality: fmt lint test web/quality
+	@echo "✨ All quality checks passed!"
+
+web/check:
+	cd web && npm run check
+
+web/lint:
+	cd web && npm run lint
+
+web/quality: web/check web/lint
 
 # ════════════════════════════════════════════════════════════════════
 # RELEASE BUILDS (Universal macOS binaries)

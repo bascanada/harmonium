@@ -232,8 +232,9 @@ pub fn generate_euclidean_bools(steps: usize, pulses: usize) -> Vec<bool> {
 
     while remainder > 1 && count > 0 {
         for i in 0..count {
-            let last = pattern.pop().unwrap();
-            pattern[i].extend(last);
+            if let Some(last) = pattern.pop() {
+                pattern[i].extend(last);
+            }
         }
         remainder = pattern.len() - count;
         count = std::cmp::min(count, remainder);

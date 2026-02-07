@@ -37,8 +37,17 @@ impl HarmonyNavigator {
     #[must_use]
     pub fn new(root_note: PitchSymbol, scale_type: ScaleType, octave: i32) -> Self {
         let pitch = Pitch::from(root_note);
-        let scale =
-            Scale::new(scale_type, pitch, octave as u8, None, Direction::Ascending).unwrap();
+        let scale = Scale::new(scale_type, pitch, octave as u8, None, Direction::Ascending)
+            .unwrap_or_else(|_| {
+                Scale::new(
+                    ScaleType::PentatonicMajor,
+                    Pitch::from(PitchSymbol::C),
+                    4,
+                    None,
+                    Direction::Ascending,
+                )
+                .expect("Invariant: Default scale must be valid")
+            });
         let scale_len = scale.notes().len();
 
         // Départ: accord I majeur (tonique, tierce majeure, quinte, septième majeure)
@@ -123,8 +132,12 @@ impl HarmonyNavigator {
         let (steps, weights) = self.get_weighted_steps(normalized_index, is_strong_beat);
 
         // Sélection pondérée
-        let dist = WeightedIndex::new(&weights).unwrap();
-        let chosen_step = steps[dist.sample(&mut rng)];
+        let chosen_step = if let Ok(dist) = WeightedIndex::new(&weights) {
+            steps[dist.sample(&mut rng)]
+        } else {
+            // Fallback: Uniform choice from available steps
+            steps[rng.gen_range(0..steps.len())]
+        };
 
         // === GAP FILL (Temperley): Après un grand saut, revenir dans l'autre direction ===
         // Principe: Si le dernier mouvement était un saut > 2, compenser en revenant
@@ -208,10 +221,15 @@ impl HarmonyNavigator {
         }
 
         // 4. SÉLECTION PONDÉRÉE
-        let dist = WeightedIndex::new(&final_weights)
-            .unwrap_or_else(|_| WeightedIndex::new(vec![1.0; final_weights.len()]).unwrap());
-
-        let chosen_step = steps[dist.sample(&mut rng)];
+        let dist_result = WeightedIndex::new(&final_weights);
+        let chosen_step = if let Ok(dist) = dist_result {
+            steps[dist.sample(&mut rng)]
+        } else if let Ok(uniform_dist) = WeightedIndex::new(vec![1.0; final_weights.len()]) {
+            steps[uniform_dist.sample(&mut rng)]
+        } else {
+            // Ultimate fallback
+            steps[0]
+        };
 
         // === Gap Fill (Temperley) ===
         if self.last_step.abs() > 2

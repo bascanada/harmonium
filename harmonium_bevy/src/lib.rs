@@ -53,8 +53,13 @@ impl Plugin for HarmoniumPlugin {
     fn build(&self, app: &mut App) {
         // 1. Initialize Kira
         let mut audio_manager =
-            AudioManager::<DefaultBackend>::new(AudioManagerSettings::default())
-                .expect("Failed to init Kira");
+            match AudioManager::<DefaultBackend>::new(AudioManagerSettings::default()) {
+                Ok(manager) => manager,
+                Err(e) => {
+                    error!("Failed to initialize Kira AudioManager: {}. Harmonium audio will be disabled.", e);
+                    return;
+                }
+            };
 
         // 2. Create communication channel (RingBuffer)
         let (producer, consumer) = RingBuffer::new(1024);
@@ -68,7 +73,10 @@ impl Plugin for HarmoniumPlugin {
             settings: Default::default(),
         };
 
-        audio_manager.play(sound_data).expect("Failed to play Harmonium sound");
+        if let Err(e) = audio_manager.play(sound_data) {
+            error!("Failed to play Harmonium sound: {}. Harmonium audio will be disabled.", e);
+            return;
+        }
 
         // 4. Initialize Logic (Kernel + AI)
         // Sequencer: 16 steps, Euclidean default
@@ -115,9 +123,13 @@ struct HarmoniumAudioKeepAlive(#[allow(dead_code)] AudioManager);
 /// The system that advances music logic synced with game time
 fn update_harmonium_main_system(
     time: Res<Time>,
-    mut harmonium: ResMut<Harmonium>,
+    mut harmonium: Option<ResMut<Harmonium>>,
     query: Query<&components::HarmoniumSource>,
 ) {
+    let Some(harmonium) = harmonium.as_deref_mut() else {
+        return;
+    };
+
     // Check enable state from source of truth
     if let Some(source) = query.iter().next() {
         if !source.is_enabled {
