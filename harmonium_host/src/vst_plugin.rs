@@ -338,7 +338,7 @@ impl HarmoniumPlugin {
                 ];
             }
         } else {
-             nih_log!("[WARN] Failed to lock control_mode for update in sync_params_to_engine");
+            nih_log!("[WARN] Failed to lock control_mode for update in sync_params_to_engine");
         }
 
         // Only sync emotional params from DAW if webview is NOT controlling
@@ -440,10 +440,10 @@ impl Plugin for HarmoniumPlugin {
         self.engine = Some(engine);
         // Move harmony_state_rx to editor wrapper (not used by process())
         if let Ok(mut lock) = self.harmony_state_rx_for_editor.lock() {
-             *lock = Some(harmony_state_rx);
+            *lock = Some(harmony_state_rx);
         } else {
-             nih_log!("[ERROR] Failed to lock harmony_state_rx_for_editor in initialize");
-             return false;
+            nih_log!("[ERROR] Failed to lock harmony_state_rx_for_editor in initialize");
+            return false;
         }
         self.event_queue_rx = Some(event_queue_rx);
 
