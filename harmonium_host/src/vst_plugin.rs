@@ -266,6 +266,7 @@ impl HarmoniumPlugin {
                     mode.webview_controls_direct,
                 )
             } else {
+                nih_log!("[WARN] Failed to lock control_mode in sync_params_to_engine");
                 (false, false, false)
             };
 
@@ -281,6 +282,8 @@ impl HarmoniumPlugin {
                 params.tension = state.tension;
                 // Publish to engine via triple buffer
                 self.target_params_input.write(params);
+            } else {
+                nih_log!("[WARN] Failed to lock target_state in sync_params_to_engine");
             }
         }
 
@@ -334,6 +337,8 @@ impl HarmoniumPlugin {
                     self.params.mute_hat.value(),
                 ];
             }
+        } else {
+             nih_log!("[WARN] Failed to lock control_mode for update in sync_params_to_engine");
         }
 
         // Only sync emotional params from DAW if webview is NOT controlling
@@ -434,7 +439,12 @@ impl Plugin for HarmoniumPlugin {
 
         self.engine = Some(engine);
         // Move harmony_state_rx to editor wrapper (not used by process())
-        *self.harmony_state_rx_for_editor.lock().unwrap() = Some(harmony_state_rx);
+        if let Ok(mut lock) = self.harmony_state_rx_for_editor.lock() {
+             *lock = Some(harmony_state_rx);
+        } else {
+             nih_log!("[ERROR] Failed to lock harmony_state_rx_for_editor in initialize");
+             return false;
+        }
         self.event_queue_rx = Some(event_queue_rx);
 
         true
@@ -444,6 +454,8 @@ impl Plugin for HarmoniumPlugin {
         // Clear any pending MIDI events
         if let Ok(mut backend) = self.midi_backend.lock() {
             backend.clear();
+        } else {
+            nih_log!("[WARN] Failed to lock midi_backend in reset");
         }
     }
 
