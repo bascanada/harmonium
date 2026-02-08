@@ -173,15 +173,11 @@ impl RecorderBackend {
     }
 
     fn stop_musicxml(&mut self) {
-        if let Some(truth) = &self.truth {
-            let xml = harmonium_core::export::to_musicxml(
-                &truth.events,
-                &truth.params,
-                1, // Dummy value
-            );
-            if let Ok(mut queue) = self.finished_recordings.lock() {
-                queue.push((RecordFormat::MusicXml, xml.into_bytes()));
-            }
+        if let Some(truth) = &self.truth
+            && let Ok(mut queue) = self.finished_recordings.lock()
+        {
+            let xml = harmonium_core::export::to_musicxml(&truth.events, &truth.params, 1);
+            queue.push((RecordFormat::MusicXml, xml.into_bytes()));
         }
     }
 
@@ -190,12 +186,11 @@ impl RecorderBackend {
     }
 
     fn stop_truth(&mut self) {
-        if let Some(truth) = self.truth.take() {
-            if let Ok(json) = serde_json::to_vec(&truth) {
-                if let Ok(mut queue) = self.finished_recordings.lock() {
-                    queue.push((RecordFormat::Truth, json));
-                }
-            }
+        if let Some(truth) = self.truth.take()
+            && let Ok(json) = serde_json::to_vec(&truth)
+            && let Ok(mut queue) = self.finished_recordings.lock()
+        {
+            queue.push((RecordFormat::Truth, json));
         }
     }
 

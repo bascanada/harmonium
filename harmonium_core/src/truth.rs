@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
-use crate::params::MusicalParams;
-use crate::events::AudioEvent;
-use crate::export::GitVersion;
+
+use crate::{events::AudioEvent, export::GitVersion, params::MusicalParams};
 
 /// The "Ground Truth" of a recording session.
 /// This structure captures everything needed to reconstruct or verify
@@ -24,12 +23,6 @@ impl RecordingTruth {
     /// Create a new recording truth from events and parameters
     pub fn new(events: Vec<(f64, AudioEvent)>, params: MusicalParams, sample_rate: u32) -> Self {
         let git = GitVersion::detect();
-        Self {
-            version: git.tag,
-            git_sha: git.sha,
-            params,
-            events,
-            sample_rate,
-        }
+        Self { version: git.tag, git_sha: git.sha, params, events, sample_rate }
     }
 }

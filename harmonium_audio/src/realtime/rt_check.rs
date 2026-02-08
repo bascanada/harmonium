@@ -43,63 +43,54 @@ thread_local! {
 pub struct RTCheckAllocator;
 
 #[cfg(debug_assertions)]
-unsafe impl GlobalAlloc for RTCheckAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+macro_rules! check_rt_violation {
+    ($($arg:tt)*) => {
         let in_audio = IN_AUDIO_THREAD.with(std::cell::Cell::get);
         let disabled = FORCE_DISABLE.with(std::cell::Cell::get);
         if !disabled {
-            assert!(
-                !in_audio,
-                "REAL-TIME VIOLATION: Allocation in audio thread! size={} bytes, align={}",
-                layout.size(),
-                layout.align()
-            );
+            assert!(!in_audio, $($arg)*);
         }
+    };
+}
+
+#[cfg(debug_assertions)]
+unsafe impl GlobalAlloc for RTCheckAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        check_rt_violation!(
+            "REAL-TIME VIOLATION: Allocation in audio thread! size={} bytes, align={}",
+            layout.size(),
+            layout.align()
+        );
         // SAFETY: We're delegating to the system allocator with the same layout
         unsafe { System.alloc(layout) }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        let in_audio = IN_AUDIO_THREAD.with(std::cell::Cell::get);
-        let disabled = FORCE_DISABLE.with(std::cell::Cell::get);
-        if !disabled {
-            assert!(
-                !in_audio,
-                "REAL-TIME VIOLATION: Deallocation in audio thread! size={} bytes, align={}",
-                layout.size(),
-                layout.align()
-            );
-        }
+        check_rt_violation!(
+            "REAL-TIME VIOLATION: Deallocation in audio thread! size={} bytes, align={}",
+            layout.size(),
+            layout.align()
+        );
         // SAFETY: We're delegating to the system allocator with the same ptr/layout
         unsafe { System.dealloc(ptr, layout) }
     }
 
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        let in_audio = IN_AUDIO_THREAD.with(std::cell::Cell::get);
-        let disabled = FORCE_DISABLE.with(std::cell::Cell::get);
-        if !disabled {
-            assert!(
-                !in_audio,
-                "REAL-TIME VIOLATION: Zero allocation in audio thread! size={} bytes, align={}",
-                layout.size(),
-                layout.align()
-            );
-        }
+        check_rt_violation!(
+            "REAL-TIME VIOLATION: Zero allocation in audio thread! size={} bytes, align={}",
+            layout.size(),
+            layout.align()
+        );
         // SAFETY: We're delegating to the system allocator with the same layout
         unsafe { System.alloc_zeroed(layout) }
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        let in_audio = IN_AUDIO_THREAD.with(std::cell::Cell::get);
-        let disabled = FORCE_DISABLE.with(std::cell::Cell::get);
-        if !disabled {
-            assert!(
-                !in_audio,
-                "REAL-TIME VIOLATION: Reallocation in audio thread! old_size={} bytes, new_size={} bytes",
-                layout.size(),
-                new_size
-            );
-        }
+        check_rt_violation!(
+            "REAL-TIME VIOLATION: Reallocation in audio thread! old_size={} bytes, new_size={} bytes",
+            layout.size(),
+            new_size
+        );
         // SAFETY: We're delegating to the system allocator with the same ptr/layout/new_size
         unsafe { System.realloc(ptr, layout, new_size) }
     }

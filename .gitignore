@@ -15,7 +15,7 @@ pkg/
 .DS_Store
 *.musicxml
 *.wav
-/*.json
+*.truth.json
 *.mid*
 
 .obsidian

@@ -146,9 +146,7 @@ pub fn export_offline(
             Box::new(SynthBackend::new(sample_rate, sf2_bytes, &initial_routing))
         }
         #[cfg(feature = "odin2")]
-        AudioBackendType::Odin2 => {
-            Box::new(Odin2Backend::new(sample_rate))
-        }
+        AudioBackendType::Odin2 => Box::new(Odin2Backend::new(sample_rate)),
     };
 
     let finished_recordings = Arc::new(Mutex::new(Vec::new()));
@@ -162,29 +160,24 @@ pub fn export_offline(
     let (mut engine, _, _) =
         HarmoniumEngine::new(sample_rate, target_params, control_mode, recorder_backend);
 
+    let formats_to_record = [
+        (record_wav, harmonium_core::events::RecordFormat::Wav),
+        (record_midi, harmonium_core::events::RecordFormat::Midi),
+        (record_musicxml, harmonium_core::events::RecordFormat::MusicXml),
+        (record_truth, harmonium_core::events::RecordFormat::Truth),
+    ];
+
     // 3. Start Recording
-    if record_wav {
-        engine.handle_event(AudioEvent::StartRecording {
-            format: harmonium_core::events::RecordFormat::Wav,
-        });
-    }
-    if record_midi {
-        engine.handle_event(AudioEvent::StartRecording {
-            format: harmonium_core::events::RecordFormat::Midi,
-        });
-    }
-    if record_musicxml {
+    if record_musicxml || record_truth {
         // Send musical params through event system for accurate export metadata
         let mp = engine.get_musical_params();
         engine.handle_event(AudioEvent::UpdateMusicalParams { params: Box::new(mp) });
-        engine.handle_event(AudioEvent::StartRecording {
-            format: harmonium_core::events::RecordFormat::MusicXml,
-        });
     }
-    if record_truth {
-        engine.handle_event(AudioEvent::StartRecording {
-            format: harmonium_core::events::RecordFormat::Truth,
-        });
+
+    for (should_record, format) in formats_to_record {
+        if should_record {
+            engine.handle_event(AudioEvent::StartRecording { format });
+        }
     }
 
     // 4. Offline Render Loop
@@ -204,25 +197,10 @@ pub fn export_offline(
     }
 
     // 5. Stop Recording & Finalize
-    if record_wav {
-        engine.handle_event(AudioEvent::StopRecording {
-            format: harmonium_core::events::RecordFormat::Wav,
-        });
-    }
-    if record_midi {
-        engine.handle_event(AudioEvent::StopRecording {
-            format: harmonium_core::events::RecordFormat::Midi,
-        });
-    }
-    if record_musicxml {
-        engine.handle_event(AudioEvent::StopRecording {
-            format: harmonium_core::events::RecordFormat::MusicXml,
-        });
-    }
-    if record_truth {
-        engine.handle_event(AudioEvent::StopRecording {
-            format: harmonium_core::events::RecordFormat::Truth,
-        });
+    for (should_record, format) in formats_to_record {
+        if should_record {
+            engine.handle_event(AudioEvent::StopRecording { format });
+        }
     }
 
     Ok(finished_recordings)

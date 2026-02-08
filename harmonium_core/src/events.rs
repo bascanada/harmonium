@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+
 use crate::params::MusicalParams;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
