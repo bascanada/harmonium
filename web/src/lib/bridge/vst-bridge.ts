@@ -164,6 +164,13 @@ export class VstBridge extends BaseBridge {
 
 			if (parsed.type === 'state_update' && parsed.data) {
 				const update = parsed as VstStateUpdate;
+
+				if (update.data.lookAheadBuffer && update.data.lookAheadBuffer.length > 0) {
+					console.log(
+						`[VstBridge] Received Look-ahead Buffer: ${update.data.lookAheadBuffer.length} steps. First step absolute index: ${update.data.lookAheadBuffer[0].absoluteStep}`
+					);
+				}
+
 				this.currentState = { ...this.currentState, ...update.data };
 				this.subscribers.forEach((cb) => cb(this.currentState));
 			}

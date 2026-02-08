@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 
 // --- RHYTHM MODE (Strategy Pattern) ---
 
@@ -12,7 +13,8 @@ pub enum RhythmMode {
 
 /// Événement déclenché à chaque step du séquenceur
 /// Indique quelles voix doivent jouer
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StepTrigger {
     pub kick: bool,    // Fondation (Square/Octagon)
     pub snare: bool,   // Tension (Triangle/Backbeat)
@@ -26,6 +28,39 @@ impl StepTrigger {
     #[must_use]
     pub const fn is_any(&self) -> bool {
         self.kick || self.snare || self.hat || self.bass || self.lead
+    }
+}
+
+/// A step scheduled for the future
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduledStep {
+    pub absolute_step: usize,
+    pub trigger: StepTrigger,
+    /// MIDI notes for each voice: [Bass, Lead, Snare, Hat, Kick]
+    pub pitches: Vec<Option<u8>>,
+}
+
+/// Buffer for look-ahead generation
+#[derive(Clone, Debug, Default)]
+pub struct LookAheadBuffer {
+    pub queue: VecDeque<ScheduledStep>,
+    pub horizon_steps: usize,
+    pub last_generated_step: usize,
+}
+
+impl LookAheadBuffer {
+    #[must_use]
+    pub fn new(horizon_steps: usize) -> Self {
+        Self {
+            queue: VecDeque::with_capacity(horizon_steps),
+            horizon_steps,
+            last_generated_step: 0,
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.queue.clear();
     }
 }
 
@@ -151,7 +186,7 @@ impl Sequencer {
                         snare: false,
                         hat: b,  // Layering simple
                         bass: b, // Sync bass with kick in Euclidean mode
-                        lead: false,
+                        lead: b, // Set lead to b instead of false
                         velocity: if b { 1.0 } else { 0.0 },
                     })
                     .collect()
@@ -206,6 +241,16 @@ impl Sequencer {
         let trigger = self.pattern[self.current_step];
         self.current_step = (self.current_step + 1) % self.pattern.len();
         trigger
+    }
+
+    /// Returns the trigger for a specific absolute step index without advancing current_step.
+    #[must_use]
+    pub fn peek_at_step(&self, absolute_step: usize) -> StepTrigger {
+        if self.pattern.is_empty() {
+            return StepTrigger::default();
+        }
+        let index = absolute_step % self.pattern.len();
+        self.pattern[index]
     }
 }
 

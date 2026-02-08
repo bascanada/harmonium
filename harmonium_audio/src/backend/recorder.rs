@@ -225,6 +225,7 @@ impl AudioRenderer for RecorderBackend {
                     events.push((self.musicxml_steps_elapsed, event.clone()));
                 }
             }
+            AudioEvent::BufferUpdate { .. } => {}
             _ => {}
         }
 

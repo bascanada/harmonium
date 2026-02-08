@@ -6,7 +6,9 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
+		"build:watch": "vite build --watch",
 		"build:vst": "vite build --config vite.vst.config.ts",
+		"build:vst:watch": "vite build --config vite.vst.config.ts --watch",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
@@ -22,6 +24,7 @@
 		"@tailwindcss/typography": "^0.5.19",
 		"@tailwindcss/vite": "^4.1.17",
 		"@types/node": "^25.0.3",
+		"@types/vexflow": "^3.0.1",
 		"@typescript-eslint/eslint-plugin": "^8.54.0",
 		"@typescript-eslint/parser": "^8.54.0",
 		"eslint": "^8.57.1",
@@ -45,6 +48,7 @@
 		"lucide-svelte": "^0.562.0",
 		"marked": "^17.0.1",
 		"mermaid": "^11.12.2",
-		"tailwind-merge": "^3.4.0"
+		"tailwind-merge": "^3.4.0",
+		"vexflow": "^5.0.0"
 	}
 }

@@ -194,6 +194,29 @@ export class WasmBridge extends BaseBridge {
 		update('voicingDensity', h.get_direct_voicing_density());
 		update('voicingTension', h.get_direct_voicing_tension());
 
+		// Look-ahead buffer
+		const bufferJson = h.get_look_ahead_buffer();
+		try {
+			const buffer = JSON.parse(bufferJson);
+			if (buffer && buffer.length > 0) {
+				console.log(
+					`[WasmBridge] Received Look-ahead Buffer: ${buffer.length} steps. First step absolute index: ${buffer[0].absoluteStep}`
+				);
+				if (buffer[0].trigger) {
+					console.log('[WasmBridge] First trigger keys:', Object.keys(buffer[0].trigger));
+				}
+			}
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const currentBuffer = this.currentState.lookAheadBuffer as any[];
+			// Simple comparison for now (by stringifying or length)
+			if (JSON.stringify(currentBuffer) !== bufferJson) {
+				this.currentState.lookAheadBuffer = buffer;
+				changed = true;
+			}
+		} catch (e) {
+			console.error('[WasmBridge] Error parsing look-ahead buffer:', e);
+		}
+
 		return changed;
 	}
 

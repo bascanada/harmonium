@@ -10,10 +10,12 @@
 //! [Debug] → MusicalParams → HarmoniumEngine (bypass émotionnel)
 //! ```
 
-use arrayvec::ArrayString;
 use serde::{Deserialize, Serialize};
 
-use crate::{harmony::HarmonyMode, sequencer::RhythmMode};
+use crate::{
+    harmony::HarmonyMode,
+    sequencer::{RhythmMode, ScheduledStep},
+};
 
 /// État du mode de contrôle (émotion vs direct)
 /// Partagé entre VST et standalone builds
@@ -67,6 +69,8 @@ pub struct ControlMode {
     pub session_key: String,
     /// Session scale (e.g., "major")
     pub session_scale: String,
+    /// Look-ahead buffer for visualization
+    pub look_ahead_buffer: Vec<ScheduledStep>,
 }
 
 impl Default for ControlMode {
@@ -94,6 +98,7 @@ impl Default for ControlMode {
             progression_name: String::new(),
             session_key: "C".to_string(),
             session_scale: "major".to_string(),
+            look_ahead_buffer: vec![],
         }
     }
 }
@@ -504,7 +509,8 @@ mod tests {
 //  Structures moved from Engine (Data Contracts)
 // =========================================================================================
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VisualizationEvent {
     pub note_midi: u8,
     pub instrument: u8, // 0=Bass, 1=Lead, 2=Snare, 3=Hat
@@ -512,16 +518,17 @@ pub struct VisualizationEvent {
     pub duration_samples: usize,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct HarmonyState {
     pub current_chord_index: usize,
     pub chord_root_offset: i32,
     pub chord_is_minor: bool,
-    pub chord_name: ArrayString<64>,
+    pub chord_name: String,
     pub measure_number: usize,
     pub cycle_number: usize,
     pub current_step: usize,
-    pub progression_name: ArrayString<64>,
+    pub progression_name: String,
     pub progression_length: usize,
     pub harmony_mode: HarmonyMode,
     pub primary_steps: usize,
@@ -530,8 +537,10 @@ pub struct HarmonyState {
     pub secondary_pulses: usize,
     pub primary_rotation: usize,
     pub secondary_rotation: usize,
-    pub primary_pattern: [bool; 192],
-    pub secondary_pattern: [bool; 192],
+    pub primary_pattern: Vec<bool>,
+    pub secondary_pattern: Vec<bool>,
+    pub look_ahead_buffer: Vec<ScheduledStep>,
+    pub look_ahead_count: usize,
 }
 
 impl Default for HarmonyState {
@@ -540,11 +549,11 @@ impl Default for HarmonyState {
             current_chord_index: 0,
             chord_root_offset: 0,
             chord_is_minor: false,
-            chord_name: ArrayString::from("I").unwrap_or_default(),
+            chord_name: "I".to_string(),
             measure_number: 1,
             cycle_number: 1,
             current_step: 0,
-            progression_name: ArrayString::from("Folk Peaceful (I-IV-I-V)").unwrap_or_default(),
+            progression_name: "Folk Peaceful (I-IV-I-V)".to_string(),
             progression_length: 4,
             harmony_mode: HarmonyMode::Driver,
             primary_steps: 16,
@@ -553,8 +562,10 @@ impl Default for HarmonyState {
             secondary_pulses: 3,
             primary_rotation: 0,
             secondary_rotation: 0,
-            primary_pattern: [false; 192],
-            secondary_pattern: [false; 192],
+            primary_pattern: vec![false; 192],
+            secondary_pattern: vec![false; 192],
+            look_ahead_buffer: Vec::new(),
+            look_ahead_count: 0,
         }
     }
 }

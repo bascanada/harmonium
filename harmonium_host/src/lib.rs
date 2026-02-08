@@ -398,6 +398,16 @@ impl Handle {
         result
     }
 
+    /// Récupérer le look-ahead buffer formaté en JSON
+    pub fn get_look_ahead_buffer(&self) -> String {
+        self.update_harmony_state_cache();
+        if let Ok(state) = self.cached_harmony_state.lock() {
+            serde_json::to_string(&state.look_ahead_buffer).unwrap_or_else(|_| "[]".to_string())
+        } else {
+            "[]".to_string()
+        }
+    }
+
     /// Définir le routage d'un canal (-1 = FundSP, >=0 = Bank ID)
     pub fn set_channel_routing(&mut self, channel: usize, mode: i32) {
         if channel < 16 {

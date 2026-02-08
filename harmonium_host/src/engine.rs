@@ -1,6 +1,5 @@
 use std::sync::{Arc, Mutex};
 
-use arrayvec::ArrayString;
 use harmonium_ai::mapper::EmotionMapper;
 use harmonium_audio::{
     backend::AudioRenderer,
@@ -17,7 +16,7 @@ use harmonium_core::{
         chord::ChordType, lydian_chromatic::LydianChromaticConcept,
     },
     log,
-    sequencer::{RhythmMode, Sequencer, StepTrigger},
+    sequencer::{LookAheadBuffer, RhythmMode, Sequencer, StepTrigger},
 };
 use rand::Rng;
 use rust_music_theory::{note::PitchSymbol, scale::ScaleType};
@@ -78,6 +77,8 @@ pub struct HarmoniumEngine {
 
     // Mute State Tracking
     last_muted_channels: Vec<bool>,
+
+    look_ahead: LookAheadBuffer,
 
     // Phase 2.5: Pre-allocated buffer for event generation (no Vec::new() in audio thread)
     events_buffer: Vec<AudioEvent>,
@@ -210,9 +211,26 @@ impl HarmoniumEngine {
             is_recording_midi: false,
             is_recording_musicxml: false,
             last_muted_channels: vec![false; 16],
+            look_ahead: LookAheadBuffer::new(64),
             // Phase 2.5: Pre-allocate with capacity for typical number of events per tick
             events_buffer: Vec::with_capacity(8),
         };
+
+        let mut engine = engine;
+        // Initial look-ahead population
+        engine.fill_look_ahead();
+
+        // Push first state to UI immediately
+        engine.last_harmony_state.look_ahead_count = engine.look_ahead.queue.len().min(64);
+        engine.last_harmony_state.look_ahead_buffer =
+            engine.look_ahead.queue.iter().take(64).cloned().collect();
+        
+        log::info(&format!(
+            "HarmoniumEngine: Initial push to UI. Buffer steps: {}",
+            engine.last_harmony_state.look_ahead_buffer.len()
+        ));
+        let _ = engine.harmony_state_tx.push(engine.last_harmony_state.clone());
+        let _ = engine.harmony_state_tx.push(engine.last_harmony_state.clone());
 
         // Return engine and consumers (Phase 2: lock-free queues)
         (engine, harmony_state_rx, event_queue_rx)
@@ -226,6 +244,36 @@ impl HarmoniumEngine {
     /// Retourne le nom du voicer actuel
     pub fn current_voicer_name(&self) -> &'static str {
         self.voicer.name()
+    }
+
+    fn fill_look_ahead(&mut self) {
+        let mut added = 0;
+        if self.look_ahead.queue.len() < self.look_ahead.horizon_steps {
+            log::info(&format!(
+                "HarmoniumEngine: Replenishing buffer from step {}",
+                self.look_ahead.last_generated_step
+            ));
+        }
+        while self.look_ahead.queue.len() < self.look_ahead.horizon_steps {
+            let next_step = self.look_ahead.last_generated_step;
+            let trigger = self.sequencer_primary.peek_at_step(next_step);
+
+            // TODO: In a full implementation, we would calculate pitches here
+            // using the same logic as tick() (which uses harmony/voicing).
+            // For now, we provide empty pitches to fix the build.
+            let pitches = vec![None; 5];
+
+            self.look_ahead.queue.push_back(harmonium_core::sequencer::ScheduledStep {
+                absolute_step: next_step,
+                trigger,
+                pitches,
+            });
+            self.look_ahead.last_generated_step += 1;
+            added += 1;
+        }
+        if added > 0 {
+            log::info(&format!("HarmoniumEngine: Added {} steps to look-ahead", added));
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -588,12 +636,27 @@ impl HarmoniumEngine {
     }
 
     fn tick(&mut self) {
-        let trigger_primary = self.sequencer_primary.tick();
+        // 1. Replenish look-ahead buffer
+        self.fill_look_ahead();
+
+        // 2. Consume from look-ahead
+        let step = self.look_ahead.queue.pop_front().unwrap_or_default();
+        let trigger_primary = step.trigger;
+
+        log::info(&format!(
+            "HarmoniumEngine: Pop step {}, queue: {}",
+            step.absolute_step,
+            self.look_ahead.queue.len()
+        ));
+
         let trigger_secondary = if self.sequencer_primary.mode == RhythmMode::Euclidean {
             self.sequencer_secondary.tick()
         } else {
             StepTrigger::default()
         };
+
+        // Update current_step for harmony logic (simulating the old tick behavior)
+        self.sequencer_primary.current_step = (step.absolute_step + 1) % self.sequencer_primary.steps;
 
         // === HARMONY & PROGRESSION ===
         // Skip harmony updates if disabled
@@ -626,9 +689,7 @@ impl HarmoniumEngine {
                                 self.current_state.tension,
                             );
                             // Phase 2: Update local cache (no lock needed)
-                            // Phase 2.5: Use ArrayString::from (no heap allocation)
-                            self.last_harmony_state.progression_name =
-                                ArrayString::from(prog_name).unwrap_or_default();
+                            self.last_harmony_state.progression_name = prog_name.to_string();
                             self.last_harmony_state.progression_length =
                                 self.current_progression.len();
                         }
@@ -658,9 +719,7 @@ impl HarmoniumEngine {
                         self.last_harmony_state.chord_root_offset = chord.root_offset;
                         self.last_harmony_state.chord_is_minor =
                             matches!(chord.quality, ChordQuality::Minor);
-                        // Phase 2.5: Convert String to ArrayString (unavoidable allocation once per chord change)
-                        self.last_harmony_state.chord_name =
-                            ArrayString::from(&chord_name).unwrap_or_default();
+                        self.last_harmony_state.chord_name = chord_name;
                         self.last_harmony_state.measure_number = self.measure_counter;
                     }
                 }
@@ -673,20 +732,11 @@ impl HarmoniumEngine {
                     {
                         let mut rng = rand::thread_rng();
 
-                        // NOTE: Chord name capture removed to prevent allocation
-                        // let old_chord_name = driver.current_chord().name();
-
                         let decision = driver.next_chord(
                             self.current_state.tension,
                             self.current_state.valence,
                             &mut rng,
                         );
-
-                        // === LOGGING DISABLED IN AUDIO THREAD ===
-                        // NOTE: All string formatting removed to prevent allocations
-                        // let strategy = driver.current_strategy_name();
-                        // let scale_notes: Vec<String> = decision.suggested_scale.iter()...
-                        // log::info(...) - REMOVED
 
                         // Convertir vers le format compatible avec HarmonyNavigator
                         let root_offset = driver.root_offset();
@@ -696,21 +746,15 @@ impl HarmoniumEngine {
                         // Mettre à jour le type d'accord pour le voicer
                         self.current_chord_type = decision.next_chord.chord_type;
 
-                        // NOTE: Using simplified chord name (no allocation)
-                        // Previously: format!("{} ({})", chord.name(), transition.name())
-                        // Now: Just use chord name directly (allocated once by .name())
-                        let chord_name = decision.next_chord.name(); // Still allocates, but unavoidable
+                        let chord_name = decision.next_chord.name();
 
                         // Phase 2: Update local cache (no lock needed)
                         self.last_harmony_state.current_chord_index = self.progression_index;
                         self.last_harmony_state.chord_root_offset = root_offset;
                         self.last_harmony_state.chord_is_minor = driver.is_minor();
-                        // Phase 2.5: Convert String to ArrayString (unavoidable allocation once per chord change)
-                        self.last_harmony_state.chord_name =
-                            ArrayString::from(&chord_name).unwrap_or_default();
+                        self.last_harmony_state.chord_name = chord_name;
                         self.last_harmony_state.measure_number = self.measure_counter;
-                        self.last_harmony_state.progression_name =
-                            ArrayString::from("Driver").unwrap_or_default();
+                        self.last_harmony_state.progression_name = "Driver".to_string();
                         self.last_harmony_state.progression_length = 0; // Driver n'a pas de longueur fixe
                     }
                 }
@@ -726,22 +770,14 @@ impl HarmoniumEngine {
             self.last_harmony_state.primary_steps = self.sequencer_primary.steps;
             self.last_harmony_state.primary_pulses = self.sequencer_primary.pulses;
             self.last_harmony_state.primary_rotation = self.sequencer_primary.rotation;
-            // Phase 2.5: Copy into fixed-size array instead of Vec::collect() (no heap allocation)
-            let primary_len = self.sequencer_primary.pattern.len();
-            for i in 0..192 {
-                self.last_harmony_state.primary_pattern[i] =
-                    i < primary_len && self.sequencer_primary.pattern[i].is_any();
-            }
+            self.last_harmony_state.primary_pattern =
+                self.sequencer_primary.pattern.iter().map(|t| t.is_any()).collect();
 
             self.last_harmony_state.secondary_steps = self.sequencer_secondary.steps;
             self.last_harmony_state.secondary_pulses = self.sequencer_secondary.pulses;
             self.last_harmony_state.secondary_rotation = self.sequencer_secondary.rotation;
-            // Phase 2.5: Copy into fixed-size array instead of Vec::collect() (no heap allocation)
-            let secondary_len = self.sequencer_secondary.pattern.len();
-            for i in 0..192 {
-                self.last_harmony_state.secondary_pattern[i] =
-                    i < secondary_len && self.sequencer_secondary.pattern[i].is_any();
-            }
+            self.last_harmony_state.secondary_pattern =
+                self.sequencer_secondary.pattern.iter().map(|t| t.is_any()).collect();
             self.last_harmony_state.harmony_mode = self.harmony_mode;
         }
 
@@ -985,6 +1021,15 @@ impl HarmoniumEngine {
         // Push every 4 ticks to balance update frequency vs allocation cost
         // This ensures smooth visualization while minimizing memory allocations
         if self.sequencer_primary.current_step.is_multiple_of(4) {
+            // Update look-ahead buffer for UI
+            self.last_harmony_state.look_ahead_count = self.look_ahead.queue.len().min(64);
+            self.last_harmony_state.look_ahead_buffer =
+                self.look_ahead.queue.iter().take(64).cloned().collect();
+
+            log::info(&format!(
+                "HarmoniumEngine: Pushing state to UI. Buffer steps: {}",
+                self.last_harmony_state.look_ahead_buffer.len()
+            ));
             let _ = self.harmony_state_tx.push(self.last_harmony_state.clone());
         }
     }

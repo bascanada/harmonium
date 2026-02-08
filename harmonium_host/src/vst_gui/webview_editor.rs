@@ -102,6 +102,11 @@ pub fn create_editor(
                 }
                 // Update control_mode with latest harmony state
                 if let Some(harmony_state) = latest {
+                    // Log receipt of state
+                    if !harmony_state.look_ahead_buffer.is_empty() {
+                         nih_plug::nih_log!("VSGUI: Received HarmonyState with buffer size: {}", harmony_state.look_ahead_buffer.len());
+                    }
+
                     if let Ok(mut mode) = control_mode_clone.lock() {
                         mode.current_step = harmony_state.current_step as u32;
                         mode.current_measure = harmony_state.measure_number as u32;
@@ -115,6 +120,7 @@ pub fn create_editor(
                         let secondary_len = harmony_state.secondary_steps.min(192);
                         mode.secondary_pattern =
                             harmony_state.secondary_pattern[..secondary_len].to_vec();
+                        mode.look_ahead_buffer = harmony_state.look_ahead_buffer.clone();
                     }
                 }
             }

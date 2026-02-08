@@ -2,7 +2,10 @@
 
 use std::sync::{Arc, Mutex};
 
-use harmonium_core::{params::ControlMode, sequencer::RhythmMode};
+use harmonium_core::{
+    params::ControlMode,
+    sequencer::{RhythmMode, ScheduledStep},
+};
 use serde::Serialize;
 
 use crate::engine::EngineParams;
@@ -70,6 +73,9 @@ pub struct EngineState {
     // Session info
     pub key: String,
     pub scale: String,
+
+    // Look-ahead buffer
+    pub look_ahead_buffer: Vec<ScheduledStep>,
 }
 
 impl Default for EngineState {
@@ -123,6 +129,7 @@ impl Default for EngineState {
 
             key: "C".to_string(),
             scale: "major".to_string(),
+            look_ahead_buffer: vec![],
         }
     }
 }
@@ -185,6 +192,9 @@ pub fn collect_state(
         state.voicing_tension = dp.voicing_tension;
         // Channel state
         state.channel_muted = dp.muted_channels.clone();
+
+        // Look-ahead buffer
+        state.look_ahead_buffer = mode.look_ahead_buffer.clone();
     }
 
     // Get emotional params

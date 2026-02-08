@@ -1,4 +1,5 @@
 use crate::params::MusicalParams;
+use crate::sequencer::ScheduledStep;
 
 #[derive(Clone, Debug)]
 pub enum AudioEvent {
@@ -52,6 +53,11 @@ pub enum AudioEvent {
         bass: f32,
         snare: f32,
         hat: f32,
+    },
+    /// UI Sync: Provides a list of upcoming steps for visualization
+    BufferUpdate {
+        upcoming_steps: Vec<ScheduledStep>,
+        start_step_index: usize,
     },
 }
 

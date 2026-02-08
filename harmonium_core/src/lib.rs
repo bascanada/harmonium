@@ -25,12 +25,82 @@ pub struct MusicKernel {
     pub accumulator: f64,
     // Track active notes to send NoteOffs: (channel, note, duration_remaining)
     pub active_notes: Vec<(u8, u8, f64)>,
+    pub look_ahead: crate::sequencer::LookAheadBuffer,
 }
 
 impl MusicKernel {
     #[must_use]
     pub fn new(sequencer: CoreSequencer, params: CoreMusicalParams) -> Self {
-        Self { sequencer, params, accumulator: 0.0, active_notes: Vec::with_capacity(16) }
+        let mut kernel = Self {
+            sequencer,
+            params,
+            accumulator: 0.0,
+            active_notes: Vec::with_capacity(16),
+            look_ahead: crate::sequencer::LookAheadBuffer::new(48), // Default horizon: 48 steps (1 bar @ 16th)
+        };
+        kernel.fill_buffer();
+        kernel
+    }
+
+    /// Fills the look-ahead buffer with upcoming steps from the sequencer.
+    pub fn fill_buffer(&mut self) -> Option<CoreAudioEvent> {
+        let mut events_emitted = false;
+        let start_index = self.look_ahead.last_generated_step;
+
+        while self.look_ahead.queue.len() < self.look_ahead.horizon_steps {
+            let next_step = self.look_ahead.last_generated_step;
+            let trigger = self.sequencer.peek_at_step(next_step);
+
+            // Pre-calculate pitches
+            let mut pitches = vec![None; 5];
+
+            // Bass (Channel 0)
+            if trigger.bass {
+                pitches[0] = Some(if next_step % 8 == 0 { 36 } else { 48 });
+            }
+
+            // Lead (Channel 1)
+            if trigger.kick || trigger.snare {
+                let chord_tones = [60, 63, 67, 70];
+                let note_idx = (next_step / 2) % chord_tones.len();
+                pitches[1] = Some(chord_tones[note_idx]);
+            }
+
+            // Snare (Channel 2)
+            if trigger.snare {
+                pitches[2] = Some(38);
+            }
+
+            // Hat (Channel 3)
+            if trigger.hat {
+                pitches[3] = Some(42);
+            }
+
+            // Kick (Channel 0)
+            if trigger.kick {
+                pitches[4] = Some(36);
+            }
+
+            self.look_ahead.queue.push_back(crate::sequencer::ScheduledStep {
+                absolute_step: next_step,
+                trigger,
+                pitches,
+            });
+
+            self.look_ahead.last_generated_step += 1;
+            events_emitted = true;
+        }
+
+        if events_emitted {
+            let upcoming_steps: Vec<_> = self.look_ahead.queue.iter().cloned().collect();
+
+            Some(CoreAudioEvent::BufferUpdate {
+                upcoming_steps,
+                start_step_index: start_index,
+            })
+        } else {
+            None
+        }
     }
 
     pub fn update(&mut self, dt: f64) -> Vec<CoreAudioEvent> {
@@ -50,21 +120,33 @@ impl MusicKernel {
         self.active_notes = kept_notes;
 
         // 1. Sync Sequencer Settings
-        // In a full implementation, we would compare self.params vs self.sequencer state
-        // and regenerate if needed (like engine.rs).
-        // For minimal "Manual Control" test, we ensure pulses/steps match the params.
+        let mut needs_regen = false;
         if self.sequencer.mode != self.params.rhythm_mode {
             self.sequencer.mode = self.params.rhythm_mode;
-            self.sequencer.regenerate_pattern();
+            needs_regen = true;
         }
+
+        if (self.sequencer.tension - self.params.rhythm_tension).abs() > f32::EPSILON {
+            self.sequencer.tension = self.params.rhythm_tension;
+            needs_regen = true;
+        }
+
+        if (self.sequencer.density - self.params.rhythm_density).abs() > f32::EPSILON {
+            self.sequencer.density = self.params.rhythm_density;
+            needs_regen = true;
+        }
+
         // Minimal pulse update for Euclidean
         if self.sequencer.mode == crate::sequencer::RhythmMode::Euclidean {
             let target_pulses = self.params.rhythm_pulses.min(self.sequencer.steps);
             if self.sequencer.pulses != target_pulses {
                 self.sequencer.pulses = target_pulses;
-                // self.sequencer.density = self.params.rhythm_density; // if used
-                self.sequencer.regenerate_pattern();
+                needs_regen = true;
             }
+        }
+
+        if needs_regen {
+            self.sequencer.regenerate_pattern();
         }
 
         // 2. Timing
@@ -78,8 +160,17 @@ impl MusicKernel {
         while self.accumulator >= step_duration {
             self.accumulator -= step_duration;
 
-            // 3. Tick
-            let trigger = self.sequencer.tick();
+            // 3. Tick from Buffer
+            let step = self.look_ahead.queue.pop_front().unwrap_or_default();
+            let trigger = step.trigger;
+            let _absolute_step = step.absolute_step;
+            let pitches = step.pitches;
+
+            crate::log::info(&format!(
+                "MusicKernel: Pop step {}, remaining queue: {}",
+                _absolute_step,
+                self.look_ahead.queue.len()
+            ));
 
             // 4. Generate Events
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -89,48 +180,51 @@ impl MusicKernel {
             let note_duration = step_duration * 0.5;
 
             if trigger.kick {
-                // Kick on Channel 0
-                // Kill previous note (monophonic kick)
-                events.push(CoreAudioEvent::NoteOff { channel: 0, note: 36 });
-                events.push(CoreAudioEvent::NoteOn { channel: 0, note: 36, velocity });
-                // Schedule Off
-                self.active_notes.push((0, 36, note_duration));
+                if let Some(note) = pitches[4] {
+                    // Kick on Channel 0
+                    events.push(CoreAudioEvent::NoteOff { channel: 0, note });
+                    events.push(CoreAudioEvent::NoteOn { channel: 0, note, velocity });
+                    self.active_notes.push((0, note, note_duration));
+                }
             }
             if trigger.bass {
-                // Bass line on Channel 0 (Bass instrument per Odin2Backend mapping)
-                // TODO: Future refactoring - unify kick/bass or separate into dedicated percussion channel
-                // Simple Octave pattern: Root (C2) or Octave (C3)
-                let note = if self.sequencer.current_step.is_multiple_of(8) { 36 } else { 48 };
-                events.push(CoreAudioEvent::NoteOff { channel: 0, note });
-                events.push(CoreAudioEvent::NoteOn { channel: 0, note, velocity });
-                self.active_notes.push((0, note, note_duration * 1.5));
+                if let Some(note) = pitches[0] {
+                    // Bass line on Channel 0
+                    events.push(CoreAudioEvent::NoteOff { channel: 0, note });
+                    events.push(CoreAudioEvent::NoteOn { channel: 0, note, velocity });
+                    self.active_notes.push((0, note, note_duration * 1.5));
+                }
             }
-            // TODO: Future refactoring - unify lead triggering logic across MusicKernel and HarmoniumEngine
             // For now, matching HarmoniumEngine behavior: lead plays on kick/snare regardless of trigger.lead
             if trigger.kick || trigger.snare {
-                // Lead on Channel 1
-                // Simple Arpeggiator: Cm7 (C Eb G Bb)
-                let chord_tones = [60, 63, 67, 70];
-                // Use step index to walk through chord tones
-                let note_idx = (self.sequencer.current_step / 2) % chord_tones.len();
-                let note = chord_tones[note_idx];
-
-                events.push(CoreAudioEvent::NoteOff { channel: 1, note });
-                events.push(CoreAudioEvent::NoteOn { channel: 1, note, velocity });
-                self.active_notes.push((1, note, note_duration));
+                if let Some(note) = pitches[1] {
+                    // Lead on Channel 1
+                    events.push(CoreAudioEvent::NoteOff { channel: 1, note });
+                    events.push(CoreAudioEvent::NoteOn { channel: 1, note, velocity });
+                    self.active_notes.push((1, note, note_duration));
+                }
             }
             if trigger.snare {
-                // Snare on Channel 2 (per Odin backend mapping)
-                events.push(CoreAudioEvent::NoteOff { channel: 2, note: 38 });
-                events.push(CoreAudioEvent::NoteOn { channel: 2, note: 38, velocity });
-                self.active_notes.push((2, 38, note_duration));
+                if let Some(note) = pitches[2] {
+                    // Snare on Channel 2
+                    events.push(CoreAudioEvent::NoteOff { channel: 2, note });
+                    events.push(CoreAudioEvent::NoteOn { channel: 2, note, velocity });
+                    self.active_notes.push((2, note, note_duration));
+                }
             }
             if trigger.hat {
-                // Hat on Channel 3
-                events.push(CoreAudioEvent::NoteOff { channel: 3, note: 42 });
-                events.push(CoreAudioEvent::NoteOn { channel: 3, note: 42, velocity });
-                self.active_notes.push((3, 42, note_duration * 0.5)); // shorter hats
+                if let Some(note) = pitches[3] {
+                    // Hat on Channel 3
+                    events.push(CoreAudioEvent::NoteOff { channel: 3, note });
+                    events.push(CoreAudioEvent::NoteOn { channel: 3, note, velocity });
+                    self.active_notes.push((3, note, note_duration * 0.5)); // shorter hats
+                }
             }
+        }
+
+        // 5. Replenish Buffer and Emit Update
+        if let Some(buf_event) = self.fill_buffer() {
+            events.push(buf_event);
         }
 
         events
