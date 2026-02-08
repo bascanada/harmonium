@@ -8,7 +8,7 @@ INSTALL_VST3 := ~/Library/Audio/Plug-Ins/VST3
 INSTALL_CLAP := ~/Library/Audio/Plug-Ins/CLAP
 PLUGINVAL := /Applications/pluginval.app/Contents/MacOS/pluginval
 
-.PHONY: run test web/build web/build-vst web/serve web/install models/download vst vst/install vst/uninstall vst/clean vst/validate vst/run release release/cli release/plugins release/clean
+.PHONY: run test web/build web/build/watch web/build-vst web/serve web/install models/download vst vst/install vst/uninstall vst/clean vst/validate vst/run release release/cli release/plugins release/clean
 
 # ════════════════════════════════════════════════════════════════════
 # STANDALONE / CLI
@@ -106,6 +106,13 @@ wasm/build:
 
 web/build: wasm/build
 	cd web && npm run build
+
+## Watch and rebuild VST webview interface
+web/build/watch:
+	cd web && npm run build:vst:watch
+
+## Alias for web/build/watch
+build/web/watch: web/build/watch
 
 ## Build VST webview interface (Svelte -> embedded HTML)
 web/build-vst: wasm/build

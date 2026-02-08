@@ -1,6 +1,6 @@
 // Reactive Svelte stores for engine state
 import { writable, derived, type Writable, type Readable } from 'svelte/store';
-import type { EngineState, HarmoniumBridge } from '$lib/bridge';
+import type { EngineState, HarmoniumBridge, StepTrigger } from '$lib/bridge';
 import { createEmptyState } from '$lib/bridge';
 
 // Main engine state store
@@ -21,6 +21,16 @@ export const currentMeasure: Readable<number> = derived(
 	($state) => $state.currentMeasure
 );
 export const currentStep: Readable<number> = derived(engineState, ($state) => $state.currentStep);
+
+export const lookAheadBuffer: Readable<StepTrigger[]> = derived(
+	engineState,
+	($state) => $state.lookAheadBuffer ?? []
+);
+
+export const lookAheadStartIndex: Readable<number> = derived(
+	engineState,
+	($state) => $state.lookAheadStartIndex ?? 0
+);
 
 export const isEmotionMode: Readable<boolean> = derived(
 	engineState,

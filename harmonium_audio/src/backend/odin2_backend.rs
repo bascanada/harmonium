@@ -476,6 +476,8 @@ impl AudioRenderer for Odin2Backend {
                 if let Some(_engine) = &mut self.engines[inst.index()] {}
             }
 
+            AudioEvent::BufferUpdate { .. } => {}
+
             _ => {}
         }
     }

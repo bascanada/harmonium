@@ -3,6 +3,22 @@
 
 export type AudioBackendType = 'fundsp' | 'odin2';
 
+export interface StepTrigger {
+	kick: boolean;
+	snare: boolean;
+	hat: boolean;
+	hat_open?: boolean; // Optional extension for visualization
+	bass: boolean;
+	lead: boolean;
+	velocity: number;
+}
+
+export interface ScheduledStep {
+	absoluteStep: number;
+	trigger: StepTrigger;
+	pitches: (number | null)[];
+}
+
 export interface EngineState {
 	// Audio backend
 	audioBackend: AudioBackendType;
@@ -65,6 +81,10 @@ export interface EngineState {
 	// Session info
 	key: string;
 	scale: string;
+
+	// Look-ahead buffer for visualization
+	lookAheadBuffer?: ScheduledStep[];
+	lookAheadStartIndex?: number;
 }
 
 export interface HarmoniumBridge {
@@ -194,6 +214,9 @@ export function createEmptyState(): EngineState {
 		channelGains: [0.6, 1.0, 0.5, 0.4],
 
 		key: 'C',
-		scale: 'major'
+		scale: 'major',
+
+		lookAheadBuffer: [],
+		lookAheadStartIndex: 0
 	};
 }

@@ -317,6 +317,7 @@ impl VoiceManager {
             | AudioEvent::StartRecording { .. }
             | AudioEvent::StopRecording { .. }
             | AudioEvent::SetMixerGains { .. }
+            | AudioEvent::BufferUpdate { .. }
             | AudioEvent::LoadOdinPreset { .. } => {}
         }
     }

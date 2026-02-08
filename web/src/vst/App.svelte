@@ -6,9 +6,14 @@
 	import ControlPanel from '$lib/components/controls/ControlPanel.svelte';
 	import RhythmVisualizer from '$lib/components/visualizations/RhythmVisualizer.svelte';
 	import ChordProgression from '$lib/components/visualizations/ChordProgression.svelte';
+	import TimelineVisualizer from '$lib/components/visualizations/TimelineVisualizer.svelte';
+	import LiveStaff from '$lib/components/visualizations/LiveStaff.svelte';
+	import RawDataMonitor from '$lib/components/visualizations/RawDataMonitor.svelte';
+	import { syncBridgeToStores, engineState } from '$lib/stores/engine-state';
 
 	let bridge: HarmoniumBridge | null = null;
-	let state: EngineState = createEmptyState();
+	let state: EngineState;
+	$: state = $engineState;
 	let unsubscribe: (() => void) | null = null;
 	let error = '';
 	let totalSteps = 0;
@@ -26,8 +31,11 @@
 			bridge = new VstBridge();
 			await bridge.connect();
 
-			// Subscribe to state updates
-			unsubscribe = bridge.subscribe((newState) => {
+			// Connect to global stores
+			const storeUnsub = syncBridgeToStores(bridge);
+
+			// Subscribe to state updates for local animation logic
+			const bridgeUnsub = bridge.subscribe((newState) => {
 				// Reset step tracking when mode or steps change significantly
 				const rhythmModeChanged = newState.rhythmMode !== lastRhythmMode;
 				const stepsChanged = newState.primarySteps !== lastPrimarySteps;
@@ -67,9 +75,12 @@
 					progressionChords[chordIndex] = newState.currentChord;
 					progressionChords = [...progressionChords];
 				}
-
-				state = newState;
 			});
+
+			unsubscribe = () => {
+				storeUnsub();
+				bridgeUnsub();
+			};
 		} catch (e) {
 			console.error('Failed to connect bridge:', e);
 			error = String(e);
@@ -97,6 +108,9 @@
 		<div class="main-content">
 			<!-- Left: Visualizations -->
 			<div class="visualizations">
+				<TimelineVisualizer />
+				<LiveStaff />
+
 				<RhythmVisualizer
 					rhythmMode={state.rhythmMode}
 					primarySteps={state.primarySteps}
@@ -120,6 +134,8 @@
 					{progressionChords}
 					harmonyMode={state.harmonyMode}
 				/>
+
+				<RawDataMonitor />
 			</div>
 
 			<!-- Right: Controls -->

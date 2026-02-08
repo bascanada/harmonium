@@ -11,10 +11,15 @@
 	import RhythmVisualizer from '$lib/components/visualizations/RhythmVisualizer.svelte';
 	import ChordProgression from '$lib/components/visualizations/ChordProgression.svelte';
 	import MorphVisualization from '$lib/components/visualizations/MorphVisualization.svelte';
+	import TimelineVisualizer from '$lib/components/visualizations/TimelineVisualizer.svelte';
+	import LiveStaff from '$lib/components/visualizations/LiveStaff.svelte';
+	import RawDataMonitor from '$lib/components/visualizations/RawDataMonitor.svelte';
+	import { syncBridgeToStores, engineState } from '$lib/stores/engine-state';
 	import init, { get_available_backends } from 'harmonium';
 
 	let bridge: HarmoniumBridge | null = null;
-	let state: EngineState = createEmptyState();
+	let state: EngineState;
+	$: state = $engineState;
 	let unsubscribe: (() => void) | null = null;
 	let isPlaying = false;
 	let error = '';
@@ -171,8 +176,11 @@
 			bridge.setDensity(0.5);
 			bridge.setTension(0.3);
 
-			// Subscribe to state updates
-			unsubscribe = bridge.subscribe((newState) => {
+			// Connect to global stores
+			const storeUnsub = syncBridgeToStores(bridge);
+
+			// Subscribe to state updates for local animation logic
+			const bridgeUnsub = bridge.subscribe((newState) => {
 				// Reset step tracking when mode or steps change
 				const rhythmModeChanged = newState.rhythmMode !== lastRhythmMode;
 				const stepsChanged = newState.primarySteps !== lastPrimarySteps;
@@ -212,9 +220,12 @@
 					progressionChords[chordIndex] = newState.currentChord;
 					progressionChords = [...progressionChords];
 				}
-
-				state = newState;
 			});
+
+			unsubscribe = () => {
+				storeUnsub();
+				bridgeUnsub();
+			};
 
 			// Reset counters
 			totalSteps = 0;
@@ -522,6 +533,9 @@
 			<div class="grid w-full grid-cols-1 gap-8 lg:grid-cols-2">
 				<!-- Left: Visualizations -->
 				<div class="flex flex-col gap-6">
+					<TimelineVisualizer />
+					<LiveStaff />
+
 					<RhythmVisualizer
 						rhythmMode={state.rhythmMode}
 						primarySteps={state.primarySteps}
@@ -545,6 +559,8 @@
 						{progressionChords}
 						harmonyMode={state.harmonyMode}
 					/>
+
+					<RawDataMonitor />
 
 					{#if bridge}
 						{#key bridge}

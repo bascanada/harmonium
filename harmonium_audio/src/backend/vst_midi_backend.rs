@@ -121,6 +121,7 @@ impl AudioRenderer for VstMidiBackend {
             AudioEvent::AllNotesOff { channel: _ } => {
                 // Generic note off or CC 123
             }
+            AudioEvent::BufferUpdate { .. } => {}
             _ => {
                 // Ignore other events for VST MIDI backend
             }
