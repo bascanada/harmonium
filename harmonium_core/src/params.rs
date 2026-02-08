@@ -297,6 +297,10 @@ pub struct MusicalParams {
     /// Enregistrer en `MusicXML` (pour validation dans `MuseScore`)
     #[serde(default)]
     pub record_musicxml: bool,
+
+    /// Enregistrer la "Ground Truth" (JSON)
+    #[serde(default)]
+    pub record_truth: bool,
 }
 
 // === Fonctions par défaut ===
@@ -414,6 +418,7 @@ impl Default for MusicalParams {
             record_wav: false,
             record_midi: false,
             record_musicxml: false,
+            record_truth: false,
         }
     }
 }
@@ -587,6 +592,8 @@ pub struct EngineParams {
     pub record_midi: bool,
     #[serde(default)]
     pub record_musicxml: bool,
+    #[serde(default)]
+    pub record_truth: bool,
 
     // Synthesis Morphing Control
     #[serde(default = "default_true")]
@@ -632,6 +639,7 @@ impl Default for EngineParams {
             record_wav: false,
             record_midi: false,
             record_musicxml: false,
+            record_truth: false,
             enable_synthesis_morphing: true,
             gain_lead: default_gain_lead(),
             gain_bass: default_gain_bass(),

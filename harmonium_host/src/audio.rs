@@ -6,7 +6,7 @@ use harmonium_audio::backend::odin2_backend::Odin2Backend;
 use harmonium_audio::backend::{
     AudioRenderer, recorder::RecorderBackend, synth_backend::SynthBackend,
 };
-use harmonium_core::{log, params::ControlMode};
+use harmonium_core::{events::AudioEvent, log, params::ControlMode};
 
 use crate::engine::{
     EngineParams, HarmoniumEngine, HarmonyState, SessionConfig, VisualizationEvent,
@@ -121,4 +121,109 @@ pub fn create_stream(
     stream.play().map_err(|e| e.to_string())?;
 
     Ok((stream, session_config, harmony_state, event_queue, font_queue, finished_recordings))
+}
+
+/// Offline export driver (faster-than-real-time)
+pub fn export_offline(
+    mut target_params: triple_buffer::Output<EngineParams>,
+    control_mode: Arc<Mutex<ControlMode>>,
+    sf2_bytes: Option<&[u8]>,
+    backend_type: AudioBackendType,
+    duration_secs: f64,
+    sample_rate: f64,
+    record_wav: bool,
+    record_midi: bool,
+    record_musicxml: bool,
+    record_truth: bool,
+) -> Result<crate::FinishedRecordings, String> {
+    // Disable real-time checks for offline processing
+    crate::realtime::rt_check::disable_rt_check();
+
+    // 1. Create the appropriate backend
+    let initial_routing = target_params.read().channel_routing.clone();
+    let inner_backend: Box<dyn AudioRenderer> = match backend_type {
+        AudioBackendType::FundSP => {
+            Box::new(SynthBackend::new(sample_rate, sf2_bytes, &initial_routing))
+        }
+        #[cfg(feature = "odin2")]
+        AudioBackendType::Odin2 => {
+            Box::new(Odin2Backend::new(sample_rate))
+        }
+    };
+
+    let finished_recordings = Arc::new(Mutex::new(Vec::new()));
+    let recorder_backend = Box::new(RecorderBackend::new(
+        inner_backend,
+        finished_recordings.clone(),
+        sample_rate as u32,
+    ));
+
+    // 2. Initialize Engine
+    let (mut engine, _, _) =
+        HarmoniumEngine::new(sample_rate, target_params, control_mode, recorder_backend);
+
+    // 3. Start Recording
+    if record_wav {
+        engine.handle_event(AudioEvent::StartRecording {
+            format: harmonium_core::events::RecordFormat::Wav,
+        });
+    }
+    if record_midi {
+        engine.handle_event(AudioEvent::StartRecording {
+            format: harmonium_core::events::RecordFormat::Midi,
+        });
+    }
+    if record_musicxml {
+        // Send musical params through event system for accurate export metadata
+        let mp = engine.get_musical_params();
+        engine.handle_event(AudioEvent::UpdateMusicalParams { params: Box::new(mp) });
+        engine.handle_event(AudioEvent::StartRecording {
+            format: harmonium_core::events::RecordFormat::MusicXml,
+        });
+    }
+    if record_truth {
+        engine.handle_event(AudioEvent::StartRecording {
+            format: harmonium_core::events::RecordFormat::Truth,
+        });
+    }
+
+    // 4. Offline Render Loop
+    let block_size = 1024;
+    let mut output = vec![0.0f32; block_size * 2];
+    let total_samples = (duration_secs * sample_rate) as usize;
+    let mut rendered_samples = 0;
+
+    log::info(&format!(
+        "Exporting {:.1}s of audio ({} samples) at {}x speed...",
+        duration_secs, total_samples, "CPU-limit"
+    ));
+
+    while rendered_samples < total_samples {
+        engine.process_buffer(&mut output, 2);
+        rendered_samples += block_size;
+    }
+
+    // 5. Stop Recording & Finalize
+    if record_wav {
+        engine.handle_event(AudioEvent::StopRecording {
+            format: harmonium_core::events::RecordFormat::Wav,
+        });
+    }
+    if record_midi {
+        engine.handle_event(AudioEvent::StopRecording {
+            format: harmonium_core::events::RecordFormat::Midi,
+        });
+    }
+    if record_musicxml {
+        engine.handle_event(AudioEvent::StopRecording {
+            format: harmonium_core::events::RecordFormat::MusicXml,
+        });
+    }
+    if record_truth {
+        engine.handle_event(AudioEvent::StopRecording {
+            format: harmonium_core::events::RecordFormat::Truth,
+        });
+    }
+
+    Ok(finished_recordings)
 }

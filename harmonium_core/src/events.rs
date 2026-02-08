@@ -1,6 +1,7 @@
+use serde::{Deserialize, Serialize};
 use crate::params::MusicalParams;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum AudioEvent {
     NoteOn {
         note: u8,
@@ -20,11 +21,13 @@ pub enum AudioEvent {
     AllNotesOff {
         channel: u8,
     },
+    #[serde(skip)]
     LoadFont {
         id: u32,
         bytes: Vec<u8>,
     },
     /// Load an Odin 2 preset from raw bytes
+    #[serde(skip)]
     LoadOdinPreset {
         channel: u8,
         bytes: Vec<u8>,
@@ -55,9 +58,10 @@ pub enum AudioEvent {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RecordFormat {
     Wav,
     Midi,
     MusicXml,
+    Truth,
 }

@@ -75,6 +75,7 @@ pub struct HarmoniumEngine {
     is_recording_wav: bool,
     is_recording_midi: bool,
     is_recording_musicxml: bool,
+    is_recording_truth: bool,
 
     // Mute State Tracking
     last_muted_channels: Vec<bool>,
@@ -209,6 +210,7 @@ impl HarmoniumEngine {
             is_recording_wav: false,
             is_recording_midi: false,
             is_recording_musicxml: false,
+            is_recording_truth: false,
             last_muted_channels: vec![false; 16],
             // Phase 2.5: Pre-allocate with capacity for typical number of events per tick
             events_buffer: Vec::with_capacity(8),
@@ -226,6 +228,11 @@ impl HarmoniumEngine {
     /// Retourne le nom du voicer actuel
     pub fn current_voicer_name(&self) -> &'static str {
         self.voicer.name()
+    }
+
+    /// Envoie un événement au moteur (via le renderer)
+    pub fn handle_event(&mut self, event: AudioEvent) {
+        self.renderer.handle_event(event);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -451,6 +458,19 @@ impl HarmoniumEngine {
             } else {
                 self.renderer.handle_event(AudioEvent::StopRecording {
                     format: harmonium_core::events::RecordFormat::MusicXml,
+                });
+            }
+        }
+
+        if mp.record_truth != self.is_recording_truth {
+            self.is_recording_truth = mp.record_truth;
+            if self.is_recording_truth {
+                self.renderer.handle_event(AudioEvent::StartRecording {
+                    format: harmonium_core::events::RecordFormat::Truth,
+                });
+            } else {
+                self.renderer.handle_event(AudioEvent::StopRecording {
+                    format: harmonium_core::events::RecordFormat::Truth,
                 });
             }
         }

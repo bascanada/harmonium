@@ -31,6 +31,8 @@ thread_local! {
     // Thread-local flag indicating whether we're currently in an audio processing context
     // Using thread_local! ensures tests don't interfere with each other
     static IN_AUDIO_THREAD: Cell<bool> = const { Cell::new(false) };
+    // Thread-local flag to force disable checks (even if enter_audio_context is called)
+    static FORCE_DISABLE: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Custom allocator that checks for real-time violations
@@ -44,48 +46,60 @@ pub struct RTCheckAllocator;
 unsafe impl GlobalAlloc for RTCheckAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let in_audio = IN_AUDIO_THREAD.with(std::cell::Cell::get);
-        assert!(
-            !in_audio,
-            "REAL-TIME VIOLATION: Allocation in audio thread! size={} bytes, align={}",
-            layout.size(),
-            layout.align()
-        );
+        let disabled = FORCE_DISABLE.with(std::cell::Cell::get);
+        if !disabled {
+            assert!(
+                !in_audio,
+                "REAL-TIME VIOLATION: Allocation in audio thread! size={} bytes, align={}",
+                layout.size(),
+                layout.align()
+            );
+        }
         // SAFETY: We're delegating to the system allocator with the same layout
         unsafe { System.alloc(layout) }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         let in_audio = IN_AUDIO_THREAD.with(std::cell::Cell::get);
-        assert!(
-            !in_audio,
-            "REAL-TIME VIOLATION: Deallocation in audio thread! size={} bytes, align={}",
-            layout.size(),
-            layout.align()
-        );
+        let disabled = FORCE_DISABLE.with(std::cell::Cell::get);
+        if !disabled {
+            assert!(
+                !in_audio,
+                "REAL-TIME VIOLATION: Deallocation in audio thread! size={} bytes, align={}",
+                layout.size(),
+                layout.align()
+            );
+        }
         // SAFETY: We're delegating to the system allocator with the same ptr/layout
         unsafe { System.dealloc(ptr, layout) }
     }
 
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         let in_audio = IN_AUDIO_THREAD.with(std::cell::Cell::get);
-        assert!(
-            !in_audio,
-            "REAL-TIME VIOLATION: Zero allocation in audio thread! size={} bytes, align={}",
-            layout.size(),
-            layout.align()
-        );
+        let disabled = FORCE_DISABLE.with(std::cell::Cell::get);
+        if !disabled {
+            assert!(
+                !in_audio,
+                "REAL-TIME VIOLATION: Zero allocation in audio thread! size={} bytes, align={}",
+                layout.size(),
+                layout.align()
+            );
+        }
         // SAFETY: We're delegating to the system allocator with the same layout
         unsafe { System.alloc_zeroed(layout) }
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
         let in_audio = IN_AUDIO_THREAD.with(std::cell::Cell::get);
-        assert!(
-            !in_audio,
-            "REAL-TIME VIOLATION: Reallocation in audio thread! old_size={} bytes, new_size={} bytes",
-            layout.size(),
-            new_size
-        );
+        let disabled = FORCE_DISABLE.with(std::cell::Cell::get);
+        if !disabled {
+            assert!(
+                !in_audio,
+                "REAL-TIME VIOLATION: Reallocation in audio thread! old_size={} bytes, new_size={} bytes",
+                layout.size(),
+                new_size
+            );
+        }
         // SAFETY: We're delegating to the system allocator with the same ptr/layout/new_size
         unsafe { System.realloc(ptr, layout, new_size) }
     }
@@ -111,6 +125,19 @@ pub fn exit_audio_context() {
     IN_AUDIO_THREAD.with(|flag| flag.set(false));
 }
 
+/// Globally disable real-time checks for this thread
+/// Useful for offline export/processing
+#[cfg(debug_assertions)]
+pub fn disable_rt_check() {
+    FORCE_DISABLE.with(|flag| flag.set(true));
+}
+
+/// Globally enable real-time checks for this thread
+#[cfg(debug_assertions)]
+pub fn enable_rt_check() {
+    FORCE_DISABLE.with(|flag| flag.set(false));
+}
+
 /// No-op in release builds
 #[cfg(not(debug_assertions))]
 #[inline]
@@ -120,6 +147,14 @@ pub fn enter_audio_context() {}
 #[cfg(not(debug_assertions))]
 #[inline]
 pub fn exit_audio_context() {}
+
+/// No-op in release builds
+#[cfg(not(debug_assertions))]
+pub fn disable_rt_check() {}
+
+/// No-op in release builds
+#[cfg(not(debug_assertions))]
+pub fn enable_rt_check() {}
 
 #[cfg(test)]
 mod tests {

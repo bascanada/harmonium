@@ -21,11 +21,13 @@ fn perform_graceful_shutdown(
     record_wav: &Option<String>,
     record_midi: &Option<String>,
     record_musicxml: &Option<String>,
+    record_truth: &Option<String>,
 ) -> bool {
     // Step 1: Calculate expected number of recordings
     let expected_recordings = i32::from(record_wav.is_some())
         + i32::from(record_midi.is_some())
-        + i32::from(record_musicxml.is_some());
+        + i32::from(record_musicxml.is_some())
+        + i32::from(record_truth.is_some());
 
     if expected_recordings == 0 {
         return true; // Nothing to save
@@ -93,6 +95,9 @@ fn perform_graceful_shutdown(
                     harmonium::events::RecordFormat::MusicXml => {
                         record_musicxml.as_deref().unwrap_or("output.musicxml")
                     }
+                    harmonium::events::RecordFormat::Truth => {
+                        record_truth.as_deref().unwrap_or("output.truth.json")
+                    }
                 };
 
                 log::info(&format!(
@@ -101,6 +106,7 @@ fn perform_graceful_shutdown(
                         harmonium::events::RecordFormat::Wav => "WAV",
                         harmonium::events::RecordFormat::Midi => "MIDI",
                         harmonium::events::RecordFormat::MusicXml => "MusicXML",
+                        harmonium::events::RecordFormat::Truth => "Truth",
                     },
                     filename,
                     data.len()
@@ -142,7 +148,9 @@ fn main() {
     let mut record_wav: Option<String> = None;
     let mut record_midi: Option<String> = None;
     let mut record_musicxml: Option<String> = None;
+    let mut record_truth: Option<String> = None;
     let mut use_osc = false;
+    let mut use_export = false;
     let mut duration_secs = 0; // 0 = infini
     let mut harmony_mode = HarmonyMode::Driver; // Default to Driver
     let mut poly_steps: usize = 48; // Default polyrythm steps
@@ -179,7 +187,16 @@ fn main() {
                     record_musicxml = Some("output.musicxml".to_string());
                 }
             }
+            "--record-truth" => {
+                if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                    record_truth = Some(args[i + 1].clone());
+                    i += 1;
+                } else {
+                    record_truth = Some("output.truth.json".to_string());
+                }
+            }
             "--osc" => use_osc = true,
+            "--export" => use_export = true,
             "--drum-kit" | "--fixed-kick" => fixed_kick = true,
             "--harmony-mode" | "-m" => {
                 if i + 1 < args.len() {
@@ -246,13 +263,17 @@ fn main() {
                 );
                 println!("  --record-wav [PATH]        Record to WAV file (default: output.wav)");
                 println!("  --record-midi [PATH]       Record to MIDI file (default: output.mid)");
-                println!(
-                    "  --record-musicxml [PATH]   Record to MusicXML file (default: output.musicxml)"
-                );
-                println!("  --osc                      Enable OSC control (UDP 8080)");
-                println!(
-                    "  --duration <SECONDS>       Recording duration (0 = infinite, Ctrl+C to stop)"
-                );
+                                                println!(
+                                                    "  --record-musicxml [PATH]   Record to MusicXML file (default: output.musicxml)"
+                                                );
+                                                println!("  --record-truth [PATH]      Record Ground Truth JSON (default: output.truth.json)");
+                                                println!("  --osc                      Enable OSC control (UDP 8080)");
+                                
+                                println!("  --export                   Faster-than-real-time offline export (requires --duration)");
+                                println!(
+                                    "  --duration <SECONDS>       Recording duration (0 = infinite, Ctrl+C to stop)"
+                                );
+                
                 println!(
                     "  --poly-steps, -p <STEPS>   Polyrythm resolution: 48, 96, 192... (default: 48)"
                 );
@@ -321,6 +342,66 @@ fn main() {
     let target_params_input = Arc::new(Mutex::new(target_params_input));
 
     log::info(&format!("🎵 Poly Steps: {poly_steps}"));
+
+    // === 2. Offline Export (if requested) ===
+    if use_export {
+        if duration_secs == 0 {
+            log::error("Error: --export requires --duration <SECONDS>");
+            return;
+        }
+
+        log::info("🚀 Starting Offline Export...");
+
+        // Phase 3: Pass Output side of triple buffer to export function
+        let control_mode =
+            std::sync::Arc::new(std::sync::Mutex::new(harmonium::params::ControlMode::default()));
+
+        let finished_recordings = match audio::export_offline(
+            target_params_output,
+            control_mode,
+            sf2_data.as_deref(),
+            backend_type,
+            duration_secs as f64,
+            44100.0, // Standard sample rate for export
+            record_wav.is_some(),
+            record_midi.is_some(),
+            record_musicxml.is_some(),
+            record_truth.is_some(),
+        ) {
+            Ok(fr) => fr,
+            Err(e) => {
+                log::error(&format!("Export failed: {e}"));
+                return;
+            }
+        };
+
+        // Save recordings
+        if let Ok(mut queue) = finished_recordings.lock() {
+            while let Some((fmt, data)) = queue.pop() {
+                let filename = match fmt {
+                    harmonium::events::RecordFormat::Wav => {
+                        record_wav.as_deref().unwrap_or("output.wav")
+                    }
+                    harmonium::events::RecordFormat::Midi => {
+                        record_midi.as_deref().unwrap_or("output.mid")
+                    }
+                    harmonium::events::RecordFormat::MusicXml => {
+                        record_musicxml.as_deref().unwrap_or("output.musicxml")
+                    }
+                    harmonium::events::RecordFormat::Truth => {
+                        record_truth.as_deref().unwrap_or("output.truth.json")
+                    }
+                };
+                log::info(&format!("Saving export to {} ({} bytes)", filename, data.len()));
+                if let Err(e) = fs::write(filename, &data) {
+                    log::warn(&format!("Failed to write file: {e}"));
+                }
+            }
+        }
+
+        log::info("✨ Offline Export complete!");
+        return;
+    }
 
     // Si on a un SoundFont, on active le routing Oxisynth par défaut pour tester
     if sf2_data.is_some() {
@@ -582,16 +663,17 @@ fn main() {
             });
 
     // Démarrage de l'enregistrement si demandé
-    if record_wav.is_some() || record_midi.is_some() || record_musicxml.is_some() {
+    if record_wav.is_some() || record_midi.is_some() || record_musicxml.is_some() || record_truth.is_some() {
         // Phase 3: Use triple buffer write (lock Input on UI side)
         if let Ok(mut input) = target_params_input.lock() {
             let mut params = input.input_buffer_mut().clone();
             params.record_wav = record_wav.is_some();
             params.record_midi = record_midi.is_some();
             params.record_musicxml = record_musicxml.is_some();
+            params.record_truth = record_truth.is_some();
             log::info(&format!(
-                "DEBUG: Setting recording flags - WAV={}, MIDI={}, MusicXML={}",
-                params.record_wav, params.record_midi, params.record_musicxml
+                "DEBUG: Setting recording flags - WAV={}, MIDI={}, MusicXML={}, Truth={}",
+                params.record_wav, params.record_midi, params.record_musicxml, params.record_truth
             ));
             input.write(params);
             log::info("Recording started...");
@@ -620,6 +702,7 @@ fn main() {
                 &record_wav,
                 &record_midi,
                 &record_musicxml,
+                &record_truth,
             );
             if !success {
                 log::warn("Some recordings may not have been saved");
@@ -637,6 +720,7 @@ fn main() {
                 &record_wav,
                 &record_midi,
                 &record_musicxml,
+                &record_truth,
             );
             if !success {
                 log::warn("Some recordings may not have been saved");
@@ -659,6 +743,9 @@ fn main() {
                     }
                     harmonium::events::RecordFormat::MusicXml => {
                         record_musicxml.as_deref().unwrap_or("output.musicxml")
+                    }
+                    harmonium::events::RecordFormat::Truth => {
+                        record_truth.as_deref().unwrap_or("output.truth.json")
                     }
                 };
                 log::info(&format!("Saving recording to {} ({} bytes)", filename, data.len()));

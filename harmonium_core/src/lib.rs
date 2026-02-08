@@ -5,6 +5,7 @@ pub mod harmony;
 pub mod log;
 pub mod params;
 pub mod sequencer;
+pub mod truth;
 
 // Re-export common types
 pub use events::AudioEvent;

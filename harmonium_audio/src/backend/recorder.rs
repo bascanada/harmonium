@@ -6,6 +6,7 @@ use std::{
 use harmonium_core::{
     events::{AudioEvent, RecordFormat},
     params::MusicalParams,
+    truth::RecordingTruth,
 };
 use hound::{WavSpec, WavWriter};
 use midly::{Format, Header, MetaMessage, MidiMessage, Smf, Timing, TrackEvent, TrackEventKind};
@@ -64,13 +65,12 @@ pub struct RecorderBackend {
 
     // MIDI State
     midi_track: Option<Vec<TrackEvent<'static>>>,
-    midi_steps_since_last: f64, // Changed from midi_samples_since_last: u64
+    midi_steps_since_last: f64,
     current_samples_per_step: usize,
 
-    // MusicXML State
-    musicxml_events: Option<Vec<(f64, AudioEvent)>>, // Changed from Vec<(u64, AudioEvent)>
-    musicxml_steps_elapsed: f64,                     // Changed from musicxml_samples_elapsed: u64
-    musicxml_params: MusicalParams,
+    // Truth State (centralizes events and params)
+    truth: Option<RecordingTruth>,
+    steps_elapsed: f64,
 }
 
 impl RecorderBackend {
@@ -86,11 +86,10 @@ impl RecorderBackend {
             wav_output: None,
             sample_rate,
             midi_track: None,
-            midi_steps_since_last: 0.0, // Changed to f64
+            midi_steps_since_last: 0.0,
             current_samples_per_step: 11025,
-            musicxml_events: None,
-            musicxml_steps_elapsed: 0.0, // Changed to f64
-            musicxml_params: MusicalParams::default(),
+            truth: None,
+            steps_elapsed: 0.0,
         }
     }
 
@@ -137,7 +136,7 @@ impl RecorderBackend {
         }];
 
         self.midi_track = Some(track);
-        self.midi_steps_since_last = 0.0; // Reset to f64
+        self.midi_steps_since_last = 0.0;
     }
 
     fn stop_midi(&mut self) {
@@ -161,32 +160,41 @@ impl RecorderBackend {
         }
     }
 
+    fn ensure_truth_active(&mut self) {
+        if self.truth.is_none() {
+            self.truth =
+                Some(RecordingTruth::new(Vec::new(), MusicalParams::default(), self.sample_rate));
+            self.steps_elapsed = 0.0;
+        }
+    }
+
     fn start_musicxml(&mut self) {
-        self.musicxml_events = Some(Vec::new());
-        self.musicxml_steps_elapsed = 0.0; // Reset to f64
+        self.ensure_truth_active();
     }
 
     fn stop_musicxml(&mut self) {
-        if let Some(events) = self.musicxml_events.take() {
-            // Debug: Count captured events by type
-            let note_on_count =
-                events.iter().filter(|(_, e)| matches!(e, AudioEvent::NoteOn { .. })).count();
-            let note_off_count =
-                events.iter().filter(|(_, e)| matches!(e, AudioEvent::NoteOff { .. })).count();
-            eprintln!(
-                "MusicXML recorder: Captured {} NoteOn events, {} NoteOff events (total {} events)",
-                note_on_count,
-                note_off_count,
-                events.len()
-            );
-
+        if let Some(truth) = &self.truth {
             let xml = harmonium_core::export::to_musicxml(
-                &events,
-                &self.musicxml_params,
-                1, // Dummy value - no longer used for conversion with step-based events
+                &truth.events,
+                &truth.params,
+                1, // Dummy value
             );
             if let Ok(mut queue) = self.finished_recordings.lock() {
                 queue.push((RecordFormat::MusicXml, xml.into_bytes()));
+            }
+        }
+    }
+
+    fn start_truth(&mut self) {
+        self.ensure_truth_active();
+    }
+
+    fn stop_truth(&mut self) {
+        if let Some(truth) = self.truth.take() {
+            if let Ok(json) = serde_json::to_vec(&truth) {
+                if let Ok(mut queue) = self.finished_recordings.lock() {
+                    queue.push((RecordFormat::Truth, json));
+                }
             }
         }
     }
@@ -207,22 +215,26 @@ impl AudioRenderer for RecorderBackend {
                 RecordFormat::Wav => self.start_wav(),
                 RecordFormat::Midi => self.start_midi(),
                 RecordFormat::MusicXml => self.start_musicxml(),
+                RecordFormat::Truth => self.start_truth(),
             },
             AudioEvent::StopRecording { format } => match format {
                 RecordFormat::Wav => self.stop_wav(),
                 RecordFormat::Midi => self.stop_midi(),
                 RecordFormat::MusicXml => self.stop_musicxml(),
+                RecordFormat::Truth => self.stop_truth(),
             },
             AudioEvent::TimingUpdate { samples_per_step } => {
                 self.current_samples_per_step = *samples_per_step;
             }
             AudioEvent::UpdateMusicalParams { params } => {
-                self.musicxml_params = *params.clone();
+                if let Some(truth) = &mut self.truth {
+                    truth.params = *params.clone();
+                }
             }
             AudioEvent::NoteOn { .. } | AudioEvent::NoteOff { .. } => {
-                // Capture MusicXML with step timestamp
-                if let Some(events) = &mut self.musicxml_events {
-                    events.push((self.musicxml_steps_elapsed, event.clone()));
+                // Capture Truth with step timestamp
+                if let Some(truth) = &mut self.truth {
+                    truth.events.push((self.steps_elapsed, event.clone()));
                 }
             }
             _ => {}
@@ -278,8 +290,6 @@ impl AudioRenderer for RecorderBackend {
         }
 
         // Integrate samples → steps continuously
-        // This is where tempo-awareness happens: when samples_per_step changes (tempo change),
-        // the next buffer adds steps at a different rate, but accumulated history is preserved.
         if self.current_samples_per_step > 0 {
             let frames = (output.len() / channels) as f64;
             let steps_in_buffer = frames / self.current_samples_per_step as f64;
@@ -289,9 +299,9 @@ impl AudioRenderer for RecorderBackend {
                 self.midi_steps_since_last += steps_in_buffer;
             }
 
-            // Advance MusicXML time (steps)
-            if self.musicxml_events.is_some() {
-                self.musicxml_steps_elapsed += steps_in_buffer;
+            // Advance Central Truth time (steps)
+            if self.truth.is_some() {
+                self.steps_elapsed += steps_in_buffer;
             }
         }
     }
