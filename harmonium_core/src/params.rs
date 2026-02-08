@@ -11,23 +11,22 @@
 //! ```
 
 use arrayvec::ArrayString;
-use serde::{Serialize, Deserialize};
-use crate::sequencer::RhythmMode;
-use crate::harmony::HarmonyMode;
+use serde::{Deserialize, Serialize};
+
+use crate::{harmony::HarmonyMode, sequencer::RhythmMode};
 
 /// État du mode de contrôle (émotion vs direct)
 /// Partagé entre VST et standalone builds
 #[derive(Clone, Debug)]
 pub struct ControlMode {
-    /// true = mode émotion (EngineParams → EmotionMapper → MusicalParams)
-    /// false = mode direct (MusicalParams directement)
+    /// true = mode émotion (`EngineParams` → `EmotionMapper` → `MusicalParams`)
+    /// false = mode direct (`MusicalParams` directement)
     pub use_emotion_mode: bool,
-    /// Paramètres musicaux directs (utilisés quand use_emotion_mode = false)
+    /// Paramètres musicaux directs (utilisés quand `use_emotion_mode` = false)
     pub direct_params: MusicalParams,
 
     // === GLOBAL ENABLE OVERRIDES ===
     // Ces flags s'appliquent dans TOUS les modes (émotion ET direct)
-
     /// Enable rhythm module (global override)
     pub enable_rhythm: bool,
     /// Enable harmony module (global override)
@@ -41,7 +40,7 @@ pub struct ControlMode {
 
     // === WEBVIEW CONTROL FLAGS ===
     /// When true, the webview is the source of truth for emotional params
-    /// and sync_params_to_engine should NOT overwrite target_state
+    /// and `sync_params_to_engine` should NOT overwrite `target_state`
     pub webview_controls_emotions: bool,
     /// When true, the webview controls the emotion/direct mode switch
     pub webview_controls_mode: bool,
@@ -100,7 +99,7 @@ impl Default for ControlMode {
 }
 
 /// Stratégie harmonique explicite (pour le Driver)
-#[derive(Clone, Copy, Debug, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum HarmonyStrategy {
     /// Grammaire de Steedman (harmonie fonctionnelle: ii-V-I, etc.)
     #[default]
@@ -120,7 +119,6 @@ pub struct MusicalParams {
     // ═══════════════════════════════════════════════════════════════════
     // GLOBAL
     // ═══════════════════════════════════════════════════════════════════
-
     /// BPM direct (pas calculé depuis arousal)
     pub bpm: f32,
 
@@ -131,7 +129,6 @@ pub struct MusicalParams {
     // ═══════════════════════════════════════════════════════════════════
     // MODULES ON/OFF (pour debug/tests)
     // ═══════════════════════════════════════════════════════════════════
-
     /// Activer le module rythmique
     #[serde(default = "default_true")]
     pub enable_rhythm: bool,
@@ -152,12 +149,11 @@ pub struct MusicalParams {
     // ═══════════════════════════════════════════════════════════════════
     // RYTHME
     // ═══════════════════════════════════════════════════════════════════
-
-    /// Mode rythmique (Euclidean classique ou PerfectBalance polyrythmique)
+    /// Mode rythmique (Euclidean classique ou `PerfectBalance` polyrythmique)
     #[serde(default)]
     pub rhythm_mode: RhythmMode,
 
-    /// Nombre de steps (16 pour Euclidean, 48/96/192 pour PerfectBalance)
+    /// Nombre de steps (16 pour Euclidean, 48/96/192 pour `PerfectBalance`)
     #[serde(default = "default_rhythm_steps")]
     pub rhythm_steps: usize,
 
@@ -169,7 +165,7 @@ pub struct MusicalParams {
     #[serde(default)]
     pub rhythm_rotation: usize,
 
-    /// Densité rythmique pour PerfectBalance (0.0-1.0)
+    /// Densité rythmique pour `PerfectBalance` (0.0-1.0)
     /// Contrôle la complexité du pattern de kicks
     #[serde(default = "default_density")]
     pub rhythm_density: f32,
@@ -200,7 +196,6 @@ pub struct MusicalParams {
     // ═══════════════════════════════════════════════════════════════════
     // HARMONIE
     // ═══════════════════════════════════════════════════════════════════
-
     /// Mode harmonique (Basic quadrants ou Driver avancé)
     #[serde(default)]
     pub harmony_mode: HarmonyMode,
@@ -231,7 +226,6 @@ pub struct MusicalParams {
     // ═══════════════════════════════════════════════════════════════════
     // MÉLODIE / VOICING
     // ═══════════════════════════════════════════════════════════════════
-
     /// Lissage mélodique (facteur de Hurst, 0.0-1.0)
     /// 0.0 = erratique, 1.0 = très lisse
     #[serde(default = "default_smoothness")]
@@ -254,7 +248,6 @@ pub struct MusicalParams {
     // ═══════════════════════════════════════════════════════════════════
     // MIXER
     // ═══════════════════════════════════════════════════════════════════
-
     /// Gain du lead/mélodie (0.0-1.0)
     #[serde(default = "default_gain_lead")]
     pub gain_lead: f32,
@@ -282,8 +275,7 @@ pub struct MusicalParams {
     // ═══════════════════════════════════════════════════════════════════
     // ROUTAGE & MUTING
     // ═══════════════════════════════════════════════════════════════════
-
-    /// Routage des canaux MIDI (-1 = FundSP, >=0 = Oxisynth Bank ID)
+    /// Routage des canaux MIDI (-1 = `FundSP`, >=0 = Oxisynth Bank ID)
     #[serde(default = "default_channel_routing")]
     pub channel_routing: Vec<i32>,
 
@@ -294,7 +286,6 @@ pub struct MusicalParams {
     // ═══════════════════════════════════════════════════════════════════
     // ENREGISTREMENT
     // ═══════════════════════════════════════════════════════════════════
-
     /// Enregistrer en WAV
     #[serde(default)]
     pub record_wav: bool,
@@ -303,32 +294,70 @@ pub struct MusicalParams {
     #[serde(default)]
     pub record_midi: bool,
 
-    /// Enregistrer en MusicXML (pour validation dans MuseScore)
+    /// Enregistrer en `MusicXML` (pour validation dans `MuseScore`)
     #[serde(default)]
     pub record_musicxml: bool,
 }
 
 // === Fonctions par défaut ===
 
-fn default_master_volume() -> f32 { 1.0 }
-fn default_true() -> bool { true }
-fn default_rhythm_steps() -> usize { 16 }
-fn default_rhythm_pulses() -> usize { 4 }
-fn default_secondary_steps() -> usize { 12 }
-fn default_secondary_pulses() -> usize { 3 }
-fn default_density() -> f32 { 0.5 }
-fn default_tension() -> f32 { 0.3 }
-fn default_smoothness() -> f32 { 0.7 }
-fn default_measures_per_chord() -> usize { 2 }
-fn default_octave() -> i32 { 4 }
-fn default_gain_lead() -> f32 { 1.0 }
-fn default_gain_bass() -> f32 { 0.6 }
-fn default_gain_snare() -> f32 { 0.5 }
-fn default_gain_hat() -> f32 { 0.4 }
-fn default_vel_bass() -> u8 { 85 }
-fn default_vel_snare() -> u8 { 70 }
-fn default_channel_routing() -> Vec<i32> { vec![-1; 16] }
-fn default_muted_channels() -> Vec<bool> { vec![false; 16] }
+const fn default_master_volume() -> f32 {
+    1.0
+}
+const fn default_true() -> bool {
+    true
+}
+const fn default_rhythm_steps() -> usize {
+    16
+}
+const fn default_rhythm_pulses() -> usize {
+    4
+}
+const fn default_secondary_steps() -> usize {
+    12
+}
+const fn default_secondary_pulses() -> usize {
+    3
+}
+const fn default_density() -> f32 {
+    0.5
+}
+const fn default_tension() -> f32 {
+    0.3
+}
+const fn default_smoothness() -> f32 {
+    0.7
+}
+const fn default_measures_per_chord() -> usize {
+    2
+}
+const fn default_octave() -> i32 {
+    4
+}
+const fn default_gain_lead() -> f32 {
+    1.0
+}
+const fn default_gain_bass() -> f32 {
+    0.6
+}
+const fn default_gain_snare() -> f32 {
+    0.5
+}
+const fn default_gain_hat() -> f32 {
+    0.4
+}
+const fn default_vel_bass() -> u8 {
+    85
+}
+const fn default_vel_snare() -> u8 {
+    70
+}
+fn default_channel_routing() -> Vec<i32> {
+    vec![-1; 16]
+}
+fn default_muted_channels() -> Vec<bool> {
+    vec![false; 16]
+}
 
 impl Default for MusicalParams {
     fn default() -> Self {
@@ -391,6 +420,7 @@ impl Default for MusicalParams {
 
 impl MusicalParams {
     /// Créer des paramètres pour un test/debug avec rythme désactivé
+    #[must_use]
     pub fn melody_only() -> Self {
         Self {
             enable_rhythm: false,
@@ -402,6 +432,7 @@ impl MusicalParams {
     }
 
     /// Créer des paramètres pour un test/debug de rythme seul
+    #[must_use]
     pub fn rhythm_only() -> Self {
         Self {
             enable_rhythm: true,
@@ -412,27 +443,28 @@ impl MusicalParams {
     }
 
     /// Créer des paramètres pour un tempo spécifique
+    #[must_use]
     pub fn with_bpm(bpm: f32) -> Self {
-        Self {
-            bpm,
-            ..Default::default()
-        }
+        Self { bpm, ..Default::default() }
     }
 
     /// Builder pattern: set BPM
-    pub fn bpm(mut self, bpm: f32) -> Self {
+    #[must_use]
+    pub const fn bpm(mut self, bpm: f32) -> Self {
         self.bpm = bpm;
         self
     }
 
     /// Builder pattern: set harmony mode
-    pub fn harmony_mode(mut self, mode: HarmonyMode) -> Self {
+    #[must_use]
+    pub const fn harmony_mode(mut self, mode: HarmonyMode) -> Self {
         self.harmony_mode = mode;
         self
     }
 
     /// Builder pattern: set rhythm mode
-    pub fn rhythm_mode(mut self, mode: RhythmMode) -> Self {
+    #[must_use]
+    pub const fn rhythm_mode(mut self, mode: RhythmMode) -> Self {
         self.rhythm_mode = mode;
         self
     }
@@ -445,7 +477,7 @@ mod tests {
     #[test]
     fn test_default_params() {
         let params = MusicalParams::default();
-        assert_eq!(params.bpm, 120.0);
+        assert!((params.bpm - 120.0).abs() < f32::EPSILON);
         assert!(params.enable_rhythm);
         assert!(params.enable_harmony);
         assert!(params.enable_melody);
@@ -456,16 +488,14 @@ mod tests {
         let params = MusicalParams::melody_only();
         assert!(!params.enable_rhythm);
         assert!(params.enable_melody);
-        assert_eq!(params.voicing_density, 1.0);
+        assert!((params.voicing_density - 1.0).abs() < f32::EPSILON);
     }
 
     #[test]
     fn test_builder_pattern() {
-        let params = MusicalParams::default()
-            .bpm(140.0)
-            .harmony_mode(HarmonyMode::Basic);
+        let params = MusicalParams::default().bpm(140.0).harmony_mode(HarmonyMode::Basic);
 
-        assert_eq!(params.bpm, 140.0);
+        assert!((params.bpm - 140.0).abs() < f32::EPSILON);
         assert_eq!(params.harmony_mode, HarmonyMode::Basic);
     }
 }
@@ -506,7 +536,7 @@ pub struct HarmonyState {
 
 impl Default for HarmonyState {
     fn default() -> Self {
-        HarmonyState {
+        Self {
             current_chord_index: 0,
             chord_root_offset: 0,
             chord_is_minor: false,
@@ -530,7 +560,9 @@ impl Default for HarmonyState {
 }
 
 // Helpers for Serde defaults
-fn default_poly_steps() -> usize { 48 }
+const fn default_poly_steps() -> usize {
+    48
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EngineParams {
@@ -579,7 +611,7 @@ pub struct EngineParams {
     // Polyrythm Steps (48, 96, 192...)
     #[serde(default = "default_poly_steps")]
     pub poly_steps: usize,
-    
+
     // Mode Drum Kit
     #[serde(default)]
     pub fixed_kick: bool,
@@ -587,7 +619,7 @@ pub struct EngineParams {
 
 impl Default for EngineParams {
     fn default() -> Self {
-        EngineParams {
+        Self {
             arousal: 0.5,
             valence: 0.3,
             density: 0.2,
@@ -633,7 +665,8 @@ pub struct CurrentState {
 }
 
 impl EngineParams {
+    #[must_use]
     pub fn compute_bpm(&self) -> f32 {
-        70.0 + (self.arousal * 110.0)
+        self.arousal.mul_add(110.0, 70.0)
     }
 }

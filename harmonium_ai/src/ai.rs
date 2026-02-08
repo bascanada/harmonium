@@ -1,7 +1,7 @@
-use harmonium_core::params::EngineParams;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::bert::{BertModel, Config};
+use harmonium_core::params::EngineParams;
 use tokenizers::Tokenizer;
 use wasm_bindgen::prelude::*;
 
@@ -26,7 +26,7 @@ impl EmotionEngine {
         config_data: &[u8],
         weights_data: &[u8],
         tokenizer_data: &[u8],
-    ) -> Result<EmotionEngine, JsError> {
+    ) -> Result<Self, JsError> {
         // 1. Configuration
         let config: Config =
             serde_json::from_slice(config_data).map_err(|e| JsError::new(&e.to_string()))?;
@@ -42,11 +42,7 @@ impl EmotionEngine {
         let tokenizer =
             Tokenizer::from_bytes(tokenizer_data).map_err(|e| JsError::new(&e.to_string()))?;
 
-        let mut engine = EmotionEngine {
-            model,
-            tokenizer,
-            anchors: Vec::new(),
-        };
+        let mut engine = Self { model, tokenizer, anchors: Vec::new() };
 
         engine.init_anchors()?;
 
@@ -159,7 +155,7 @@ impl EmotionEngine {
     /// Analyser un texte et retourner les paramètres émotionnels (Version Native Rust)
     pub fn predict_native(&self, text: &str) -> Result<EngineParams, String> {
         // 1. Get the embedding for the WHOLE user input at once
-        let input_embedding = self.get_embedding(text).map_err(|e| format!("{:?}", e))?;
+        let input_embedding = self.get_embedding(text).map_err(|e| format!("{e:?}"))?;
 
         let mut total_score = 0.0;
         let mut accum_params = EngineParams {
@@ -192,11 +188,7 @@ impl EmotionEngine {
             let similarity = Self::cosine_similarity(&input_embedding, &anchor.embedding);
 
             // 3. Softmax-like logic or Thresholding
-            let score = if similarity > 0.0 {
-                similarity.powi(3)
-            } else {
-                0.0
-            };
+            let score = if similarity > 0.0 { similarity.powi(3) } else { 0.0 };
 
             accum_params.arousal += anchor.params.arousal * score;
             accum_params.valence += anchor.params.valence * score;
@@ -260,10 +252,7 @@ impl EmotionEngine {
         let device = Device::Cpu;
 
         // Tokenization
-        let tokens = self
-            .tokenizer
-            .encode(text, true)
-            .map_err(|e| JsError::new(&e.to_string()))?;
+        let tokens = self.tokenizer.encode(text, true).map_err(|e| JsError::new(&e.to_string()))?;
         let token_ids = Tensor::new(tokens.get_ids(), &device)
             .map_err(|e| JsError::new(&e.to_string()))?
             .unsqueeze(0)
@@ -294,23 +283,18 @@ impl EmotionEngine {
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         // Convertir en Vec<f32>
-        let vec: Vec<f32> = cls_embedding
-            .to_vec1()
-            .map_err(|e| JsError::new(&e.to_string()))?;
+        let vec: Vec<f32> = cls_embedding.to_vec1().map_err(|e| JsError::new(&e.to_string()))?;
 
         Ok(vec)
     }
 
     /// Calcule la similarité cosinus entre deux vecteurs
+    #[must_use]
     pub fn cosine_similarity(v1: &[f32], v2: &[f32]) -> f32 {
         let dot_product: f32 = v1.iter().zip(v2.iter()).map(|(a, b)| a * b).sum();
         let norm_v1: f32 = v1.iter().map(|x| x * x).sum::<f32>().sqrt();
         let norm_v2: f32 = v2.iter().map(|x| x * x).sum::<f32>().sqrt();
 
-        if norm_v1 == 0.0 || norm_v2 == 0.0 {
-            0.0
-        } else {
-            dot_product / (norm_v1 * norm_v2)
-        }
+        if norm_v1 == 0.0 || norm_v2 == 0.0 { 0.0 } else { dot_product / (norm_v1 * norm_v2) }
     }
 }

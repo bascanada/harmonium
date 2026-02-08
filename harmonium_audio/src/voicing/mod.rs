@@ -35,5 +35,5 @@ pub use block_chord::BlockChordVoicer;
 pub use comping::CompingPattern;
 pub use shell::ShellVoicer;
 pub use voicer::{
-    apply_drop_two, find_scale_notes_below, get_guide_tones, VoicedNote, Voicer, VoicerContext,
+    VoicedNote, Voicer, VoicerContext, apply_drop_two, find_scale_notes_below, get_guide_tones,
 };

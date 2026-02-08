@@ -1,6 +1,5 @@
-use bevy::prelude::*;
-use bevy::asset::AssetLoader;
 use bevy::asset::io::Reader; // Correct import for Bevy 0.13+ IO
+use bevy::{asset::AssetLoader, prelude::*};
 use thiserror::Error;
 
 /// A simple wrapper around the raw bytes of an .odin file.

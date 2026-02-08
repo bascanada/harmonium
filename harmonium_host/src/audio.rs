@@ -1,15 +1,16 @@
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use crate::engine::{HarmoniumEngine, SessionConfig, EngineParams, HarmonyState, VisualizationEvent};
-use harmonium_audio::backend::synth_backend::SynthBackend;
-use harmonium_audio::backend::recorder::RecorderBackend;
-use harmonium_audio::backend::AudioRenderer;
-use harmonium_core::events::RecordFormat;
-use harmonium_core::params::ControlMode;
-use harmonium_core::log;
 use std::sync::{Arc, Mutex};
 
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 #[cfg(feature = "odin2")]
 use harmonium_audio::backend::odin2_backend::Odin2Backend;
+use harmonium_audio::backend::{
+    AudioRenderer, recorder::RecorderBackend, synth_backend::SynthBackend,
+};
+use harmonium_core::{log, params::ControlMode};
+
+use crate::engine::{
+    EngineParams, HarmoniumEngine, HarmonyState, SessionConfig, VisualizationEvent,
+};
 
 /// Available audio backend types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -22,12 +23,23 @@ pub enum AudioBackendType {
     Odin2,
 }
 
+#[allow(clippy::type_complexity)]
 pub fn create_stream(
     mut target_params: triple_buffer::Output<EngineParams>,
     control_mode: Arc<Mutex<ControlMode>>,
     sf2_bytes: Option<&[u8]>,
     backend_type: AudioBackendType,
-) -> Result<(cpal::Stream, SessionConfig, Arc<Mutex<rtrb::Consumer<HarmonyState>>>, Arc<Mutex<rtrb::Consumer<VisualizationEvent>>>, Arc<Mutex<Vec<(u32, Vec<u8>)>>>, Arc<Mutex<Vec<(RecordFormat, Vec<u8>)>>>), String> {
+) -> Result<
+    (
+        cpal::Stream,
+        SessionConfig,
+        Arc<Mutex<rtrb::Consumer<HarmonyState>>>,
+        Arc<Mutex<rtrb::Consumer<VisualizationEvent>>>,
+        crate::FontQueue,
+        crate::FinishedRecordings,
+    ),
+    String,
+> {
     // 1. Setup CPAL
     let host = cpal::default_host();
 
@@ -37,9 +49,13 @@ pub fn create_stream(
         Some(d) => d,
         None => {
             log::warn("default_output_device() returned None. Trying to find any device...");
-            let mut devices = host.output_devices().map_err(|e| format!("Failed to list devices: {:?}", e))?;
+            let mut devices =
+                host.output_devices().map_err(|e| format!("Failed to list devices: {:?}", e))?;
             if let Some(d) = devices.next() {
-                log::info(&format!("Found fallback device: {}", d.name().unwrap_or("unknown".to_string())));
+                log::info(&format!(
+                    "Found fallback device: {}",
+                    d.name().unwrap_or("unknown".to_string())
+                ));
                 d
             } else {
                 return Err("No output devices found at all".into());
@@ -72,10 +88,15 @@ pub fn create_stream(
     };
 
     let finished_recordings = Arc::new(Mutex::new(Vec::new()));
-    let recorder_backend = Box::new(RecorderBackend::new(inner_backend, finished_recordings.clone(), sample_rate as u32));
+    let recorder_backend = Box::new(RecorderBackend::new(
+        inner_backend,
+        finished_recordings.clone(),
+        sample_rate as u32,
+    ));
 
     // Phase 2-3: Engine now returns consumers for lock-free queues
-    let (mut engine, harmony_state_rx, event_queue_rx) = HarmoniumEngine::new(sample_rate, target_params, control_mode, recorder_backend);
+    let (mut engine, harmony_state_rx, event_queue_rx) =
+        HarmoniumEngine::new(sample_rate, target_params, control_mode, recorder_backend);
     let session_config = engine.config.clone();
 
     // Wrap consumers in Arc<Mutex<>> for backwards compatibility with existing API
@@ -86,14 +107,16 @@ pub fn create_stream(
 
     let err_fn = |err| log::error(&format!("an error occurred on stream: {}", err));
 
-    let stream = device.build_output_stream(
-        &config.into(),
-        move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-            engine.process_buffer(data, channels);
-        },
-        err_fn,
-        None,
-    ).map_err(|e| e.to_string())?;
+    let stream = device
+        .build_output_stream(
+            &config.into(),
+            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                engine.process_buffer(data, channels);
+            },
+            err_fn,
+            None,
+        )
+        .map_err(|e| e.to_string())?;
 
     stream.play().map_err(|e| e.to_string())?;
 

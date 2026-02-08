@@ -39,40 +39,42 @@ pub enum LccLevel {
 }
 
 impl LccLevel {
-    /// Convertit un u8 en LccLevel
-    pub fn from_u8(value: u8) -> Option<Self> {
+    /// Convertit un u8 en `LccLevel`
+    #[must_use]
+    pub const fn from_u8(value: u8) -> Option<Self> {
         match value {
-            1 => Some(LccLevel::Lydian),
-            2 => Some(LccLevel::LydianAugmented),
-            3 => Some(LccLevel::LydianDiminished),
-            4 => Some(LccLevel::LydianFlatSeventh),
-            5 => Some(LccLevel::AuxiliaryAugmented),
-            6 => Some(LccLevel::AuxiliaryDiminishedBlues),
-            7 => Some(LccLevel::LydianAugmentedFlatSeventh),
-            8 => Some(LccLevel::AuxiliaryDiminished),
-            9 => Some(LccLevel::AuxiliaryAugmentedBlues),
-            10 => Some(LccLevel::MajorPentatonic),
-            11 => Some(LccLevel::JapaneseIn),
-            12 => Some(LccLevel::Chromatic),
+            1 => Some(Self::Lydian),
+            2 => Some(Self::LydianAugmented),
+            3 => Some(Self::LydianDiminished),
+            4 => Some(Self::LydianFlatSeventh),
+            5 => Some(Self::AuxiliaryAugmented),
+            6 => Some(Self::AuxiliaryDiminishedBlues),
+            7 => Some(Self::LydianAugmentedFlatSeventh),
+            8 => Some(Self::AuxiliaryDiminished),
+            9 => Some(Self::AuxiliaryAugmentedBlues),
+            10 => Some(Self::MajorPentatonic),
+            11 => Some(Self::JapaneseIn),
+            12 => Some(Self::Chromatic),
             _ => None,
         }
     }
 
     /// Nom de la gamme
-    pub fn name(&self) -> &'static str {
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
         match self {
-            LccLevel::Lydian => "Lydian",
-            LccLevel::LydianAugmented => "Lydian Augmented",
-            LccLevel::LydianDiminished => "Lydian Diminished",
-            LccLevel::LydianFlatSeventh => "Lydian b7",
-            LccLevel::AuxiliaryAugmented => "Aux. Augmented",
-            LccLevel::AuxiliaryDiminishedBlues => "Aux. Dim. Blues",
-            LccLevel::LydianAugmentedFlatSeventh => "Lydian Aug. b7",
-            LccLevel::AuxiliaryDiminished => "Aux. Diminished",
-            LccLevel::AuxiliaryAugmentedBlues => "Aux. Aug. Blues",
-            LccLevel::MajorPentatonic => "Major Pentatonic",
-            LccLevel::JapaneseIn => "Japanese In",
-            LccLevel::Chromatic => "Chromatic",
+            Self::Lydian => "Lydian",
+            Self::LydianAugmented => "Lydian Augmented",
+            Self::LydianDiminished => "Lydian Diminished",
+            Self::LydianFlatSeventh => "Lydian b7",
+            Self::AuxiliaryAugmented => "Aux. Augmented",
+            Self::AuxiliaryDiminishedBlues => "Aux. Dim. Blues",
+            Self::LydianAugmentedFlatSeventh => "Lydian Aug. b7",
+            Self::AuxiliaryDiminished => "Aux. Diminished",
+            Self::AuxiliaryAugmentedBlues => "Aux. Aug. Blues",
+            Self::MajorPentatonic => "Major Pentatonic",
+            Self::JapaneseIn => "Japanese In",
+            Self::Chromatic => "Chromatic",
         }
     }
 }
@@ -93,7 +95,8 @@ impl Default for LydianChromaticConcept {
 
 impl LydianChromaticConcept {
     /// Crée une nouvelle instance avec les tables pré-calculées
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         // Intervalles pour chaque niveau (padding avec 255 pour les gammes courtes)
         let scale_intervals: [[u8; 8]; 12] = [
             // Level 1: Lydian (C D E F# G A B)
@@ -124,19 +127,19 @@ impl LydianChromaticConcept {
 
         let scale_lengths = [7, 7, 7, 7, 6, 8, 7, 8, 8, 5, 5, 12];
 
-        LydianChromaticConcept {
-            scale_intervals,
-            scale_lengths,
-        }
+        Self { scale_intervals, scale_lengths }
     }
 
     /// Calcule la tonique Lydienne parente pour un accord donné
     ///
     /// C'est le cœur du LCC: chaque accord a une "maison" Lydienne naturelle.
-    pub fn parent_lydian(&self, chord: &Chord) -> PitchClass {
+    #[must_use]
+    pub const fn parent_lydian(&self, chord: &Chord) -> PitchClass {
         match chord.chord_type {
             // Accords majeurs: la fondamentale EST la tonique Lydienne
-            ChordType::Major | ChordType::Major7 | ChordType::Major6 | ChordType::Add9 => chord.root,
+            ChordType::Major | ChordType::Major7 | ChordType::Major6 | ChordType::Add9 => {
+                chord.root
+            }
 
             // Dominant 7: la fondamentale est aussi la tonique Lydienne
             // (c'est le degré Mixolydien #4 de son propre Lydien)
@@ -166,13 +169,16 @@ impl LydianChromaticConcept {
     }
 
     /// Retourne le niveau LCC approprié pour une tension donnée (0.0 - 1.0)
+    #[must_use]
     pub fn level_for_tension(&self, tension: f32) -> LccLevel {
         // Mapping linéaire: 0.0 -> Level 1, 1.0 -> Level 12
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let level_num = 1 + (tension.clamp(0.0, 1.0) * 11.0).round() as u8;
         LccLevel::from_u8(level_num).unwrap_or(LccLevel::Lydian)
     }
 
     /// Retourne les pitch classes de la gamme pour un niveau LCC donné
+    #[must_use]
     pub fn get_scale(&self, parent: PitchClass, level: LccLevel) -> Vec<PitchClass> {
         let level_idx = (level as u8 - 1) as usize;
         let intervals = &self.scale_intervals[level_idx];
@@ -192,6 +198,7 @@ impl LydianChromaticConcept {
     }
 
     /// Vérifie si une note est valide dans le contexte LCC actuel
+    #[must_use]
     pub fn is_valid_note(&self, note: PitchClass, chord: &Chord, tension: f32) -> bool {
         let parent = self.parent_lydian(chord);
         let level = self.level_for_tension(tension);
@@ -200,20 +207,23 @@ impl LydianChromaticConcept {
     }
 
     /// Filtre une liste de notes pour ne garder que celles valides dans le contexte LCC
-    pub fn filter_notes(&self, notes: &[PitchClass], chord: &Chord, tension: f32) -> Vec<PitchClass> {
+    #[must_use]
+    pub fn filter_notes(
+        &self,
+        notes: &[PitchClass],
+        chord: &Chord,
+        tension: f32,
+    ) -> Vec<PitchClass> {
         let parent = self.parent_lydian(chord);
         let level = self.level_for_tension(tension);
         let scale = self.get_scale(parent, level);
 
-        notes
-            .iter()
-            .filter(|&&note| scale.contains(&(note % 12)))
-            .copied()
-            .collect()
+        notes.iter().filter(|&&note| scale.contains(&(note % 12))).copied().collect()
     }
 
     /// Retourne le poids d'une note dans le contexte LCC (pour la génération mélodique)
     /// Notes dans la gamme = 1.0, notes hors gamme = valeur réduite
+    #[must_use]
     pub fn note_weight(&self, note: PitchClass, chord: &Chord, tension: f32) -> f32 {
         if self.is_valid_note(note, chord, tension) {
             1.0
@@ -224,16 +234,17 @@ impl LydianChromaticConcept {
     }
 
     /// Suggère le niveau LCC optimal pour une transition entre deux accords
+    #[must_use]
     pub fn suggest_level_for_transition(&self, from: &Chord, to: &Chord) -> LccLevel {
         let distance = from.voice_leading_distance(to);
 
         // Plus la distance est grande, plus on peut utiliser des niveaux dissonants
         match distance {
-            0..=1 => LccLevel::Lydian,           // Très proche: rester consonant
-            2..=3 => LccLevel::LydianAugmented,  // Proche: légère tension
-            4..=5 => LccLevel::LydianFlatSeventh, // Modéré
+            0..=1 => LccLevel::Lydian,              // Très proche: rester consonant
+            2..=3 => LccLevel::LydianAugmented,     // Proche: légère tension
+            4..=5 => LccLevel::LydianFlatSeventh,   // Modéré
             6..=7 => LccLevel::AuxiliaryDiminished, // Éloigné
-            _ => LccLevel::Chromatic,            // Très éloigné: tout est permis
+            _ => LccLevel::Chromatic,               // Très éloigné: tout est permis
         }
     }
 }

@@ -3,6 +3,9 @@ name = "harmonium_audio"
 version = "0.1.0"
 edition = "2024"
 
+[lints]
+workspace = true
+
 [dependencies]
 harmonium_core = { path = "../harmonium_core" }
 fundsp = "0.20.0"

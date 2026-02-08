@@ -1,10 +1,11 @@
-pub mod synthesis;
 pub mod backend;
-pub mod voicing;
-pub mod voice_manager;
 pub mod realtime;
+pub mod synthesis;
+pub mod voice_manager;
+pub mod voicing;
 
 use harmonium_core::events::AudioEvent;
+
 use crate::backend::AudioRenderer; // Assuming backend exports this
 
 pub struct AudioProcessor {
@@ -12,6 +13,7 @@ pub struct AudioProcessor {
 }
 
 impl AudioProcessor {
+    #[must_use]
     pub fn new(renderer: Box<dyn AudioRenderer + Send>) -> Self {
         Self { renderer }
     }

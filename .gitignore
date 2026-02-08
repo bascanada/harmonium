@@ -15,3 +15,5 @@ pkg/
 .DS_Store
 *.musicxml
 *.mid*
+
+.obsidian

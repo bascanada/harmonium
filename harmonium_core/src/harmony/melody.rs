@@ -1,14 +1,17 @@
-//! Module de génération mélodique - HarmonyNavigator
+//! Module de génération mélodique - `HarmonyNavigator`
 //!
 //! Génération de mélodies basée sur:
 //! - Chaînes de Markov (probabilités conditionnelles)
 //! - Bruit fractal 1/f (Pink Noise)
 //! - Hybride Markov+Fractal
 
-use rust_music_theory::scale::{Scale, ScaleType, Direction};
-use rust_music_theory::note::{PitchSymbol, Pitch, Notes};
-use rand::distributions::{Distribution, WeightedIndex};
 use rand::Rng; // Added for gen_bool
+use rand::distributions::{Distribution, WeightedIndex};
+use rust_music_theory::{
+    note::{Notes, Pitch, PitchSymbol},
+    scale::{Direction, Scale, ScaleType},
+};
+
 use super::basic::ChordQuality;
 use crate::fractal::PinkNoise;
 
@@ -17,7 +20,7 @@ pub struct HarmonyNavigator {
     pub current_index: i32,
     pub octave: i32,
     scale_len: usize,
-    last_step: i32,  // Mémoire mélodique pour "Gap Fill" (Temperley)
+    last_step: i32, // Mémoire mélodique pour "Gap Fill" (Temperley)
     // === PROGRESSION HARMONIQUE: Contexte d'accord local ===
     pub current_chord_notes: Vec<u8>, // Pitch classes de l'accord actuel (ex: [0,4,7] pour Do Maj)
     pub global_key_root: u8,          // Tonique globale du morceau (0=C, 1=C#, etc.)
@@ -31,16 +34,32 @@ pub struct HarmonyNavigator {
 }
 
 impl HarmonyNavigator {
+    #[must_use]
     pub fn new(root_note: PitchSymbol, scale_type: ScaleType, octave: i32) -> Self {
         let pitch = Pitch::from(root_note);
-        let scale = Scale::new(scale_type, pitch, octave as u8, None, Direction::Ascending).unwrap();
+        let scale = Scale::new(scale_type, pitch, octave as u8, None, Direction::Ascending)
+            .unwrap_or_else(|_| {
+                Scale::new(
+                    ScaleType::PentatonicMajor,
+                    Pitch::from(PitchSymbol::C),
+                    4,
+                    None,
+                    Direction::Ascending,
+                )
+                .unwrap_or_else(|_| {
+                    #[allow(clippy::panic)]
+                    {
+                        panic!("Invariant: Default scale must be valid")
+                    }
+                })
+            });
         let scale_len = scale.notes().len();
 
         // Départ: accord I majeur (tonique, tierce majeure, quinte, septième majeure)
         let global_key_root = pitch.into_u8();
         let current_chord_notes = vec![0, 4, 7, 11]; // I Maj7
 
-        HarmonyNavigator {
+        Self {
             current_scale: scale,
             current_index: 0,
             octave,
@@ -49,7 +68,7 @@ impl HarmonyNavigator {
             current_chord_notes,
             global_key_root,
             pink_noise: PinkNoise::new(5), // 5 octaves de profondeur
-            hurst_factor: 0.7, // Valeur par défaut pour une mélodie "chantante"
+            hurst_factor: 0.7,             // Valeur par défaut pour une mélodie "chantante"
             motif_buffer: Vec::new(),
             motif_index: 0,
             playing_motif: false,
@@ -58,7 +77,7 @@ impl HarmonyNavigator {
 
     /// Change le contexte harmonique (accord courant)
     /// Root offset: décalage en demi-tons par rapport à la tonique globale
-    /// Ex: root_offset=0 (I), root_offset=5 (IV), root_offset=7 (V), root_offset=9 (vi)
+    /// Ex: `root_offset=0` (I), `root_offset=5` (IV), `root_offset=7` (V), `root_offset=9` (vi)
     ///
     /// Basé sur la théorie des progressions fonctionnelles (Tonique-Sous-Dominante-Dominante)
     pub fn set_chord_context(&mut self, root_offset: i32, quality: ChordQuality) {
@@ -118,8 +137,12 @@ impl HarmonyNavigator {
         let (steps, weights) = self.get_weighted_steps(normalized_index, is_strong_beat);
 
         // Sélection pondérée
-        let dist = WeightedIndex::new(&weights).unwrap();
-        let chosen_step = steps[dist.sample(&mut rng)];
+        let chosen_step = if let Ok(dist) = WeightedIndex::new(&weights) {
+            steps[dist.sample(&mut rng)]
+        } else {
+            // Fallback: Uniform choice from available steps
+            steps[rng.gen_range(0..steps.len())]
+        };
 
         // === GAP FILL (Temperley): Après un grand saut, revenir dans l'autre direction ===
         // Principe: Si le dernier mouvement était un saut > 2, compenser en revenant
@@ -134,10 +157,8 @@ impl HarmonyNavigator {
         self.current_index += final_step;
 
         // Contrainte: rester dans une tessiture raisonnable (± 2 octaves)
-        self.current_index = self.current_index.clamp(
-            -(self.scale_len as i32 * 2),
-            self.scale_len as i32 * 2
-        );
+        self.current_index =
+            self.current_index.clamp(-(self.scale_len as i32 * 2), self.scale_len as i32 * 2);
 
         self.get_frequency()
     }
@@ -146,7 +167,7 @@ impl HarmonyNavigator {
     /// Cela crée des mélodies plus organiques et structurées que les chaînes de Markov
     pub fn next_note_fractal(&mut self) -> f32 {
         // 1. Obtenir une valeur "tendance" du bruit fractal
-        let fractal_drift = self.pink_noise.next();
+        let fractal_drift = self.pink_noise.next_value();
 
         // 2. Mapper cette valeur à un index dans la gamme (autour d'un centre)
         // Cela remplace la marche aléatoire pure par une évolution structurée
@@ -177,7 +198,7 @@ impl HarmonyNavigator {
         let mut rng = rand::thread_rng();
 
         // 1. LE GPS (Bruit Fractal) : Quelle est la "tendance" globale ?
-        let fractal_drift = self.pink_noise.next();
+        let fractal_drift = self.pink_noise.next_value();
         let center_index = 0;
         let target_index = center_index + (fractal_drift * 12.0) as i32;
 
@@ -188,7 +209,7 @@ impl HarmonyNavigator {
         // 3. LA FUSION : On biaise les poids vers la cible fractale
         let mut final_weights = Vec::with_capacity(original_weights.len());
         let current_dist = (target_index - self.current_index).abs();
-        let fractal_influence = 0.5 + (self.hurst_factor * 3.0);
+        let fractal_influence = self.hurst_factor.mul_add(3.0, 0.5);
 
         for (i, &step) in steps.iter().enumerate() {
             let predicted_index = self.current_index + step;
@@ -205,14 +226,21 @@ impl HarmonyNavigator {
         }
 
         // 4. SÉLECTION PONDÉRÉE
-        let dist = WeightedIndex::new(&final_weights).unwrap_or_else(|_| {
-            WeightedIndex::new(vec![1.0; final_weights.len()]).unwrap()
-        });
-
-        let chosen_step = steps[dist.sample(&mut rng)];
+        let dist_result = WeightedIndex::new(&final_weights);
+        let chosen_step = if let Ok(dist) = dist_result {
+            steps[dist.sample(&mut rng)]
+        } else if let Ok(uniform_dist) = WeightedIndex::new(vec![1.0; final_weights.len()]) {
+            steps[uniform_dist.sample(&mut rng)]
+        } else {
+            // Ultimate fallback
+            steps[0]
+        };
 
         // === Gap Fill (Temperley) ===
-        if self.last_step.abs() > 2 && chosen_step.abs() > 2 && chosen_step.signum() == self.last_step.signum() {
+        if self.last_step.abs() > 2
+            && chosen_step.abs() > 2
+            && chosen_step.signum() == self.last_step.signum()
+        {
             if chosen_step > 0 { -1 } else { 1 }
         } else {
             chosen_step
@@ -225,10 +253,8 @@ impl HarmonyNavigator {
         self.current_index += step;
 
         // Contraintes physiques (Tessiture)
-        self.current_index = self.current_index.clamp(
-            -(self.scale_len as i32 * 2),
-            self.scale_len as i32 * 2
-        );
+        self.current_index =
+            self.current_index.clamp(-(self.scale_len as i32 * 2), self.scale_len as i32 * 2);
 
         self.get_frequency()
     }
@@ -254,7 +280,7 @@ impl HarmonyNavigator {
             // GÉNÉRATION : On utilise la logique Markov existante
             let generated_step = self.generate_hybrid_step(is_strong_beat);
             if !self.playing_motif {
-                 self.motif_buffer.push(generated_step);
+                self.motif_buffer.push(generated_step);
             }
             generated_step
         };
@@ -264,7 +290,7 @@ impl HarmonyNavigator {
     }
 
     /// GÉNÉRATION HYBRIDE : Le Bruit Rose (GPS) guide les choix de Markov (Conducteur).
-    /// is_strong_beat : Permet de favoriser les notes de l'accord sur les temps forts
+    /// `is_strong_beat` : Permet de favoriser les notes de l'accord sur les temps forts
     pub fn next_note_hybrid(&mut self, is_strong_beat: bool) -> f32 {
         let step = self.generate_hybrid_step(is_strong_beat);
         self.apply_step_and_get_freq(step)
@@ -274,7 +300,11 @@ impl HarmonyNavigator {
     /// CORRECTION: Notes stables = bonnes destinations, PAS immobilité!
     /// On favorise le MOUVEMENT (arpèges, sauts d'octave) plutôt que la répétition
     /// + PROGRESSION HARMONIQUE: les notes stables changent selon l'accord courant!
-    fn get_weighted_steps(&self, normalized_index: i32, is_strong_beat: bool) -> (Vec<i32>, Vec<u32>) {
+    fn get_weighted_steps(
+        &self,
+        normalized_index: i32,
+        is_strong_beat: bool,
+    ) -> (Vec<i32>, Vec<u32>) {
         // === CONTEXTE HARMONIQUE: Identifier les degrés selon l'ACCORD ACTUEL ===
         // Plus sophistiqué que "1, 3, 5 statiques" - maintenant dynamique!
         let is_chord_tone = self.is_in_current_chord(normalized_index);
@@ -290,12 +320,10 @@ impl HarmonyNavigator {
             if is_strong_beat {
                 // Affirmer l'accord par arpège (tierce +2, quinte +4) ou octave
                 // Réduire "0" à 10% (juste pour effet rythmique occasionnel)
-                (vec![0, 2, 4, -3, octave_jump, -octave_jump],
-                 vec![10, 30, 25, 15, 10, 10])
+                (vec![0, 2, 4, -3, octave_jump, -octave_jump], vec![10, 30, 25, 15, 10, 10])
             } else {
                 // Temps faible: préparer le mouvement avec notes de passage
-                (vec![1, -1, 2, -2, 0],
-                 vec![30, 30, 15, 15, 10])
+                (vec![1, -1, 2, -2, 0], vec![30, 30, 15, 15, 10])
             }
         }
         // === CAS 2: SENSIBLE (7ème degré) - TRES forte attraction ===
@@ -307,19 +335,16 @@ impl HarmonyNavigator {
         else if is_chord_tone {
             if is_strong_beat {
                 // Naviguer dans l'arpège vers tonique ou autre note d'accord
-                (vec![0, -2, 2, -4, 1, -1],
-                 vec![10, 30, 30, 10, 10, 10])
+                (vec![0, -2, 2, -4, 1, -1], vec![10, 30, 30, 10, 10, 10])
             } else {
                 // Mouvement par notes de passage
-                (vec![1, -1, 2, -2, 0],
-                 vec![40, 40, 10, 5, 5])
+                (vec![1, -1, 2, -2, 0], vec![40, 40, 10, 5, 5])
             }
         }
         // === CAS 4: NOTES DE PASSAGE (Instables - doivent résoudre) ===
         else {
             // Résolution vers note stable voisine (mouvement conjoint dominant)
-            (vec![1, -1, 0],
-             vec![45, 45, 10])
+            (vec![1, -1, 0], vec![45, 45, 10])
         }
     }
 
@@ -342,16 +367,15 @@ impl HarmonyNavigator {
 
         let note = &notes[index as usize];
 
-        let pc_val = note.pitch.into_u8() as i32;
-        let note_octave = note.octave as i32 + octave_shift;
+        let pc_val = i32::from(note.pitch.into_u8());
+        let note_octave = i32::from(note.octave) + octave_shift;
 
         let midi_note = (note_octave + 1) * 12 + pc_val;
-        let freq = 440.0 * 2.0_f32.powf((midi_note as f32 - 69.0) / 12.0);
 
-        freq
+        440.0 * ((midi_note as f32 - 69.0) / 12.0).exp2()
     }
 
-    pub fn set_hurst_factor(&mut self, factor: f32) {
+    pub const fn set_hurst_factor(&mut self, factor: f32) {
         self.hurst_factor = factor.clamp(0.0, 1.0);
     }
 }
@@ -367,16 +391,18 @@ mod tests {
 
         // Sur tonique + temps fort: MOUVEMENT favorisé (arpège) plutôt qu'immobilité
         // Les sauts d'arpège (+2 tierce, +4 quinte) doivent avoir plus de poids que "0"
-        let stay_weight = steps.iter().position(|&s| s == 0).map(|i| weights[i]).unwrap_or(0);
-        let arpeggiate_weight: u32 = steps.iter()
+        let stay_weight = steps.iter().position(|&s| s == 0).map_or(0, |i| weights[i]);
+        let arpeggiate_weight: u32 = steps
+            .iter()
             .enumerate()
             .filter(|&(_, &s)| s == 2 || s == 4)
             .map(|(i, _)| weights[i])
             .sum();
 
-        assert!(arpeggiate_weight > stay_weight,
-                "Les arpèges ({}) doivent dominer l'immobilité ({})",
-                arpeggiate_weight, stay_weight);
+        assert!(
+            arpeggiate_weight > stay_weight,
+            "Les arpèges ({arpeggiate_weight}) doivent dominer l'immobilité ({stay_weight})"
+        );
     }
 
     #[test]
@@ -424,7 +450,10 @@ mod tests {
         // Note: En pentatonique C majeur, les degrés sont C, D, E, G, A
         // L'accord de A mineur contient A, C, E, G
         // Donc le degré 0 (C) devrait toujours être dedans
-        assert!(navigator.is_in_current_chord(0), "C devrait être dans l'accord vi (A mineur contient C)");
+        assert!(
+            navigator.is_in_current_chord(0),
+            "C devrait être dans l'accord vi (A mineur contient C)"
+        );
 
         // Test 3: Vérifier que les pitch classes sont correctement calculées
         navigator.set_chord_context(5, ChordQuality::Major); // IV (F Maj: F, A, C, E)
@@ -441,22 +470,25 @@ mod tests {
 
         // Simuler la progression I-vi-IV-V
         let progression = [
-            (0, ChordQuality::Major),  // I
-            (9, ChordQuality::Minor),  // vi
-            (5, ChordQuality::Major),  // IV
-            (7, ChordQuality::Major),  // V
+            (0, ChordQuality::Major), // I
+            (9, ChordQuality::Minor), // vi
+            (5, ChordQuality::Major), // IV
+            (7, ChordQuality::Major), // V
         ];
 
-        for (root_offset, quality) in progression.iter() {
+        for (root_offset, quality) in &progression {
             navigator.set_chord_context(*root_offset, *quality);
 
             // Vérifier que les notes de l'accord sont bien définies
-            assert_eq!(navigator.current_chord_notes.len(), 4,
-                      "Chaque accord devrait avoir 4 notes (1, 3, 5, 7)");
+            assert_eq!(
+                navigator.current_chord_notes.len(),
+                4,
+                "Chaque accord devrait avoir 4 notes (1, 3, 5, 7)"
+            );
 
             // Vérifier que les pitch classes sont dans la plage [0, 11]
-            for &pc in navigator.current_chord_notes.iter() {
-                assert!(pc < 12, "Pitch class {} devrait être < 12", pc);
+            for &pc in &navigator.current_chord_notes {
+                assert!(pc < 12, "Pitch class {pc} devrait être < 12");
             }
         }
     }

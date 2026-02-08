@@ -1,11 +1,11 @@
 //! State Serializer - Converts engine state to JSON for the webview
 
-use serde::Serialize;
 use std::sync::{Arc, Mutex};
 
+use harmonium_core::{params::ControlMode, sequencer::RhythmMode};
+use serde::Serialize;
+
 use crate::engine::EngineParams;
-use harmonium_core::params::ControlMode;
-use harmonium_core::sequencer::RhythmMode;
 
 /// Serializable engine state for the webview
 #[derive(Serialize, Clone)]

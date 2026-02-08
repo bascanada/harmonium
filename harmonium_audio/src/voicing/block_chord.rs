@@ -3,8 +3,10 @@
 //! Harmonise la mélodie avec des accords "bloqués" où la mélodie
 //! est la note supérieure et les harmonies sont empilées en dessous.
 
-use super::comping::CompingPattern;
-use super::voicer::{find_scale_notes_below, Voicer, VoicedNote, VoicerContext};
+use super::{
+    comping::CompingPattern,
+    voicer::{VoicedNote, Voicer, VoicerContext, find_scale_notes_below},
+};
 
 /// Voicer style "Block Chords" (Locked Hands)
 ///
@@ -27,10 +29,11 @@ impl Default for BlockChordVoicer {
 }
 
 impl BlockChordVoicer {
-    /// Crée un nouveau BlockChordVoicer
+    /// Crée un nouveau `BlockChordVoicer`
     ///
     /// # Arguments
     /// * `num_voices` - Nombre de voix (3-5 recommandé)
+    #[must_use]
     pub fn new(num_voices: usize) -> Self {
         Self {
             // Pattern jazz: ~5-6 accords sur 16 steps, reste = mélodie seule
@@ -96,8 +99,9 @@ impl Voicer for BlockChordVoicer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use harmonium_core::harmony::chord::ChordType;
+
+    use super::*;
 
     #[test]
     fn test_block_chord_voicing() {

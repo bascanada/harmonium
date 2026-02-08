@@ -3,9 +3,12 @@
 //! Gère la transition entre Steedman Grammar et Neo-Riemannian
 //! en utilisant des accords ambigus (dim7, aug, sus4) comme pivots.
 
-use super::chord::{Chord, ChordType};
-use super::lydian_chromatic::LydianChromaticConcept;
 use std::sync::Arc;
+
+use super::{
+    chord::{Chord, ChordType},
+    lydian_chromatic::LydianChromaticConcept,
+};
 
 /// Seuil de tension pour basculer vers Steedman (en dessous)
 pub const STEEDMAN_THRESHOLD: f32 = 0.5;
@@ -14,7 +17,7 @@ pub const STEEDMAN_THRESHOLD: f32 = 0.5;
 pub const NEO_RIEMANNIAN_THRESHOLD: f32 = 0.7;
 
 /// Type de pivot
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PivotType {
     /// Pas un accord pivot
     None,
@@ -32,12 +35,14 @@ pub struct PivotDetector {
 }
 
 impl PivotDetector {
-    pub fn new(lcc: Arc<LydianChromaticConcept>) -> Self {
+    #[must_use]
+    pub const fn new(lcc: Arc<LydianChromaticConcept>) -> Self {
         Self { lcc }
     }
 
     /// Vérifie si un accord peut servir de pivot
-    pub fn is_pivot_chord(&self, chord: &Chord) -> PivotType {
+    #[must_use]
+    pub const fn is_pivot_chord(&self, chord: &Chord) -> PivotType {
         match chord.chord_type {
             // Accords symétriques: parfaits pour les pivots
             ChordType::Diminished7 => PivotType::Strong,
@@ -59,7 +64,8 @@ impl PivotDetector {
     }
 
     /// Calcule les poids de crossfade entre les deux stratégies
-    /// Retourne (steedman_weight, neo_riemannian_weight)
+    /// Retourne (`steedman_weight`, `neo_riemannian_weight`)
+    #[must_use]
     pub fn crossfade_weight(&self, tension: f32) -> (f32, f32) {
         if tension < STEEDMAN_THRESHOLD {
             // Zone Steedman pure
@@ -69,13 +75,14 @@ impl PivotDetector {
             (0.0, 1.0)
         } else {
             // Zone de transition: crossfade linéaire
-            let t = (tension - STEEDMAN_THRESHOLD) / (NEO_RIEMANNIAN_THRESHOLD - STEEDMAN_THRESHOLD);
+            let t =
+                (tension - STEEDMAN_THRESHOLD) / (NEO_RIEMANNIAN_THRESHOLD - STEEDMAN_THRESHOLD);
             (1.0 - t, t)
         }
     }
 
     /// Calcule les poids de crossfade à trois voies avec support d'hystérésis
-    /// Retourne (steedman_weight, parsimonious_weight, neo_riemannian_weight)
+    /// Retourne (`steedman_weight`, `parsimonious_weight`, `neo_riemannian_weight`)
     ///
     /// Cette méthode utilise des zones d'hystérésis pour éviter les basculements chaotiques
     /// entre les stratégies lorsque la tension fluctue autour des seuils.
@@ -88,11 +95,12 @@ impl PivotDetector {
     /// * `neo_upper` - Seuil supérieur pour Neo-Riemannian (ex: 0.75)
     ///
     /// # Zones
-    /// 1. Pure Steedman: tension ≤ steedman_lower
-    /// 2. Hystérésis Steedman: steedman_lower < tension < steedman_upper
-    /// 3. Pure Parsimonious: steedman_upper ≤ tension ≤ neo_lower
-    /// 4. Hystérésis Neo-Riemannian: neo_lower < tension < neo_upper
-    /// 5. Pure Neo-Riemannian: tension ≥ neo_upper
+    /// 1. Pure Steedman: tension ≤ `steedman_lower`
+    /// 2. Hystérésis Steedman: `steedman_lower` < tension < `steedman_upper`
+    /// 3. Pure Parsimonious: `steedman_upper` ≤ tension ≤ `neo_lower`
+    /// 4. Hystérésis Neo-Riemannian: `neo_lower` < tension < `neo_upper`
+    /// 5. Pure Neo-Riemannian: tension ≥ `neo_upper`
+    #[must_use]
     pub fn crossfade_weight_three_hysteresis(
         &self,
         tension: f32,
@@ -122,11 +130,13 @@ impl PivotDetector {
     }
 
     /// Vérifie si on est dans la zone de transition
+    #[must_use]
     pub fn is_in_transition_zone(&self, tension: f32) -> bool {
-        tension >= STEEDMAN_THRESHOLD && tension <= NEO_RIEMANNIAN_THRESHOLD
+        (STEEDMAN_THRESHOLD..=NEO_RIEMANNIAN_THRESHOLD).contains(&tension)
     }
 
     /// Génère un accord pivot approprié pour la transition
+    #[must_use]
     pub fn create_pivot(&self, from: &Chord, to: &Chord, tension: f32) -> Chord {
         // Si la tension monte (vers Neo-Riemannian), utiliser dim7 ou aug
         // Si la tension descend (vers Steedman), utiliser sus4
@@ -145,6 +155,7 @@ impl PivotDetector {
     }
 
     /// Suggère le meilleur pivot entre deux accords
+    #[must_use]
     pub fn suggest_pivot(&self, from: &Chord, to: &Chord) -> Option<Chord> {
         // Calculer la distance
         let distance = from.voice_leading_distance(to);
@@ -165,18 +176,18 @@ impl PivotDetector {
                 // Dim7 si les accords sont éloignés, sus4 sinon
                 if distance > 4 {
                     return Some(Chord::new(from_pc, ChordType::Diminished7));
-                } else {
-                    return Some(Chord::new(from_pc, ChordType::Sus4));
                 }
+                return Some(Chord::new(from_pc, ChordType::Sus4));
             }
         }
 
         // Pas de note commune: utiliser la moyenne des fondamentales
-        let avg_root = ((from.root as i32 + to.root as i32) / 2) as u8 % 12;
+        let avg_root = i32::midpoint(i32::from(from.root), i32::from(to.root)) as u8 % 12;
         Some(Chord::new(avg_root, ChordType::Augmented))
     }
 
     /// Retourne la gamme LCC suggérée pour un accord pivot
+    #[must_use]
     pub fn get_pivot_scale(&self, pivot: &Chord, tension: f32) -> Vec<super::chord::PitchClass> {
         let parent = self.lcc.parent_lydian(pivot);
         let level = self.lcc.level_for_tension(tension);
@@ -184,6 +195,7 @@ impl PivotDetector {
     }
 
     /// Détermine quelle stratégie utiliser basée sur la tension
+    #[must_use]
     pub fn preferred_strategy(&self, tension: f32) -> PreferredStrategy {
         if tension < STEEDMAN_THRESHOLD {
             PreferredStrategy::Steedman
@@ -201,7 +213,7 @@ impl PivotDetector {
 }
 
 /// Stratégie préférée
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PreferredStrategy {
     Steedman,
     NeoRiemannian,
@@ -234,16 +246,10 @@ mod tests {
         );
 
         // Sus4 = Weak
-        assert_eq!(
-            detector.is_pivot_chord(&Chord::new(0, ChordType::Sus4)),
-            PivotType::Weak
-        );
+        assert_eq!(detector.is_pivot_chord(&Chord::new(0, ChordType::Sus4)), PivotType::Weak);
 
         // Major = None
-        assert_eq!(
-            detector.is_pivot_chord(&Chord::new(0, ChordType::Major)),
-            PivotType::None
-        );
+        assert_eq!(detector.is_pivot_chord(&Chord::new(0, ChordType::Major)), PivotType::None);
     }
 
     #[test]
@@ -252,13 +258,13 @@ mod tests {
 
         // Basse tension: 100% Steedman
         let (s, n) = detector.crossfade_weight(0.3);
-        assert_eq!(s, 1.0);
-        assert_eq!(n, 0.0);
+        assert!((s - 1.0).abs() < f32::EPSILON);
+        assert!(n.abs() < f32::EPSILON);
 
         // Haute tension: 100% Neo-Riemannian
         let (s, n) = detector.crossfade_weight(0.9);
-        assert_eq!(s, 0.0);
-        assert_eq!(n, 1.0);
+        assert!(s.abs() < f32::EPSILON);
+        assert!((n - 1.0).abs() < f32::EPSILON);
 
         // Milieu: mélange
         let (s, n) = detector.crossfade_weight(0.6);

@@ -8,13 +8,16 @@
 //! Ces transformations permettent des progressions chromatiques lisses
 //! sans fonctionnalité tonale traditionnelle.
 
-use super::chord::{Chord, ChordType, PitchClass};
-use super::{HarmonyContext, HarmonyDecision, HarmonyStrategy, RngCore, TransitionType};
-use super::lydian_chromatic::LydianChromaticConcept;
 use std::sync::Arc;
 
+use super::{
+    HarmonyContext, HarmonyDecision, HarmonyStrategy, RngCore, TransitionType,
+    chord::{Chord, ChordType, PitchClass},
+    lydian_chromatic::LydianChromaticConcept,
+};
+
 /// Les trois opérations fondamentales Neo-Riemannian
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NeoRiemannianOp {
     /// Parallel: C Major <-> C Minor (déplacer la tierce d'un demi-ton)
     P,
@@ -26,11 +29,12 @@ pub enum NeoRiemannianOp {
 
 impl NeoRiemannianOp {
     /// Nom de l'opération
-    pub fn name(&self) -> &'static str {
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
         match self {
-            NeoRiemannianOp::P => "P",
-            NeoRiemannianOp::L => "L",
-            NeoRiemannianOp::R => "R",
+            Self::P => "P",
+            Self::L => "L",
+            Self::R => "R",
         }
     }
 }
@@ -58,7 +62,7 @@ pub enum CompositeOp {
 
 /// Moteur Neo-Riemannian avec tables de lookup pré-calculées
 pub struct NeoRiemannianEngine {
-    /// Table P: index = root * 2 + (is_minor ? 1 : 0)
+    /// Table P: index = root * 2 + (`is_minor` ? 1 : 0)
     p_table: [(PitchClass, bool); 24],
     /// Table L
     l_table: [(PitchClass, bool); 24],
@@ -76,6 +80,7 @@ impl Default for NeoRiemannianEngine {
 
 impl NeoRiemannianEngine {
     /// Crée un nouveau moteur avec tables pré-calculées
+    #[must_use]
     pub fn new(lcc: Arc<LydianChromaticConcept>) -> Self {
         let mut p_table = [(0u8, false); 24];
         let mut l_table = [(0u8, false); 24];
@@ -91,37 +96,33 @@ impl NeoRiemannianEngine {
 
             // === P (Parallel) ===
             // Majeur -> Mineur sur même root (et vice versa)
-            p_table[maj_idx] = (root, true);  // C -> Cm
+            p_table[maj_idx] = (root, true); // C -> Cm
             p_table[min_idx] = (root, false); // Cm -> C
 
             // === L (Leading-tone exchange) ===
             // C Major (C-E-G) -> E Minor (E-G-B): root descend d'un demi-ton, devient quinte
             // Majeur: nouveau root = old 3rd (root + 4)
             // Mineur: nouveau root = old root - 1 = old 5th + 4
-            l_table[maj_idx] = ((root + 4) % 12, true);   // C -> Em
-            l_table[min_idx] = ((root + 8) % 12, false);  // Cm -> Ab (root + 8 = maj6 = new root)
+            l_table[maj_idx] = ((root + 4) % 12, true); // C -> Em
+            l_table[min_idx] = ((root + 8) % 12, false); // Cm -> Ab (root + 8 = maj6 = new root)
 
             // === R (Relative) ===
             // C Major -> A Minor (relatif mineur)
             // Majeur: nouveau root = old root - 3 (min 6th)
             // Mineur: nouveau root = old root + 3 (min 3rd up)
-            r_table[maj_idx] = ((root + 9) % 12, true);   // C -> Am (C + 9 = A)
-            r_table[min_idx] = ((root + 3) % 12, false);  // Am -> C (A + 3 = C)
+            r_table[maj_idx] = ((root + 9) % 12, true); // C -> Am (C + 9 = A)
+            r_table[min_idx] = ((root + 3) % 12, false); // Am -> C (A + 3 = C)
         }
 
-        NeoRiemannianEngine {
-            p_table,
-            l_table,
-            r_table,
-            lcc,
-        }
+        Self { p_table, l_table, r_table, lcc }
     }
 
     /// Applique une transformation P, L ou R à un accord
+    #[must_use]
     pub fn apply(&self, chord: &Chord, op: NeoRiemannianOp) -> Chord {
         // Convertir l'accord en index de lookup
         let is_minor = chord.chord_type.is_minor();
-        let idx = (chord.root * 2 + if is_minor { 1 } else { 0 }) as usize;
+        let idx = (chord.root * 2 + u8::from(is_minor)) as usize;
 
         let (new_root, new_is_minor) = match op {
             NeoRiemannianOp::P => self.p_table[idx],
@@ -129,16 +130,13 @@ impl NeoRiemannianEngine {
             NeoRiemannianOp::R => self.r_table[idx],
         };
 
-        let new_type = if new_is_minor {
-            ChordType::Minor
-        } else {
-            ChordType::Major
-        };
+        let new_type = if new_is_minor { ChordType::Minor } else { ChordType::Major };
 
         Chord::new(new_root, new_type)
     }
 
     /// Applique une opération composée
+    #[must_use]
     pub fn apply_composite(&self, chord: &Chord, op: &CompositeOp) -> Chord {
         match op {
             CompositeOp::Single(single_op) => self.apply(chord, *single_op),
@@ -196,6 +194,7 @@ impl NeoRiemannianEngine {
     }
 
     /// Trouve le chemin le plus court entre deux accords sur le Tonnetz
+    #[must_use]
     pub fn find_path(&self, from: &Chord, to: &Chord) -> Vec<NeoRiemannianOp> {
         // BFS simplifié sur le Tonnetz
         use std::collections::{HashSet, VecDeque};

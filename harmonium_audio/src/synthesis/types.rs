@@ -25,7 +25,7 @@ pub struct SynthPreset {
     pub output: OutputParams,
 }
 
-/// Oscillator parameters (for MultiOscillator or AnalogOscillator)
+/// Oscillator parameters (for `MultiOscillator` or `AnalogOscillator`)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OscillatorParams {
     /// Waveform mix: 0.0 = Sine, 0.33 = Triangle, 0.66 = Saw, 1.0 = Square
@@ -50,7 +50,7 @@ pub struct OscillatorParams {
 impl Default for OscillatorParams {
     fn default() -> Self {
         Self {
-            waveform_mix: 0.0,  // Sine
+            waveform_mix: 0.0, // Sine
             detune: 0.0,
             stereo_width: 0.5,
             pitch_mod: 0.0,
@@ -60,7 +60,7 @@ impl Default for OscillatorParams {
     }
 }
 
-/// Filter parameters (LadderFilter)
+/// Filter parameters (`LadderFilter`)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FilterParams {
     /// Cutoff frequency (20.0 - 20000.0 Hz)
@@ -87,28 +87,19 @@ impl Default for FilterParams {
             resonance: 0.2,
             env_amount: 0.0,
             drive: 1.0,
-            filter_type: 0,  // LP4
+            filter_type: 0, // LP4
         }
     }
 }
 
 /// ADSR Envelope parameters
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct EnvelopeParams {
     /// Amplitude envelope
     pub amp: AdsrValues,
 
     /// Filter envelope
     pub filter: AdsrValues,
-}
-
-impl Default for EnvelopeParams {
-    fn default() -> Self {
-        Self {
-            amp: AdsrValues::default(),
-            filter: AdsrValues::default(),
-        }
-    }
 }
 
 /// ADSR values for a single envelope
@@ -129,17 +120,12 @@ pub struct AdsrValues {
 
 impl Default for AdsrValues {
     fn default() -> Self {
-        Self {
-            attack: 0.01,
-            decay: 0.1,
-            sustain: 0.7,
-            release: 0.2,
-        }
+        Self { attack: 0.01, decay: 0.1, sustain: 0.7, release: 0.2 }
     }
 }
 
 /// Effects parameters (global effects chain)
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct EffectsParams {
     /// Delay settings
     pub delay: DelayParams,
@@ -149,16 +135,6 @@ pub struct EffectsParams {
 
     /// Reverb settings
     pub reverb: ReverbParams,
-}
-
-impl Default for EffectsParams {
-    fn default() -> Self {
-        Self {
-            delay: DelayParams::default(),
-            chorus: ChorusParams::default(),
-            reverb: ReverbParams::default(),
-        }
-    }
 }
 
 /// Delay effect parameters
@@ -176,11 +152,7 @@ pub struct DelayParams {
 
 impl Default for DelayParams {
     fn default() -> Self {
-        Self {
-            time: 0.25,
-            feedback: 0.2,
-            mix: 0.15,
-        }
+        Self { time: 0.25, feedback: 0.2, mix: 0.15 }
     }
 }
 
@@ -199,11 +171,7 @@ pub struct ChorusParams {
 
 impl Default for ChorusParams {
     fn default() -> Self {
-        Self {
-            lfo_freq: 0.5,
-            depth: 0.3,
-            mix: 0.15,
-        }
+        Self { lfo_freq: 0.5, depth: 0.3, mix: 0.15 }
     }
 }
 
@@ -222,11 +190,7 @@ pub struct ReverbParams {
 
 impl Default for ReverbParams {
     fn default() -> Self {
-        Self {
-            room_size: 0.5,
-            damping: 0.5,
-            mix: 0.2,
-        }
+        Self { room_size: 0.5, damping: 0.5, mix: 0.2 }
     }
 }
 
@@ -242,10 +206,7 @@ pub struct OutputParams {
 
 impl Default for OutputParams {
     fn default() -> Self {
-        Self {
-            gain: 1.0,
-            pan: 0.0,
-        }
+        Self { gain: 1.0, pan: 0.0 }
     }
 }
 

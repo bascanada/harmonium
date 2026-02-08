@@ -4,8 +4,10 @@
 //! uniquement la tierce et la septième (guide tones) de l'accord.
 //! Cela laisse plus d'espace pour la mélodie et la ligne de basse.
 
-use super::comping::CompingPattern;
-use super::voicer::{get_guide_tones, Voicer, VoicedNote, VoicerContext};
+use super::{
+    comping::CompingPattern,
+    voicer::{VoicedNote, Voicer, VoicerContext, get_guide_tones},
+};
 
 /// Voicer style "Shell" (Guide Tones)
 ///
@@ -26,7 +28,8 @@ impl Default for ShellVoicer {
 }
 
 impl ShellVoicer {
-    /// Crée un nouveau ShellVoicer
+    /// Crée un nouveau `ShellVoicer`
+    #[must_use]
     pub fn new() -> Self {
         Self {
             comping: CompingPattern::euclidean(8, 0.4), // Plus sparse par défaut
@@ -54,29 +57,16 @@ impl Voicer for ShellVoicer {
         let mut notes = Vec::with_capacity(3);
 
         // 1. La mélodie
-        notes.push(VoicedNote::new(
-            melody_note,
-            base_velocity,
-            self.note_duration,
-        ));
+        notes.push(VoicedNote::new(melody_note, base_velocity, self.note_duration));
 
         // 2. Guide tones (tierce et septième)
-        let (third, seventh) =
-            get_guide_tones(ctx.chord_root_midi, ctx.chord_type, melody_note);
+        let (third, seventh) = get_guide_tones(ctx.chord_root_midi, ctx.chord_type, melody_note);
 
         // Tierce avec vélocité réduite (accompagnement)
-        notes.push(VoicedNote::new(
-            third,
-            base_velocity.saturating_sub(15),
-            self.note_duration,
-        ));
+        notes.push(VoicedNote::new(third, base_velocity.saturating_sub(15), self.note_duration));
 
         // Septième avec vélocité encore plus réduite
-        notes.push(VoicedNote::new(
-            seventh,
-            base_velocity.saturating_sub(20),
-            self.note_duration,
-        ));
+        notes.push(VoicedNote::new(seventh, base_velocity.saturating_sub(20), self.note_duration));
 
         notes
     }
@@ -98,8 +88,9 @@ impl Voicer for ShellVoicer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use harmonium_core::harmony::chord::ChordType;
+
+    use super::*;
 
     #[test]
     fn test_shell_voicing() {

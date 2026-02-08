@@ -1,17 +1,20 @@
 //! Webview Editor - Creates a webview-based GUI for the VST plugin
 
-use nih_plug::prelude::*;
-use nih_plug_webview::{http, WebViewEditor, HTMLSource};
-use serde_json::Value;
-use std::borrow::Cow;
-use std::sync::{Arc, Mutex};
+use std::{
+    borrow::Cow,
+    sync::{Arc, Mutex},
+};
 
-use crate::engine::EngineParams;
 use harmonium_core::params::ControlMode;
-use crate::vst_plugin::HarmoniumParams;
+use nih_plug::prelude::*;
+use nih_plug_webview::{HTMLSource, WebViewEditor, http};
+use serde_json::Value;
 
-use super::message_handler::handle_message;
-use super::state_serializer::{collect_state, create_state_update_message};
+use super::{
+    message_handler::handle_message,
+    state_serializer::{collect_state, create_state_update_message},
+};
+use crate::{engine::EngineParams, vst_plugin::HarmoniumParams};
 
 /// Extract message string from serde_json::Value
 /// Handles both String values (pre-serialized JSON) and Object values
@@ -107,9 +110,11 @@ pub fn create_editor(
                         mode.progression_name = harmony_state.progression_name.to_string();
                         // Convert fixed-size arrays to Vec for UI
                         let primary_len = harmony_state.primary_steps.min(192);
-                        mode.primary_pattern = harmony_state.primary_pattern[..primary_len].to_vec();
+                        mode.primary_pattern =
+                            harmony_state.primary_pattern[..primary_len].to_vec();
                         let secondary_len = harmony_state.secondary_steps.min(192);
-                        mode.secondary_pattern = harmony_state.secondary_pattern[..secondary_len].to_vec();
+                        mode.secondary_pattern =
+                            harmony_state.secondary_pattern[..secondary_len].to_vec();
                     }
                 }
             }

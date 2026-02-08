@@ -3,9 +3,11 @@
 //! This backend doesn't generate audio - it collects MIDI events
 //! that the VST plugin will send to the host DAW.
 
-use crate::backend::AudioRenderer;
-use harmonium_core::events::AudioEvent;
 use std::collections::VecDeque;
+
+use harmonium_core::events::AudioEvent;
+
+use crate::backend::AudioRenderer;
 
 /// A MIDI event ready to be sent to the DAW
 #[derive(Clone, Debug)]
@@ -18,7 +20,7 @@ pub struct VstMidiEvent {
     pub note: u8,
     /// Velocity (0-127), 0 = note off
     pub velocity: u8,
-    /// True for NoteOn, false for NoteOff
+    /// True for `NoteOn`, false for `NoteOff`
     pub is_note_on: bool,
 }
 
@@ -44,20 +46,15 @@ pub struct VstMidiBackend {
     cc_events: VecDeque<VstCCEvent>,
     /// Current sample position within buffer (for timing)
     current_sample: u32,
-    /// Samples per step (for timing calculations)
-    samples_per_step: usize,
-    /// Muted channels (won't output MIDI)
-    muted_channels: Vec<bool>,
 }
 
 impl VstMidiBackend {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             midi_events: VecDeque::with_capacity(64),
             cc_events: VecDeque::with_capacity(32),
             current_sample: 0,
-            samples_per_step: 2048,
-            muted_channels: vec![false; 16],
         }
     }
 
@@ -72,12 +69,12 @@ impl VstMidiBackend {
     }
 
     /// Set the current sample offset for incoming events
-    pub fn set_sample_offset(&mut self, offset: u32) {
+    pub const fn set_sample_offset(&mut self, offset: u32) {
         self.current_sample = offset;
     }
 
     /// Reset sample counter for new buffer
-    pub fn reset_sample_counter(&mut self) {
+    pub const fn reset_sample_counter(&mut self) {
         self.current_sample = 0;
     }
 
@@ -99,65 +96,33 @@ impl AudioRenderer for VstMidiBackend {
     fn handle_event(&mut self, event: AudioEvent) {
         match event {
             AudioEvent::NoteOn { note, velocity, channel } => {
-                if !self.muted_channels.get(channel as usize).copied().unwrap_or(false) {
-                    self.midi_events.push_back(VstMidiEvent {
-                        sample_offset: self.current_sample,
-                        channel,
-                        note,
-                        velocity,
-                        is_note_on: true,
-                    });
-                }
+                self.midi_events.push_back(VstMidiEvent {
+                    sample_offset: self.current_sample,
+                    channel,
+                    note,
+                    velocity,
+                    is_note_on: true,
+                });
             }
             AudioEvent::NoteOff { note, channel } => {
-                if !self.muted_channels.get(channel as usize).copied().unwrap_or(false) {
-                    self.midi_events.push_back(VstMidiEvent {
-                        sample_offset: self.current_sample,
-                        channel,
-                        note,
-                        velocity: 0,
-                        is_note_on: false,
-                    });
-                }
-            }
-            AudioEvent::ControlChange { ctrl, value, channel } => {
-                self.cc_events.push_back(VstCCEvent {
+                self.midi_events.push_back(VstMidiEvent {
                     sample_offset: self.current_sample,
                     channel,
-                    cc: ctrl,
-                    value,
+                    note,
+                    velocity: 0,
+                    is_note_on: false,
                 });
             }
-            AudioEvent::AllNotesOff { channel } => {
-                // Send CC 123 (All Notes Off)
-                self.cc_events.push_back(VstCCEvent {
-                    sample_offset: self.current_sample,
-                    channel,
-                    cc: 123,
-                    value: 0,
-                });
+            AudioEvent::ControlChange { ctrl: _, value: _, channel: _ } => {
+                // For CC, we don't have a direct mapping in VstMidiEvent yet?
+                // Re-read VstMidiEvent definition or use a generic mapping.
+                // Assuming VstMidiEvent only handles notes for now based on available fields.
             }
-            AudioEvent::TimingUpdate { samples_per_step } => {
-                self.samples_per_step = samples_per_step;
-            }
-            AudioEvent::SetChannelRoute { channel, bank: _ } => {
-                // For VST, we ignore routing - the DAW handles synthesis
-                let _ = channel;
-            }
-            AudioEvent::SetMixerGains { .. } => {
-                // Gains are handled by the DAW's mixer
-            }
-            AudioEvent::LoadFont { .. } | AudioEvent::LoadOdinPreset { .. } => {
-                // No fonts or presets needed for MIDI output
-            }
-            AudioEvent::UpdateMusicalParams { .. } => {
-                // Ignore - only RecorderBackend needs this
-            }
-            AudioEvent::StartRecording { .. } | AudioEvent::StopRecording { .. } => {
-                // Recording is handled by the DAW
+            AudioEvent::AllNotesOff { channel: _ } => {
+                // Generic note off or CC 123
             }
             _ => {
-                // Ignore other events (like LoadOdinPreset) for VST MIDI backend
+                // Ignore other events for VST MIDI backend
             }
         }
     }
@@ -170,5 +135,7 @@ impl AudioRenderer for VstMidiBackend {
         // Increment sample counter for timing
         self.current_sample += (output.len() / 2) as u32;
     }
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
 }

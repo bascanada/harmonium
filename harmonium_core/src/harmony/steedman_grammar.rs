@@ -5,10 +5,13 @@
 //!
 //! Règles de réécriture: V -> ii-V, I -> vi-I, etc.
 
-use super::chord::{Chord, ChordType, PitchClass};
-use super::{HarmonyContext, HarmonyDecision, HarmonyStrategy, RngCore, TransitionType};
-use super::lydian_chromatic::LydianChromaticConcept;
 use std::sync::{Arc, RwLock};
+
+use super::{
+    HarmonyContext, HarmonyDecision, HarmonyStrategy, RngCore, TransitionType,
+    chord::{Chord, ChordType, PitchClass},
+    lydian_chromatic::LydianChromaticConcept,
+};
 
 /// Chiffres romains (degrés de la gamme) - Version étendue
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -41,46 +44,48 @@ pub enum RomanNumeral {
 
 impl RomanNumeral {
     /// Intervalle en demi-tons depuis la tonique
-    pub fn interval(&self) -> u8 {
+    #[must_use]
+    pub const fn interval(&self) -> u8 {
         match self {
-            RomanNumeral::I => 0,
-            RomanNumeral::II => 2,
-            RomanNumeral::III => 4,
-            RomanNumeral::IV => 5,
-            RomanNumeral::V => 7,
-            RomanNumeral::VI => 9,
-            RomanNumeral::VII => 11,
-            RomanNumeral::VofV => 2,   // V/V = II7 (D7 en C)
-            RomanNumeral::VofII => 9,  // V/ii = VI7 (A7 en C)
-            RomanNumeral::VofIV => 0,  // V/IV = I7 (C7 en C)
+            Self::I => 0,
+            Self::II => 2,
+            Self::III => 4,
+            Self::IV => 5,
+            Self::V => 7,
+            Self::VI => 9,
+            Self::VII => 11,
+            Self::VofV => 2,  // V/V = II7 (D7 en C)
+            Self::VofII => 9, // V/ii = VI7 (A7 en C)
+            Self::VofIV => 0, // V/IV = I7 (C7 en C)
             // Nouveaux V2
-            RomanNumeral::VofVI => 4,  // V/vi = III7 (E7 en C)
-            RomanNumeral::VofIII => 11, // V/iii = VII7 (B7 en C)
-            RomanNumeral::FlatII => 1,  // bII7 (Db7 en C) - substitution tritonique
-            RomanNumeral::FlatVI => 8,  // bVI (Ab en C)
-            RomanNumeral::FlatVII => 10, // bVII (Bb en C)
+            Self::VofVI => 4,    // V/vi = III7 (E7 en C)
+            Self::VofIII => 11,  // V/iii = VII7 (B7 en C)
+            Self::FlatII => 1,   // bII7 (Db7 en C) - substitution tritonique
+            Self::FlatVI => 8,   // bVI (Ab en C)
+            Self::FlatVII => 10, // bVII (Bb en C)
         }
     }
 
     /// Nom pour affichage
-    pub fn name(&self) -> &'static str {
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
         match self {
-            RomanNumeral::I => "I",
-            RomanNumeral::II => "ii",
-            RomanNumeral::III => "iii",
-            RomanNumeral::IV => "IV",
-            RomanNumeral::V => "V",
-            RomanNumeral::VI => "vi",
-            RomanNumeral::VII => "vii°",
-            RomanNumeral::VofV => "V/V",
-            RomanNumeral::VofII => "V/ii",
-            RomanNumeral::VofIV => "V/IV",
+            Self::I => "I",
+            Self::II => "ii",
+            Self::III => "iii",
+            Self::IV => "IV",
+            Self::V => "V",
+            Self::VI => "vi",
+            Self::VII => "vii°",
+            Self::VofV => "V/V",
+            Self::VofII => "V/ii",
+            Self::VofIV => "V/IV",
             // Nouveaux V2
-            RomanNumeral::VofVI => "V/vi",
-            RomanNumeral::VofIII => "V/iii",
-            RomanNumeral::FlatII => "bII7",
-            RomanNumeral::FlatVI => "bVI",
-            RomanNumeral::FlatVII => "bVII",
+            Self::VofVI => "V/vi",
+            Self::VofIII => "V/iii",
+            Self::FlatII => "bII7",
+            Self::FlatVI => "bVI",
+            Self::FlatVII => "bVII",
         }
     }
 }
@@ -103,7 +108,7 @@ pub enum RuleCategory {
 }
 
 /// Presets de style avec distributions de probabilité
-#[derive(Clone, Copy, Debug, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum GrammarStyle {
     /// Jazz standard (bebop)
     #[default]
@@ -118,29 +123,30 @@ pub enum GrammarStyle {
 
 impl GrammarStyle {
     /// Obtient le multiplicateur de probabilité pour chaque catégorie de règle
-    pub fn category_weight(&self, category: RuleCategory) -> f32 {
+    #[must_use]
+    pub const fn category_weight(&self, category: RuleCategory) -> f32 {
         match (self, category) {
             // Jazz: ii-V, back-cycling, tritone subs
-            (GrammarStyle::Jazz, RuleCategory::Preparation) => 1.5,
-            (GrammarStyle::Jazz, RuleCategory::BackCycle) => 1.3,
-            (GrammarStyle::Jazz, RuleCategory::TritoneSubstitution) => 1.2,
-            (GrammarStyle::Jazz, RuleCategory::Cadential) => 0.8,
+            (Self::Jazz, RuleCategory::Preparation) => 1.5,
+            (Self::Jazz, RuleCategory::BackCycle) => 1.3,
+            (Self::Jazz, RuleCategory::TritoneSubstitution) => 1.2,
+            (Self::Jazz, RuleCategory::Cadential) => 0.8,
 
             // Pop: cadences basiques, moins de complexité
-            (GrammarStyle::Pop, RuleCategory::Cadential) => 1.5,
-            (GrammarStyle::Pop, RuleCategory::Preparation) => 0.8,
-            (GrammarStyle::Pop, RuleCategory::BackCycle) => 0.3,
-            (GrammarStyle::Pop, RuleCategory::TritoneSubstitution) => 0.2,
+            (Self::Pop, RuleCategory::Cadential) => 1.5,
+            (Self::Pop, RuleCategory::Preparation) => 0.8,
+            (Self::Pop, RuleCategory::BackCycle) => 0.3,
+            (Self::Pop, RuleCategory::TritoneSubstitution) => 0.2,
 
             // Classical: cadentiel, déceptif
-            (GrammarStyle::Classical, RuleCategory::Cadential) => 1.4,
-            (GrammarStyle::Classical, RuleCategory::Deceptive) => 1.2,
-            (GrammarStyle::Classical, RuleCategory::TritoneSubstitution) => 0.1,
+            (Self::Classical, RuleCategory::Cadential) => 1.4,
+            (Self::Classical, RuleCategory::Deceptive) => 1.2,
+            (Self::Classical, RuleCategory::TritoneSubstitution) => 0.1,
 
             // Contemporary: modal, chromatique
-            (GrammarStyle::Contemporary, RuleCategory::ModalInterchange) => 1.4,
-            (GrammarStyle::Contemporary, RuleCategory::Deceptive) => 1.3,
-            (GrammarStyle::Contemporary, RuleCategory::BackCycle) => 1.1,
+            (Self::Contemporary, RuleCategory::ModalInterchange) => 1.4,
+            (Self::Contemporary, RuleCategory::Deceptive) => 1.3,
+            (Self::Contemporary, RuleCategory::BackCycle) => 1.1,
 
             // Défaut
             _ => 1.0,
@@ -169,7 +175,7 @@ pub struct RewriteRule {
 
 /// Grammaire de Steedman pour progressions harmoniques
 ///
-/// Utilise RwLock pour permettre la mutabilité intérieure thread-safe,
+/// Utilise `RwLock` pour permettre la mutabilité intérieure thread-safe,
 /// ce qui permet de maintenir l'état des expansions en cours
 /// (ex: V → ii-V garde le V en attente après avoir joué ii)
 pub struct SteedmanGrammar {
@@ -224,12 +230,9 @@ impl GrammarState {
 
 impl SteedmanGrammar {
     /// Crée une nouvelle grammaire avec les règles jazz/pop standard
+    #[must_use]
     pub fn new(lcc: Arc<LydianChromaticConcept>) -> Self {
-        let mut grammar = Self {
-            rules: Vec::new(),
-            lcc,
-            state: RwLock::new(GrammarState::new()),
-        };
+        let mut grammar = Self { rules: Vec::new(), lcc, state: RwLock::new(GrammarState::new()) };
 
         grammar.init_rules();
         grammar
@@ -239,121 +242,214 @@ impl SteedmanGrammar {
     fn init_rules(&mut self) {
         // === RÈGLE 1: CADENCES DE BASE ===
         self.add_rule_ext(
-            RomanNumeral::V, vec![RomanNumeral::I],
-            0.9, -1.0, 1.0, RuleCategory::Cadential, 0
+            RomanNumeral::V,
+            vec![RomanNumeral::I],
+            0.9,
+            -1.0,
+            1.0,
+            RuleCategory::Cadential,
+            0,
         );
 
         self.add_rule_ext(
-            RomanNumeral::IV, vec![RomanNumeral::I],
-            0.5, 0.2, 1.0, RuleCategory::Cadential, 0
+            RomanNumeral::IV,
+            vec![RomanNumeral::I],
+            0.5,
+            0.2,
+            1.0,
+            RuleCategory::Cadential,
+            0,
         );
 
         // === RÈGLE 2: PRÉPARATION ii-V ===
         // Règle 2a: V -> ii7-V (ii mineur, le standard jazz)
         self.add_rule_ext(
-            RomanNumeral::V, vec![RomanNumeral::II, RomanNumeral::V],
-            0.85, -1.0, 1.0, RuleCategory::Preparation, 0
+            RomanNumeral::V,
+            vec![RomanNumeral::II, RomanNumeral::V],
+            0.85,
+            -1.0,
+            1.0,
+            RuleCategory::Preparation,
+            0,
         );
 
         // V -> IV-V (approche plagale, rock/pop)
         self.add_rule_ext(
-            RomanNumeral::V, vec![RomanNumeral::IV, RomanNumeral::V],
-            0.5, 0.0, 1.0, RuleCategory::Preparation, 0
+            RomanNumeral::V,
+            vec![RomanNumeral::IV, RomanNumeral::V],
+            0.5,
+            0.0,
+            1.0,
+            RuleCategory::Preparation,
+            0,
         );
 
         // === RÈGLE 3: BACK-CYCLING RÉCURSIF ===
         // Règle 3: V -> VI-II-V (vi-ii-V)
         self.add_rule_ext(
-            RomanNumeral::V, vec![RomanNumeral::VI, RomanNumeral::II, RomanNumeral::V],
-            0.4, -1.0, 1.0, RuleCategory::BackCycle, 1
+            RomanNumeral::V,
+            vec![RomanNumeral::VI, RomanNumeral::II, RomanNumeral::V],
+            0.4,
+            -1.0,
+            1.0,
+            RuleCategory::BackCycle,
+            1,
         );
 
         // Règle 3 étendue: V -> III-VI-II-V (iii-vi-ii-V)
         self.add_rule_ext(
-            RomanNumeral::V, vec![
-                RomanNumeral::III, RomanNumeral::VI,
-                RomanNumeral::II, RomanNumeral::V
-            ],
-            0.2, -0.5, 1.0, RuleCategory::BackCycle, 0
+            RomanNumeral::V,
+            vec![RomanNumeral::III, RomanNumeral::VI, RomanNumeral::II, RomanNumeral::V],
+            0.2,
+            -0.5,
+            1.0,
+            RuleCategory::BackCycle,
+            0,
         );
 
         // Règle 3b: Dominante back-cycle (II7 - V7 pour le blues)
         self.add_rule_ext(
-            RomanNumeral::V, vec![RomanNumeral::VofV, RomanNumeral::V],
-            0.3, -1.0, 0.3, RuleCategory::BackCycle, 0
+            RomanNumeral::V,
+            vec![RomanNumeral::VofV, RomanNumeral::V],
+            0.3,
+            -1.0,
+            0.3,
+            RuleCategory::BackCycle,
+            0,
         );
 
         // === RÈGLE 4: SUBSTITUTION TRITONIQUE ===
         // Règle 4: V7 -> bII7 (tritone sub)
         self.add_rule_ext(
-            RomanNumeral::V, vec![RomanNumeral::FlatII],
-            0.35, -1.0, 0.5, RuleCategory::TritoneSubstitution, 0
+            RomanNumeral::V,
+            vec![RomanNumeral::FlatII],
+            0.35,
+            -1.0,
+            0.5,
+            RuleCategory::TritoneSubstitution,
+            0,
         );
 
         // Règle 4 étendue: ii-bII-I (sub-dominant tritone)
         self.add_rule_ext(
-            RomanNumeral::V, vec![RomanNumeral::II, RomanNumeral::FlatII],
-            0.25, -1.0, 0.3, RuleCategory::TritoneSubstitution, 0
+            RomanNumeral::V,
+            vec![RomanNumeral::II, RomanNumeral::FlatII],
+            0.25,
+            -1.0,
+            0.3,
+            RuleCategory::TritoneSubstitution,
+            0,
         );
 
         // === DOMINANTES SECONDAIRES ===
         self.add_rule_ext(
-            RomanNumeral::VI, vec![RomanNumeral::VofVI, RomanNumeral::VI],
-            0.3, -1.0, 1.0, RuleCategory::Preparation, 0
+            RomanNumeral::VI,
+            vec![RomanNumeral::VofVI, RomanNumeral::VI],
+            0.3,
+            -1.0,
+            1.0,
+            RuleCategory::Preparation,
+            0,
         );
 
         self.add_rule_ext(
-            RomanNumeral::II, vec![RomanNumeral::VofII, RomanNumeral::II],
-            0.25, -1.0, 1.0, RuleCategory::Preparation, 0
+            RomanNumeral::II,
+            vec![RomanNumeral::VofII, RomanNumeral::II],
+            0.25,
+            -1.0,
+            1.0,
+            RuleCategory::Preparation,
+            0,
         );
 
         // === MOUVEMENT DÉCEPTIF ===
         self.add_rule_ext(
-            RomanNumeral::V, vec![RomanNumeral::VI],
-            0.3, -0.5, 0.5, RuleCategory::Deceptive, 0
+            RomanNumeral::V,
+            vec![RomanNumeral::VI],
+            0.3,
+            -0.5,
+            0.5,
+            RuleCategory::Deceptive,
+            0,
         );
 
         self.add_rule_ext(
-            RomanNumeral::V, vec![RomanNumeral::FlatVI],
-            0.2, -1.0, 0.0, RuleCategory::Deceptive, 0
+            RomanNumeral::V,
+            vec![RomanNumeral::FlatVI],
+            0.2,
+            -1.0,
+            0.0,
+            RuleCategory::Deceptive,
+            0,
         );
 
         // === MODAL INTERCHANGE ===
         self.add_rule_ext(
-            RomanNumeral::IV, vec![RomanNumeral::FlatVII, RomanNumeral::IV],
-            0.2, -0.5, 0.5, RuleCategory::ModalInterchange, 0
+            RomanNumeral::IV,
+            vec![RomanNumeral::FlatVII, RomanNumeral::IV],
+            0.2,
+            -0.5,
+            0.5,
+            RuleCategory::ModalInterchange,
+            0,
         );
 
         // I -> bVII-IV-I (backdoor progression)
         self.add_rule_ext(
-            RomanNumeral::I, vec![RomanNumeral::FlatVII, RomanNumeral::IV, RomanNumeral::I],
-            0.15, -0.5, 0.5, RuleCategory::ModalInterchange, 0
+            RomanNumeral::I,
+            vec![RomanNumeral::FlatVII, RomanNumeral::IV, RomanNumeral::I],
+            0.15,
+            -0.5,
+            0.5,
+            RuleCategory::ModalInterchange,
+            0,
         );
 
         // === ÉLABORATIONS DE TONIQUE ===
         self.add_rule_ext(
-            RomanNumeral::I, vec![RomanNumeral::VI, RomanNumeral::I],
-            0.4, -0.5, 0.5, RuleCategory::Cadential, 0
+            RomanNumeral::I,
+            vec![RomanNumeral::VI, RomanNumeral::I],
+            0.4,
+            -0.5,
+            0.5,
+            RuleCategory::Cadential,
+            0,
         );
 
         self.add_rule_ext(
-            RomanNumeral::I, vec![RomanNumeral::IV, RomanNumeral::I],
-            0.6, 0.2, 1.0, RuleCategory::Cadential, 0
+            RomanNumeral::I,
+            vec![RomanNumeral::IV, RomanNumeral::I],
+            0.6,
+            0.2,
+            1.0,
+            RuleCategory::Cadential,
+            0,
         );
 
         self.add_rule_ext(
-            RomanNumeral::I, vec![RomanNumeral::III, RomanNumeral::I],
-            0.3, -1.0, 0.3, RuleCategory::Cadential, 0
+            RomanNumeral::I,
+            vec![RomanNumeral::III, RomanNumeral::I],
+            0.3,
+            -1.0,
+            0.3,
+            RuleCategory::Cadential,
+            0,
         );
 
         // === PRÉPARATIONS DE SOUS-DOMINANTE ===
         self.add_rule_ext(
-            RomanNumeral::IV, vec![RomanNumeral::II, RomanNumeral::IV],
-            0.4, -1.0, 1.0, RuleCategory::Preparation, 0
+            RomanNumeral::IV,
+            vec![RomanNumeral::II, RomanNumeral::IV],
+            0.4,
+            -1.0,
+            1.0,
+            RuleCategory::Preparation,
+            0,
         );
     }
 
     /// Ajoute une règle de réécriture (version étendue)
+    #[allow(clippy::too_many_arguments)]
     fn add_rule_ext(
         &mut self,
         lhs: RomanNumeral,
@@ -509,16 +605,27 @@ impl SteedmanGrammar {
             },
             RomanNumeral::FlatVII => ChordType::Dominant7,
             // Dominantes secondaires: toujours dominant 7
-            RomanNumeral::VofV | RomanNumeral::VofII | RomanNumeral::VofIV |
-            RomanNumeral::VofVI | RomanNumeral::VofIII => ChordType::Dominant7,
+            RomanNumeral::VofV
+            | RomanNumeral::VofII
+            | RomanNumeral::VofIV
+            | RomanNumeral::VofVI
+            | RomanNumeral::VofIII => ChordType::Dominant7,
         };
 
         Chord::new(root, chord_type)
     }
 
-    /// Génère le prochain accord de la progression (stateful via RwLock)
+    /// Génère le prochain accord de la progression (stateful via `RwLock`)
     fn generate_next_stateful(&self, ctx: &HarmonyContext, rng: &mut dyn RngCore) -> RomanNumeral {
-        let mut state = self.state.write().unwrap();
+        let mut state = match self.state.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                // If the lock is poisoned, we can try to recover the data
+                // or just return a default value to prevent a crash.
+                // For a music generator, robustness is preferred.
+                poisoned.into_inner()
+            }
+        };
 
         // Si on a une progression en attente, la consommer
         if !state.pending_progression.is_empty() {
@@ -530,26 +637,27 @@ impl SteedmanGrammar {
         // Sinon, essayer d'étendre le symbole courant
         let rules = self.applicable_rules(state.current_numeral, ctx.valence);
 
-        let next_numeral = if let Some((expansion, category)) = self.select_rule_styled(&rules, &state, rng) {
-            // Tracker la récursion pour les règles de back-cycling
-            if category == RuleCategory::BackCycle {
-                state.increment_recursion(category);
-            }
+        let next_numeral =
+            if let Some((expansion, category)) = self.select_rule_styled(&rules, &state, rng) {
+                // Tracker la récursion pour les règles de back-cycling
+                if category == RuleCategory::BackCycle {
+                    state.increment_recursion(category);
+                }
 
-            if expansion.len() > 1 {
-                // Stocker les symboles suivants dans la progression en attente
-                // Ex: V → ii-V devient: retourne ii, garde [V] en attente
-                state.pending_progression = expansion[1..].to_vec();
-                expansion[0]
-            } else if !expansion.is_empty() {
-                expansion[0]
+                if expansion.len() > 1 {
+                    // Stocker les symboles suivants dans la progression en attente
+                    // Ex: V → ii-V devient: retourne ii, garde [V] en attente
+                    state.pending_progression = expansion[1..].to_vec();
+                    expansion[0]
+                } else if !expansion.is_empty() {
+                    expansion[0]
+                } else {
+                    self.default_progression_for(state.current_numeral, ctx, rng)
+                }
             } else {
+                // Fallback: mouvement par quinte ou progression standard
                 self.default_progression_for(state.current_numeral, ctx, rng)
-            }
-        } else {
-            // Fallback: mouvement par quinte ou progression standard
-            self.default_progression_for(state.current_numeral, ctx, rng)
-        };
+            };
 
         // Reset la récursion quand on arrive à une résolution (I)
         if next_numeral == RomanNumeral::I {
@@ -561,7 +669,12 @@ impl SteedmanGrammar {
     }
 
     /// Progression par défaut quand aucune règle ne s'applique
-    fn default_progression_for(&self, current: RomanNumeral, ctx: &HarmonyContext, rng: &mut dyn RngCore) -> RomanNumeral {
+    fn default_progression_for(
+        &self,
+        current: RomanNumeral,
+        ctx: &HarmonyContext,
+        rng: &mut dyn RngCore,
+    ) -> RomanNumeral {
         let choice = rng.next_f32();
 
         // Progression cyclique basée sur le cercle des quintes
@@ -600,15 +713,15 @@ impl SteedmanGrammar {
             RomanNumeral::VofVI => RomanNumeral::VI,
             RomanNumeral::VofIII => RomanNumeral::III,
             // Substitution tritonique et modal interchange
-            RomanNumeral::FlatII => RomanNumeral::I,  // bII7 résout sur I
+            RomanNumeral::FlatII => RomanNumeral::I, // bII7 résout sur I
             RomanNumeral::FlatVI => {
                 if choice < 0.5 {
-                    RomanNumeral::V  // bVI -> V (backdoor)
+                    RomanNumeral::V // bVI -> V (backdoor)
                 } else {
-                    RomanNumeral::I  // bVI -> I (plagal mineur)
+                    RomanNumeral::I // bVI -> I (plagal mineur)
                 }
             }
-            RomanNumeral::FlatVII => RomanNumeral::IV,  // bVII -> IV
+            RomanNumeral::FlatVII => RomanNumeral::IV, // bVII -> IV
         }
     }
 
@@ -635,11 +748,7 @@ impl HarmonyStrategy for SteedmanGrammar {
         let level = self.lcc.level_for_tension(ctx.tension);
         let suggested_scale = self.lcc.get_scale(parent, level);
 
-        HarmonyDecision {
-            next_chord,
-            transition_type: TransitionType::Functional,
-            suggested_scale,
-        }
+        HarmonyDecision { next_chord, transition_type: TransitionType::Functional, suggested_scale }
     }
 
     fn name(&self) -> &'static str {
@@ -651,7 +760,7 @@ impl SteedmanGrammar {
     /// Déduit le numeral romain d'un accord basé sur la tonique globale
     /// (Utilisé pour les tests et potentiellement pour analyse future)
     #[allow(dead_code)]
-    fn deduce_numeral(&self, chord: &Chord, key: PitchClass) -> RomanNumeral {
+    const fn deduce_numeral(&self, chord: &Chord, key: PitchClass) -> RomanNumeral {
         let interval = (chord.root + 12 - key) % 12;
 
         match interval {

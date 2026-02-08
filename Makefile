@@ -147,6 +147,35 @@ python/run:
 	. .venv/bin/activate && python3 scripts/video_to_osc.py --video "$(VIDEO)"
 
 # ════════════════════════════════════════════════════════════════════
+# QUALITY & CI
+# ════════════════════════════════════════════════════════════════════
+
+fmt:
+	cargo fmt --all -- --check
+
+lint: web/build-vst
+	cargo clippy --workspace --all-targets --all-features -- -A clippy::all -W clippy::unwrap_used -W clippy::panic -W clippy::todo -W clippy::expect_used
+
+# Override test to use workspace
+test:
+	cargo test --workspace
+
+audit:
+	# Checks for security vulnerabilities in dependencies
+	cargo audit
+
+quality: fmt lint test web/quality
+	@echo "✨ All quality checks passed!"
+
+web/check:
+	cd web && npm run check
+
+web/lint:
+	cd web && npm run lint
+
+web/quality: web/check web/lint
+
+# ════════════════════════════════════════════════════════════════════
 # RELEASE BUILDS (Universal macOS binaries)
 # ════════════════════════════════════════════════════════════════════
 

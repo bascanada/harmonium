@@ -6,16 +6,15 @@
 use nih_plug::prelude::*;
 
 // General MIDI Drum Map (Standard)
-const GM_KICK: u8 = 36;      // C1 - Bass Drum
-const GM_SNARE: u8 = 38;     // D1 - Snare
+const GM_KICK: u8 = 36; // C1 - Bass Drum
+const GM_SNARE: u8 = 38; // D1 - Snare
 const GM_HIHAT_CLOSED: u8 = 42; // F#1 - Closed Hi-Hat
 use std::sync::{Arc, Mutex};
 
-use crate::engine::{HarmoniumEngine, EngineParams};
 use harmonium_audio::backend::vst_midi_backend::VstMidiBackend;
-use harmonium_core::params::ControlMode;
-use harmonium_core::sequencer::RhythmMode;
-use harmonium_core::harmony::HarmonyMode;
+use harmonium_core::{harmony::HarmonyMode, params::ControlMode, sequencer::RhythmMode};
+
+use crate::engine::{EngineParams, HarmoniumEngine};
 
 /// Main Harmonium VST Plugin
 pub struct HarmoniumPlugin {
@@ -40,7 +39,6 @@ pub struct HarmoniumParams {
     // ═══════════════════════════════════════════════════════════════════
     // MODE SELECTION
     // ═══════════════════════════════════════════════════════════════════
-
     /// Control mode: Emotional (mapped) or Technical (direct)
     #[id = "control_mode"]
     pub control_mode: BoolParam,
@@ -48,7 +46,6 @@ pub struct HarmoniumParams {
     // ═══════════════════════════════════════════════════════════════════
     // EMOTIONAL PARAMETERS (when control_mode = true)
     // ═══════════════════════════════════════════════════════════════════
-
     /// Arousal (0-1) - Energy level, affects BPM
     #[id = "arousal"]
     pub arousal: FloatParam,
@@ -72,7 +69,6 @@ pub struct HarmoniumParams {
     // ═══════════════════════════════════════════════════════════════════
     // TECHNICAL PARAMETERS (when control_mode = false)
     // ═══════════════════════════════════════════════════════════════════
-
     /// BPM (70-180)
     #[id = "bpm"]
     pub bpm: FloatParam,
@@ -100,7 +96,6 @@ pub struct HarmoniumParams {
     // ═══════════════════════════════════════════════════════════════════
     // MODULE TOGGLES
     // ═══════════════════════════════════════════════════════════════════
-
     /// Enable Rhythm Module
     #[id = "enable_rhythm"]
     pub enable_rhythm: BoolParam,
@@ -120,7 +115,6 @@ pub struct HarmoniumParams {
     // ═══════════════════════════════════════════════════════════════════
     // CHANNEL MUTES
     // ═══════════════════════════════════════════════════════════════════
-
     /// Mute Bass/Kick (Channel 0)
     #[id = "mute_bass"]
     pub mute_bass: BoolParam,
@@ -142,10 +136,11 @@ impl Default for HarmoniumParams {
     fn default() -> Self {
         Self {
             // Control Mode
-            control_mode: BoolParam::new("Emotion Mode", true)
-                .with_value_to_string(Arc::new(|v| {
+            control_mode: BoolParam::new("Emotion Mode", true).with_value_to_string(Arc::new(
+                |v| {
                     if v { "Emotional".to_string() } else { "Technical".to_string() }
-                })),
+                },
+            )),
 
             // Emotional Parameters
             arousal: FloatParam::new("Arousal", 0.5, FloatRange::Linear { min: 0.0, max: 1.0 })
@@ -155,9 +150,13 @@ impl Default for HarmoniumParams {
             valence: FloatParam::new("Valence", 0.3, FloatRange::Linear { min: -1.0, max: 1.0 })
                 .with_unit(" Mood")
                 .with_value_to_string(Arc::new(|v| {
-                    if v > 0.3 { format!("{:.0}% Happy", v * 100.0) }
-                    else if v < -0.3 { format!("{:.0}% Sad", v.abs() * 100.0) }
-                    else { "Neutral".to_string() }
+                    if v > 0.3 {
+                        format!("{:.0}% Happy", v * 100.0)
+                    } else if v < -0.3 {
+                        format!("{:.0}% Sad", v.abs() * 100.0)
+                    } else {
+                        "Neutral".to_string()
+                    }
                 })),
 
             density: FloatParam::new("Density", 0.4, FloatRange::Linear { min: 0.0, max: 1.0 })
@@ -168,19 +167,22 @@ impl Default for HarmoniumParams {
                 .with_unit(" Dissonance")
                 .with_value_to_string(formatters::v2s_f32_percentage(0)),
 
-            smoothness: FloatParam::new("Smoothness", 0.7, FloatRange::Linear { min: 0.0, max: 1.0 })
-                .with_unit(" Flow")
-                .with_value_to_string(formatters::v2s_f32_percentage(0)),
+            smoothness: FloatParam::new(
+                "Smoothness",
+                0.7,
+                FloatRange::Linear { min: 0.0, max: 1.0 },
+            )
+            .with_unit(" Flow")
+            .with_value_to_string(formatters::v2s_f32_percentage(0)),
 
             // Technical Parameters
             bpm: FloatParam::new("BPM", 120.0, FloatRange::Linear { min: 70.0, max: 180.0 })
                 .with_unit(" BPM")
                 .with_value_to_string(formatters::v2s_f32_rounded(0)),
 
-            rhythm_mode: BoolParam::new("Rhythm Mode", false)
-                .with_value_to_string(Arc::new(|v| {
-                    if v { "PerfectBalance".to_string() } else { "Euclidean".to_string() }
-                })),
+            rhythm_mode: BoolParam::new("Rhythm Mode", false).with_value_to_string(Arc::new(|v| {
+                if v { "PerfectBalance".to_string() } else { "Euclidean".to_string() }
+            })),
 
             rhythm_steps: IntParam::new("Steps", 16, IntRange::Linear { min: 4, max: 192 }),
 
@@ -188,10 +190,11 @@ impl Default for HarmoniumParams {
 
             rhythm_rotation: IntParam::new("Rotation", 0, IntRange::Linear { min: 0, max: 15 }),
 
-            harmony_mode: BoolParam::new("Harmony Mode", true)
-                .with_value_to_string(Arc::new(|v| {
+            harmony_mode: BoolParam::new("Harmony Mode", true).with_value_to_string(Arc::new(
+                |v| {
                     if v { "Driver (Advanced)".to_string() } else { "Basic".to_string() }
-                })),
+                },
+            )),
 
             // Module Toggles
             enable_rhythm: BoolParam::new("Enable Rhythm", true),
@@ -212,7 +215,8 @@ impl Default for HarmoniumPlugin {
     fn default() -> Self {
         let params = Arc::new(HarmoniumParams::default());
         // Phase 3: Create triple buffer for lock-free UI→Audio parameter updates
-        let (target_params_input, target_params_output) = triple_buffer::triple_buffer(&EngineParams::default());
+        let (target_params_input, target_params_output) =
+            triple_buffer::triple_buffer(&EngineParams::default());
         let control_mode = Arc::new(Mutex::new(ControlMode::default()));
         let midi_backend = Arc::new(Mutex::new(VstMidiBackend::new()));
         let target_state = Arc::new(Mutex::new(EngineParams::default()));
@@ -221,11 +225,11 @@ impl Default for HarmoniumPlugin {
         Self {
             params,
             engine: None,
-            harmony_state_rx_for_editor,  // Phase 2: Initialized in initialize()
-            event_queue_rx: None,    // Phase 2: Initialized in initialize()
+            harmony_state_rx_for_editor, // Phase 2: Initialized in initialize()
+            event_queue_rx: None,        // Phase 2: Initialized in initialize()
             midi_backend,
             target_params_input,
-            target_params_output: Some(target_params_output),  // Phase 3: Stored until activate()
+            target_params_output: Some(target_params_output), // Phase 3: Stored until activate()
             target_state,
             control_mode,
             sample_rate: 44100.0,
@@ -241,11 +245,11 @@ impl HarmoniumPlugin {
     /// Channel 3 (Hi-Hat) → GM_HIHAT_CLOSED (42)
     fn map_note_for_channel(channel: u8, original_note: u8) -> u8 {
         match channel {
-            0 => GM_KICK,           // Bass/Kick → C1
-            1 => original_note,      // Melody → Keep musical note
-            2 => GM_SNARE,          // Snare → D1
-            3 => GM_HIHAT_CLOSED,   // Hi-Hat → F#1
-            _ => original_note,      // Unknown → Keep original
+            0 => GM_KICK,         // Bass/Kick → C1
+            1 => original_note,   // Melody → Keep musical note
+            2 => GM_SNARE,        // Snare → D1
+            3 => GM_HIHAT_CLOSED, // Hi-Hat → F#1
+            _ => original_note,   // Unknown → Keep original
         }
     }
 
@@ -256,8 +260,13 @@ impl HarmoniumPlugin {
         // Check if webview is controlling
         let (webview_controls_emotions, webview_controls_mode, webview_controls_direct) =
             if let Ok(mode) = self.control_mode.lock() {
-                (mode.webview_controls_emotions, mode.webview_controls_mode, mode.webview_controls_direct)
+                (
+                    mode.webview_controls_emotions,
+                    mode.webview_controls_mode,
+                    mode.webview_controls_direct,
+                )
             } else {
+                nih_log!("[WARN] Failed to lock control_mode in sync_params_to_engine");
                 (false, false, false)
             };
 
@@ -273,6 +282,8 @@ impl HarmoniumPlugin {
                 params.tension = state.tension;
                 // Publish to engine via triple buffer
                 self.target_params_input.write(params);
+            } else {
+                nih_log!("[WARN] Failed to lock target_state in sync_params_to_engine");
             }
         }
 
@@ -326,6 +337,8 @@ impl HarmoniumPlugin {
                     self.params.mute_hat.value(),
                 ];
             }
+        } else {
+            nih_log!("[WARN] Failed to lock control_mode for update in sync_params_to_engine");
         }
 
         // Only sync emotional params from DAW if webview is NOT controlling
@@ -426,7 +439,12 @@ impl Plugin for HarmoniumPlugin {
 
         self.engine = Some(engine);
         // Move harmony_state_rx to editor wrapper (not used by process())
-        *self.harmony_state_rx_for_editor.lock().unwrap() = Some(harmony_state_rx);
+        if let Ok(mut lock) = self.harmony_state_rx_for_editor.lock() {
+            *lock = Some(harmony_state_rx);
+        } else {
+            nih_log!("[ERROR] Failed to lock harmony_state_rx_for_editor in initialize");
+            return false;
+        }
         self.event_queue_rx = Some(event_queue_rx);
 
         true
@@ -436,6 +454,8 @@ impl Plugin for HarmoniumPlugin {
         // Clear any pending MIDI events
         if let Ok(mut backend) = self.midi_backend.lock() {
             backend.clear();
+        } else {
+            nih_log!("[WARN] Failed to lock midi_backend in reset");
         }
     }
 
@@ -530,19 +550,15 @@ impl ClapPlugin for HarmoniumPlugin {
     const CLAP_ID: &'static str = "com.bascanada.harmonium";
     const CLAP_DESCRIPTION: Option<&'static str> = Some("AI-powered generative music MIDI plugin");
     const CLAP_MANUAL_URL: Option<&'static str> = Some("https://github.com/bascanada/harmonium");
-    const CLAP_SUPPORT_URL: Option<&'static str> = Some("https://github.com/bascanada/harmonium/issues");
-    const CLAP_FEATURES: &'static [ClapFeature] = &[
-        ClapFeature::NoteEffect,
-        ClapFeature::Utility,
-    ];
+    const CLAP_SUPPORT_URL: Option<&'static str> =
+        Some("https://github.com/bascanada/harmonium/issues");
+    const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::NoteEffect, ClapFeature::Utility];
 }
 
 impl Vst3Plugin for HarmoniumPlugin {
     const VST3_CLASS_ID: [u8; 16] = *b"HarmoniumMIDIGen";
-    const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[
-        Vst3SubCategory::Instrument,
-        Vst3SubCategory::Generator,
-    ];
+    const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
+        &[Vst3SubCategory::Instrument, Vst3SubCategory::Generator];
 }
 
 // Export the plugin

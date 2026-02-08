@@ -1,4 +1,4 @@
-use fundsp::hacker32::*;
+use fundsp::hacker32::AudioUnit;
 
 pub struct BlockRateAdapter {
     block: Box<dyn AudioUnit>,
@@ -6,6 +6,7 @@ pub struct BlockRateAdapter {
 }
 
 impl BlockRateAdapter {
+    #[must_use]
     pub fn new(mut block: Box<dyn AudioUnit>, sample_rate: f64) -> Self {
         block.set_sample_rate(sample_rate);
         block.allocate();
@@ -16,7 +17,8 @@ impl BlockRateAdapter {
         self.block.get_stereo()
     }
 
-    pub fn sample_rate(&self) -> f64 {
+    #[must_use]
+    pub const fn sample_rate(&self) -> f64 {
         self.sample_rate
     }
 }

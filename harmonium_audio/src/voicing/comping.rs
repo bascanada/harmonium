@@ -28,6 +28,7 @@ impl CompingPattern {
     /// # Arguments
     /// * `steps` - Nombre de steps dans le pattern (8, 16, etc.)
     /// * `density` - Densité du pattern (0.0 = sparse, 1.0 = dense)
+    #[must_use]
     pub fn euclidean(steps: usize, density: f32) -> Self {
         let density = density.clamp(0.0, 1.0);
 
@@ -37,14 +38,11 @@ impl CompingPattern {
 
         let pattern = generate_euclidean_bools(steps, pulses);
 
-        Self {
-            pattern,
-            steps,
-            density,
-        }
+        Self { pattern, steps, density }
     }
 
     /// Vérifie si le step donné est actif (doit jouer)
+    #[must_use]
     pub fn is_active(&self, step: usize) -> bool {
         if self.pattern.is_empty() {
             return true; // Fallback: toujours jouer
@@ -60,17 +58,20 @@ impl CompingPattern {
     }
 
     /// Retourne le nombre de pulses actifs
+    #[must_use]
     pub fn pulse_count(&self) -> usize {
         self.pattern.iter().filter(|&&b| b).count()
     }
 
     /// Retourne le pattern complet (pour debug/visualisation)
+    #[must_use]
     pub fn pattern(&self) -> &[bool] {
         &self.pattern
     }
 
     /// Retourne le nombre de steps
-    pub fn steps(&self) -> usize {
+    #[must_use]
+    pub const fn steps(&self) -> usize {
         self.steps
     }
 }
