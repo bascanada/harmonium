@@ -78,6 +78,7 @@ pub struct BevyEngineParams {
     pub record_wav: bool,
     pub record_midi: bool,
     pub record_musicxml: bool,
+    pub record_truth: bool,
 
     pub enable_synthesis_morphing: bool,
 
@@ -108,6 +109,7 @@ impl Default for BevyEngineParams {
             record_wav: false,
             record_midi: false,
             record_musicxml: false,
+            record_truth: false,
             enable_synthesis_morphing: true,
             gain_lead: 1.0,
             gain_bass: 1.0,
@@ -136,6 +138,7 @@ impl From<BevyEngineParams> for EngineParams {
             record_wav: params.record_wav,
             record_midi: params.record_midi,
             record_musicxml: params.record_musicxml,
+            record_truth: params.record_truth,
             enable_synthesis_morphing: params.enable_synthesis_morphing,
             gain_lead: params.gain_lead,
             gain_bass: params.gain_bass,
@@ -164,6 +167,7 @@ impl From<EngineParams> for BevyEngineParams {
             record_wav: params.record_wav,
             record_midi: params.record_midi,
             record_musicxml: params.record_musicxml,
+            record_truth: params.record_truth,
             enable_synthesis_morphing: params.enable_synthesis_morphing,
             gain_lead: params.gain_lead,
             gain_bass: params.gain_bass,

@@ -3964,7 +3964,9 @@ dependencies = [
  "once_cell",
  "oxisynth",
  "rand 0.8.5",
+ "roxmltree",
  "serde",
+ "serde_json",
  "toml 0.7.8",
 ]
 

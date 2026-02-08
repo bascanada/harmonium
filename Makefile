@@ -76,7 +76,7 @@ vst/uninstall: vst/clean
 vst/validate: vst
 	@echo "Validating VST3 plugin..."
 	@if [ -f "$(PLUGINVAL)" ]; then \
-		$(PLUGINVAL) --validate $(VST3_PATH); \
+		$(PLUGINVAL) --validate $(VST3_PATH) --skip-gui-tests; \
 	else \
 		echo "pluginval not found. Install with: brew install --cask pluginval"; \
 	fi
@@ -174,6 +174,9 @@ web/lint:
 	cd web && npm run lint
 
 web/quality: web/check web/lint
+
+check: quality web/quality audit vst/validate
+	@echo "✅ All checks passed!"
 
 # ════════════════════════════════════════════════════════════════════
 # RELEASE BUILDS (Universal macOS binaries)

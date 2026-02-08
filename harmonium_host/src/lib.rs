@@ -573,6 +573,7 @@ impl Handle {
                 events::RecordFormat::Wav => "wav".to_string(),
                 events::RecordFormat::Midi => "midi".to_string(),
                 events::RecordFormat::MusicXml => "musicxml".to_string(),
+                events::RecordFormat::Truth => "truth".to_string(),
             };
             return Some(RecordedData { format_str, data });
         }
