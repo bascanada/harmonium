@@ -15,6 +15,7 @@ use rust_music_theory::{
 use super::basic::ChordQuality;
 use crate::fractal::PinkNoise;
 
+#[derive(Clone)]
 pub struct HarmonyNavigator {
     pub current_scale: Scale,
     pub current_index: i32,

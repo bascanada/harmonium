@@ -61,6 +61,7 @@ pub enum CompositeOp {
 }
 
 /// Moteur Neo-Riemannian avec tables de lookup pré-calculées
+#[derive(Clone)]
 pub struct NeoRiemannianEngine {
     /// Table P: index = root * 2 + (`is_minor` ? 1 : 0)
     p_table: [(PitchClass, bool); 24],

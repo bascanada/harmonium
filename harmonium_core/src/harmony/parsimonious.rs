@@ -113,6 +113,7 @@ pub enum ParsimoniousTransform {
 /// Contrairement au `NeoRiemannianEngine` qui utilise des tables de lookup
 /// pré-calculées, ce moteur explore dynamiquement l'espace des accords
 /// pour trouver les voisins les plus proches.
+#[derive(Clone)]
 pub struct ParsimoniousDriver {
     /// Contexte LCC pour les suggestions de gammes
     lcc: Arc<LydianChromaticConcept>,

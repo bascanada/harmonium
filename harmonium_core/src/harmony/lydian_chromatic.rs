@@ -80,6 +80,7 @@ impl LccLevel {
 }
 
 /// Le module Lydian Chromatic Concept complet
+#[derive(Clone, Copy)]
 pub struct LydianChromaticConcept {
     /// Intervalles pré-calculés pour chaque niveau (en demi-tons depuis root)
     scale_intervals: [[u8; 8]; 12],

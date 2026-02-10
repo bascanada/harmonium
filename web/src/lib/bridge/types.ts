@@ -138,6 +138,10 @@ export interface HarmoniumBridge {
 
 	// === State Getters (for initial sync) ===
 	getState(): EngineState | null;
+
+	// === Look-ahead Simulation ===
+	getLookaheadTruth(steps: number): string;
+}
 }
 
 // Factory function type

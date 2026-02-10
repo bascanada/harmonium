@@ -50,6 +50,7 @@ impl StrategyMode {
 /// - Steedman: Harmonie fonctionnelle (basse tension)
 /// - Neo-Riemannian: Transformations géométriques pour triades (haute tension)
 /// - Parsimonious: Voice-leading parsimonieux pour tous accords (haute tension + tétracordes)
+#[derive(Clone)]
 pub struct HarmonicDriver {
     /// Moteur Steedman Grammar (enhanced V2)
     steedman: SteedmanGrammar,

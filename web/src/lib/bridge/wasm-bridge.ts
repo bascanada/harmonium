@@ -75,6 +75,11 @@ export class WasmBridge extends BaseBridge {
 		}
 	}
 
+	getLookaheadTruth(steps: number): string {
+		if (!this.handle) return '{}';
+		return (this.handle as any).get_lookahead_truth(BigInt(steps));
+	}
+
 	private startPolling(): void {
 		const poll = () => {
 			if (!this.handle) return;
@@ -107,6 +112,12 @@ export class WasmBridge extends BaseBridge {
 	private collectState(): boolean {
 		const h = this.handle!;
 		let changed = false;
+
+		// Fetch latest harmony state from engine once per collection
+		// and use it as a trigger for changes
+		if ((h as any).fetch_harmony_state && (h as any).fetch_harmony_state()) {
+			changed = true;
+		}
 
 		// Helper to update primitive fields
 		const update = <K extends keyof EngineState>(key: K, value: EngineState[K]) => {

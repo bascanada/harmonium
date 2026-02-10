@@ -13,6 +13,7 @@ use super::{
 /// Technique popularisée par George Shearing et Milt Buckner.
 /// La mélodie est doublée à l'octave inférieure avec des harmonies
 /// de la gamme LCC entre les deux.
+#[derive(Clone)]
 pub struct BlockChordVoicer {
     /// Pattern de comping euclidien
     comping: CompingPattern,
@@ -55,6 +56,10 @@ impl BlockChordVoicer {
 }
 
 impl Voicer for BlockChordVoicer {
+    fn clone_box(&self) -> Box<dyn Voicer> {
+        Box::new(self.clone())
+    }
+
     fn name(&self) -> &'static str {
         "Block Chords"
     }

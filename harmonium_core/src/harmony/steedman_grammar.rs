@@ -202,6 +202,16 @@ struct GrammarState {
     style: GrammarStyle,
 }
 
+impl Clone for SteedmanGrammar {
+    fn clone(&self) -> Self {
+        Self {
+            rules: self.rules.clone(),
+            lcc: self.lcc.clone(),
+            state: RwLock::new(self.state.read().unwrap_or_else(|p| p.into_inner()).clone()),
+        }
+    }
+}
+
 impl GrammarState {
     fn new() -> Self {
         Self {

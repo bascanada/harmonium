@@ -157,6 +157,15 @@ export class VstBridge extends BaseBridge {
 		);
 	}
 
+	getState(): EngineState | null {
+		return { ...this.currentState };
+	}
+
+	getLookaheadTruth(_steps: number): string {
+		// Lookahead IPC not yet implemented for VST
+		return '{}';
+	}
+
 	private handleMessage = (msg: unknown) => {
 		try {
 			// Message is already parsed by nih-plug-webview

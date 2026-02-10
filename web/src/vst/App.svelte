@@ -4,8 +4,8 @@
 	import { VstBridge } from '$lib/bridge/vst-bridge';
 	import { type HarmoniumBridge, type EngineState, createEmptyState } from '$lib/bridge/types';
 	import ControlPanel from '$lib/components/controls/ControlPanel.svelte';
-	import RhythmVisualizer from '$lib/components/visualizations/RhythmVisualizer.svelte';
-	import ChordProgression from '$lib/components/visualizations/ChordProgression.svelte';
+	import RhythmVisualizer from '$lib/components/visualizations/rhythm/RhythmVisualizer.svelte';
+	import ChordProgression from '$lib/components/visualizations/harmony/ChordProgression.svelte';
 
 	let bridge: HarmoniumBridge | null = null;
 	let state: EngineState = createEmptyState();
