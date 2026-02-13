@@ -413,7 +413,7 @@ fn main() {
 
     let control_mode =
         std::sync::Arc::new(std::sync::Mutex::new(harmonium::params::ControlMode::default()));
-    let (_stream, config, _, _, _, finished_recordings) =
+    let (_stream, config, _, _, _, finished_recordings, _) =
         audio::create_stream(target_params_output, control_mode, sf2_data.as_deref(), backend_type)
             .expect("Failed to create audio stream");
 

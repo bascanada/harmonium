@@ -8,9 +8,10 @@
 		createEmptyState
 	} from '$lib/bridge/types';
 	import ControlPanel from '$lib/components/controls/ControlPanel.svelte';
-	import RhythmVisualizer from '$lib/components/visualizations/RhythmVisualizer.svelte';
-	import ChordProgression from '$lib/components/visualizations/ChordProgression.svelte';
-	import MorphVisualization from '$lib/components/visualizations/MorphVisualization.svelte';
+	import RhythmVisualizer from '$lib/components/visualizations/rhythm/RhythmVisualizer.svelte';
+	import ChordProgression from '$lib/components/visualizations/harmony/ChordProgression.svelte';
+	import MorphVisualization from '$lib/components/visualizations/morph/MorphVisualization.svelte';
+	import MusicSheet from '$lib/components/visualizations/MusicSheet.svelte';
 	import init, { get_available_backends } from 'harmonium';
 
 	let bridge: HarmoniumBridge | null = null;
@@ -522,6 +523,10 @@
 			<div class="grid w-full grid-cols-1 gap-8 lg:grid-cols-2">
 				<!-- Left: Visualizations -->
 				<div class="flex flex-col gap-6">
+					{#if bridge}
+						<MusicSheet {bridge} steps={32} />
+					{/if}
+
 					<RhythmVisualizer
 						rhythmMode={state.rhythmMode}
 						primarySteps={state.primarySteps}

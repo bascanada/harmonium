@@ -30,6 +30,7 @@ pub enum PivotType {
 }
 
 /// Détecteur et générateur d'accords pivot
+#[derive(Clone)]
 pub struct PivotDetector {
     lcc: Arc<LydianChromaticConcept>,
 }

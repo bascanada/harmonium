@@ -121,6 +121,9 @@
 		{#each points as point (point.id)}
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
 			<div
+				data-testid="morph-point"
+				data-point-id={point.id}
+				aria-label={point.label || point.id}
 				class="group absolute flex -translate-x-1/2 -translate-y-1/2 transform cursor-grab flex-col items-center active:cursor-grabbing"
 				style="
           left: {toPercentX(point.x)}%; 

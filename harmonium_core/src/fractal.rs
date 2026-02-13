@@ -1,5 +1,6 @@
 use rand::Rng;
 
+#[derive(Clone)]
 pub struct PinkNoise {
     rows: Vec<f32>,
     index: usize,

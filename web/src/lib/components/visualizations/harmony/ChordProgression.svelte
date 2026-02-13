@@ -26,6 +26,8 @@
 		{#each progressionChords as chord, index}
 			<div class="flex items-center">
 				<div
+					data-testid="progression-chord"
+					data-active={currentChord === chord}
 					class="flex h-12 w-12 items-center justify-center rounded-full text-lg font-bold transition-all duration-300
             {currentChord === chord
 						? 'scale-110 bg-purple-600 text-white shadow-lg shadow-purple-500/50'
@@ -41,8 +43,13 @@
 	</div>
 
 	<div class="flex items-center justify-between rounded bg-neutral-900/50 p-2">
-		<span class="text-sm text-neutral-400">Measure {currentMeasure}</span>
-		<span class="text-2xl font-bold {isMinorChord ? 'text-blue-400' : 'text-yellow-400'}">
+		<span class="text-sm text-neutral-400" data-testid="measure-display"
+			>Measure {currentMeasure}</span
+		>
+		<span
+			data-testid="current-chord-display"
+			class="text-2xl font-bold {isMinorChord ? 'text-blue-400' : 'text-yellow-400'}"
+		>
 			{currentChord}
 		</span>
 	</div>

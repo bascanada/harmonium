@@ -37,13 +37,9 @@ fn xml_escape(s: &str) -> String {
     }
     result
 }
-use std::{
-    collections::HashMap,
-    fmt::Write as FmtWrite,
-    io::Write,
-    path::Path,
-    time::{SystemTime, UNIX_EPOCH},
-};
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::{collections::HashMap, fmt::Write as FmtWrite, io::Write, path::Path};
 
 use crate::params::MusicalParams;
 
@@ -91,6 +87,7 @@ fn chrono_date() -> String {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 const fn is_leap_year(year: i64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }

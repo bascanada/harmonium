@@ -19,3 +19,7 @@ pkg/
 *.mid*
 
 .obsidian
+
+
+.venv-omr
+temp_omr

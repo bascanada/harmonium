@@ -52,7 +52,15 @@
 <div class="circle-container" style="width: {radius * 2}px; height: {radius * 2}px;">
 	<svg viewBox="0 0 100 100">
 		<!-- Background Circle -->
-		<circle cx="50" cy="50" r="45" stroke="#333" stroke-width="0.5" fill="none" />
+		<circle
+			cx="50"
+			cy="50"
+			r="45"
+			stroke="#333"
+			stroke-width="0.5"
+			fill="none"
+			aria-label="background-circle"
+		/>
 
 		<!-- Polygon -->
 		<polygon points={path} fill={color} fill-opacity="0.1" stroke={color} stroke-width="1.5" />
@@ -66,6 +74,9 @@
 					r={point.isCurrent ? 3 : 2}
 					fill={color}
 					class:current={point.isCurrent}
+					role="listitem"
+					aria-label="pulse-dot"
+					data-testid={point.isCurrent ? 'current-step' : undefined}
 				/>
 			{/if}
 		{/each}

@@ -88,6 +88,7 @@ impl Polygon {
 
 // --- SEQUENCER STRUCT ---
 
+#[derive(Clone)]
 pub struct Sequencer {
     pub steps: usize,
     pub pulses: usize,

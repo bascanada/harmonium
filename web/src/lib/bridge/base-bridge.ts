@@ -19,6 +19,7 @@ export abstract class BaseBridge implements HarmoniumBridge {
 	abstract disconnect(): void;
 	abstract isConnected(): boolean;
 	abstract getAvailableBackends(): AudioBackendType[];
+	abstract getLookaheadTruth(steps: number): string;
 
 	/**
 	 * Send a command to the engine backend.

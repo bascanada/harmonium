@@ -1,31 +1,34 @@
 <script lang="ts">
 	import type { HarmoniumBridge } from '$lib/bridge';
 
-	// Props
-	export let bridge: HarmoniumBridge;
-	export let filterCutoff: number;
-	export let reverbMix: number;
-	export let expression: number;
+	// Svelte 5 Props Destructuring
+	let { bridge, filterCutoff, reverbMix, expression } = $props<{
+		bridge: HarmoniumBridge;
+		filterCutoff: number;
+		reverbMix: number;
+		expression: number;
+	}>();
 
-	// Local state for controls - decoupled during active editing
-	let local = {
+	// Svelte 5 State - Local state for controls (decoupled during active editing)
+	let local = $state({
 		filterCutoff,
 		reverbMix,
 		expression
-	};
+	});
 
-	// Track if user is actively editing (prevent prop overwrite)
-	let isEditing = false;
-	let editTimeout: ReturnType<typeof setTimeout> | null = null;
+	let isEditing = $state(false);
+	let editTimeout: ReturnType<typeof setTimeout> | null = $state(null);
 
-	// Sync props to local ONLY when not editing
-	$: if (!isEditing) {
-		local = {
-			filterCutoff,
-			reverbMix,
-			expression
-		};
-	}
+	// Svelte 5 Effect - Sync props to local ONLY when not editing
+	$effect(() => {
+		if (!isEditing) {
+			local = {
+				filterCutoff,
+				reverbMix,
+				expression
+			};
+		}
+	});
 
 	function startEditing() {
 		isEditing = true;

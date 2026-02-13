@@ -14,6 +14,7 @@ use super::{
 /// Style minimaliste: mélodie + tierce + septième.
 /// Populaire en jazz Be-Bop car il laisse de l'espace pour
 /// les lignes mélodiques complexes.
+#[derive(Clone)]
 pub struct ShellVoicer {
     /// Pattern de comping euclidien
     comping: CompingPattern,
@@ -44,6 +45,10 @@ impl ShellVoicer {
 }
 
 impl Voicer for ShellVoicer {
+    fn clone_box(&self) -> Box<dyn Voicer> {
+        Box::new(self.clone())
+    }
+
     fn name(&self) -> &'static str {
         "Shell Voicings"
     }

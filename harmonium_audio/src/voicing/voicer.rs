@@ -58,6 +58,9 @@ impl VoicedNote {
 
 /// Trait principal pour les voicers - swappable dynamiquement
 pub trait Voicer: Send + Sync {
+    /// Permet de cloner un Box<dyn Voicer>
+    fn clone_box(&self) -> Box<dyn Voicer>;
+
     /// Nom du voicer (pour debug/UI)
     fn name(&self) -> &'static str;
 

@@ -12,7 +12,7 @@ pub mod engine;
 pub use harmonium_ai::ai;
 pub use harmonium_ai::mapper;
 pub use harmonium_audio::{backend, realtime, synthesis, voice_manager, voicing};
-pub use harmonium_core::{events, fractal, harmony, log, params, sequencer};
+pub use harmonium_core::{events, fractal, harmony, log, params, sequencer, truth};
 
 // Real-time safety: Global allocator that panics on allocations in audio thread (debug builds only)
 // Uses fully qualified path to avoid local mod ambiguity
@@ -106,6 +106,8 @@ pub struct Handle {
     font_queue: FontQueue,
     /// Enregistrements terminés
     finished_recordings: FinishedRecordings,
+    /// Snapshot du moteur pour simulation UI
+    symbolic_state_rx: Arc<Mutex<triple_buffer::Output<engine::SymbolicState>>>,
     bpm: f32,
     key: String,
     scale: String,
@@ -137,7 +139,7 @@ impl Handle {
     }
 
     // Phase 2: Helper to update cached harmony state from consumer
-    fn update_harmony_state_cache(&self) {
+    pub fn fetch_harmony_state(&self) -> bool {
         // Drain all available harmony states and keep only the latest
         if let Ok(mut rx) = self.harmony_state_rx.lock() {
             let mut latest: Option<engine::HarmonyState> = None;
@@ -149,8 +151,10 @@ impl Handle {
                 && let Ok(mut cache) = self.cached_harmony_state.lock()
             {
                 *cache = state;
+                return true;
             }
         }
+        false
     }
 
     // === Contrôles en Temps Réel pour l'UI (Modèle Émotionnel) ===
@@ -221,7 +225,6 @@ impl Handle {
 
     /// Obtenir le mode d'harmonie actuel depuis l'état du moteur (0 = Basic, 1 = Driver)
     pub fn get_harmony_mode(&self) -> u8 {
-        self.update_harmony_state_cache();
         self.cached_harmony_state
             .lock()
             .map(|s| match s.harmony_mode {
@@ -271,7 +274,6 @@ impl Handle {
 
     /// Obtenir le nom de l'accord courant ("I", "vi", "IV", "V")
     pub fn get_current_chord_name(&self) -> String {
-        self.update_harmony_state_cache();
         self.cached_harmony_state
             .lock()
             .map(|s| s.chord_name.to_string())
@@ -280,37 +282,31 @@ impl Handle {
 
     /// Obtenir l'index de l'accord courant (0-3)
     pub fn get_current_chord_index(&self) -> usize {
-        self.update_harmony_state_cache();
         self.cached_harmony_state.lock().map(|s| s.current_chord_index).unwrap_or(0)
     }
 
     /// Obtenir si l'accord courant est mineur
     pub fn is_current_chord_minor(&self) -> bool {
-        self.update_harmony_state_cache();
         self.cached_harmony_state.lock().map(|s| s.chord_is_minor).unwrap_or(false)
     }
 
     /// Obtenir le numéro de mesure courant
     pub fn get_current_measure(&self) -> usize {
-        self.update_harmony_state_cache();
         self.cached_harmony_state.lock().map(|s| s.measure_number).unwrap_or(1)
     }
 
     /// Obtenir le numéro de cycle courant
     pub fn get_current_cycle(&self) -> usize {
-        self.update_harmony_state_cache();
         self.cached_harmony_state.lock().map(|s| s.cycle_number).unwrap_or(1)
     }
 
     /// Obtenir le step courant dans la mesure (0-15)
     pub fn get_current_step(&self) -> usize {
-        self.update_harmony_state_cache();
         self.cached_harmony_state.lock().map(|s| s.current_step).unwrap_or(0)
     }
 
     /// Obtenir le nom de la progression harmonique active
     pub fn get_progression_name(&self) -> String {
-        self.update_harmony_state_cache();
         self.cached_harmony_state
             .lock()
             .map(|s| s.progression_name.to_string())
@@ -319,39 +315,32 @@ impl Handle {
 
     /// Obtenir la longueur de la progression active (nombre d'accords)
     pub fn get_progression_length(&self) -> usize {
-        self.update_harmony_state_cache();
         self.cached_harmony_state.lock().map(|s| s.progression_length).unwrap_or(4)
     }
 
     // === Getters pour la Visualisation Rythmique ===
 
     pub fn get_primary_pulses(&self) -> usize {
-        self.update_harmony_state_cache();
         self.cached_harmony_state.lock().map(|s| s.primary_pulses).unwrap_or(4)
     }
 
     pub fn get_secondary_pulses(&self) -> usize {
-        self.update_harmony_state_cache();
         self.cached_harmony_state.lock().map(|s| s.secondary_pulses).unwrap_or(3)
     }
 
     pub fn get_primary_rotation(&self) -> usize {
-        self.update_harmony_state_cache();
         self.cached_harmony_state.lock().map(|s| s.primary_rotation).unwrap_or(0)
     }
 
     pub fn get_secondary_rotation(&self) -> usize {
-        self.update_harmony_state_cache();
         self.cached_harmony_state.lock().map(|s| s.secondary_rotation).unwrap_or(0)
     }
 
     pub fn get_primary_steps(&self) -> usize {
-        self.update_harmony_state_cache();
         self.cached_harmony_state.lock().map(|s| s.primary_steps).unwrap_or(16)
     }
 
     pub fn get_secondary_steps(&self) -> usize {
-        self.update_harmony_state_cache();
         self.cached_harmony_state.lock().map(|s| s.secondary_steps).unwrap_or(12)
     }
 
@@ -359,7 +348,6 @@ impl Handle {
     /// 1 = pulse actif, 0 = silence
     /// Phase 2.5: Reads only up to primary_steps from fixed-size array
     pub fn get_primary_pattern(&self) -> Vec<u8> {
-        self.update_harmony_state_cache();
         self.cached_harmony_state
             .lock()
             .map(|s| {
@@ -372,7 +360,6 @@ impl Handle {
     /// Récupérer le pattern secondaire
     /// Phase 2.5: Reads only up to secondary_steps from fixed-size array
     pub fn get_secondary_pattern(&self) -> Vec<u8> {
-        self.update_harmony_state_cache();
         self.cached_harmony_state
             .lock()
             .map(|s| {
@@ -564,6 +551,31 @@ impl Handle {
         self.target_params_input.write(self.cached_params.clone());
     }
 
+    /// Get look-ahead events for the next N steps starting from current engine state.
+    /// Returns a JSON string of RecordingTruth.
+    pub fn get_lookahead_truth(&self, steps: usize) -> String {
+        let mut symbolic = if let Ok(mut rx) = self.symbolic_state_rx.lock() {
+            rx.update();
+            rx.read().clone()
+        } else {
+            return "{}".to_string();
+        };
+
+        let mut events = Vec::new();
+        // Advanced the cloned state by requested steps
+        for i in 0..steps {
+            let (_step_idx, tick_events) = symbolic.tick(1024);
+            for event in tick_events {
+                // Return step-based timestamps for the UI
+                // Note: i is the future tick offset
+                events.push((i as f64, event));
+            }
+        }
+
+        let truth = truth::RecordingTruth::new(events, symbolic.musical_params.clone(), 44100);
+        serde_json::to_string(&truth).unwrap_or_else(|_| "{}".to_string())
+    }
+
     /// Récupère le dernier enregistrement terminé (WAV, MIDI, or MusicXML)
     pub fn pop_finished_recording(&self) -> Option<RecordedData> {
         if let Ok(mut queue) = self.finished_recordings.lock()
@@ -651,7 +663,7 @@ impl Handle {
     /// Set all rhythm parameters at once (avoids read-modify-write race)
     #[allow(clippy::too_many_arguments)]
     pub fn set_all_rhythm_params(
-        &self,
+        &mut self,
         mode: u8,
         steps: usize,
         pulses: usize,
@@ -679,10 +691,12 @@ impl Handle {
             m.direct_params.rhythm_secondary_pulses = secondary_pulses.clamp(1, 32);
             m.direct_params.rhythm_secondary_rotation = secondary_rotation;
         }
+        // Force engine update via triple buffer
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définit le mode rythmique (0 = Euclidean, 1 = PerfectBalance, 2 = ClassicGroove)
-    pub fn set_direct_rhythm_mode(&self, mode: u8) {
+    pub fn set_direct_rhythm_mode(&mut self, mode: u8) {
         if let Ok(mut m) = self.control_mode.lock() {
             m.direct_params.rhythm_mode = match mode {
                 0 => RhythmMode::Euclidean,
@@ -691,67 +705,76 @@ impl Handle {
                 _ => RhythmMode::Euclidean,
             };
         }
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définit le nombre de steps (16, 48, 96, 192)
-    pub fn set_direct_rhythm_steps(&self, steps: usize) {
+    pub fn set_direct_rhythm_steps(&mut self, steps: usize) {
         if let Ok(mut mode) = self.control_mode.lock() {
             let valid_steps = (steps / 4) * 4;
             mode.direct_params.rhythm_steps = valid_steps.clamp(16, 384);
         }
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définit le nombre de pulses
-    pub fn set_direct_rhythm_pulses(&self, pulses: usize) {
+    pub fn set_direct_rhythm_pulses(&mut self, pulses: usize) {
         if let Ok(mut mode) = self.control_mode.lock() {
             mode.direct_params.rhythm_pulses = pulses.clamp(1, 32);
         }
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définit la rotation du pattern
-    pub fn set_direct_rhythm_rotation(&self, rotation: usize) {
+    pub fn set_direct_rhythm_rotation(&mut self, rotation: usize) {
         if let Ok(mut mode) = self.control_mode.lock() {
             mode.direct_params.rhythm_rotation = rotation;
         }
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définit la densité rythmique (0.0-1.0)
-    pub fn set_direct_rhythm_density(&self, density: f32) {
+    pub fn set_direct_rhythm_density(&mut self, density: f32) {
         if let Ok(mut mode) = self.control_mode.lock() {
             mode.direct_params.rhythm_density = density.clamp(0.0, 1.0);
         }
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définit la tension rythmique (0.0-1.0) - ghost notes, syncopation
-    pub fn set_direct_rhythm_tension(&self, tension: f32) {
+    pub fn set_direct_rhythm_tension(&mut self, tension: f32) {
         if let Ok(mut mode) = self.control_mode.lock() {
             mode.direct_params.rhythm_tension = tension.clamp(0.0, 1.0);
         }
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définit les steps du séquenceur secondaire (Euclidean mode)
-    pub fn set_direct_secondary_steps(&self, steps: usize) {
+    pub fn set_direct_secondary_steps(&mut self, steps: usize) {
         if let Ok(mut mode) = self.control_mode.lock() {
             mode.direct_params.rhythm_secondary_steps = steps.clamp(4, 32);
         }
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définit les pulses du séquenceur secondaire (Euclidean mode)
-    pub fn set_direct_secondary_pulses(&self, pulses: usize) {
+    pub fn set_direct_secondary_pulses(&mut self, pulses: usize) {
         if let Ok(mut mode) = self.control_mode.lock() {
             mode.direct_params.rhythm_secondary_pulses = pulses.clamp(1, 32);
         }
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définit la rotation du séquenceur secondaire (Euclidean mode)
-    pub fn set_direct_secondary_rotation(&self, rotation: usize) {
+    pub fn set_direct_secondary_rotation(&mut self, rotation: usize) {
         if let Ok(mut mode) = self.control_mode.lock() {
             mode.direct_params.rhythm_secondary_rotation = rotation;
         }
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définit le mode harmonique (0 = Basic, 1 = Driver)
-    pub fn set_direct_harmony_mode(&self, mode: u8) {
+    pub fn set_direct_harmony_mode(&mut self, mode: u8) {
         if let Ok(mut m) = self.control_mode.lock() {
             m.direct_params.harmony_mode = match mode {
                 0 => HarmonyMode::Basic,
@@ -759,41 +782,47 @@ impl Handle {
                 _ => HarmonyMode::Driver,
             };
         }
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définit la tension harmonique (0.0-1.0)
-    pub fn set_direct_harmony_tension(&self, tension: f32) {
+    pub fn set_direct_harmony_tension(&mut self, tension: f32) {
         if let Ok(mut mode) = self.control_mode.lock() {
             mode.direct_params.harmony_tension = tension.clamp(0.0, 1.0);
         }
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définit la valence harmonique (-1.0 à 1.0)
-    pub fn set_direct_harmony_valence(&self, valence: f32) {
+    pub fn set_direct_harmony_valence(&mut self, valence: f32) {
         if let Ok(mut mode) = self.control_mode.lock() {
             mode.direct_params.harmony_valence = valence.clamp(-1.0, 1.0);
         }
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définit le lissage mélodique (0.0-1.0)
-    pub fn set_direct_melody_smoothness(&self, smoothness: f32) {
+    pub fn set_direct_melody_smoothness(&mut self, smoothness: f32) {
         if let Ok(mut mode) = self.control_mode.lock() {
             mode.direct_params.melody_smoothness = smoothness.clamp(0.0, 1.0);
         }
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définit la densité de voicing (0.0-1.0)
-    pub fn set_direct_voicing_density(&self, density: f32) {
+    pub fn set_direct_voicing_density(&mut self, density: f32) {
         if let Ok(mut mode) = self.control_mode.lock() {
             mode.direct_params.voicing_density = density.clamp(0.0, 1.0);
         }
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Définit la tension de voicing (0.0-1.0) - contrôle le filtre/timbre
-    pub fn set_direct_voicing_tension(&self, tension: f32) {
+    pub fn set_direct_voicing_tension(&mut self, tension: f32) {
         if let Ok(mut mode) = self.control_mode.lock() {
             mode.direct_params.voicing_tension = tension.clamp(0.0, 1.0);
         }
+        self.target_params_input.write(self.cached_params.clone());
     }
 
     /// Obtient l'état actuel du mode et des paramètres directs (JSON)
@@ -928,14 +957,21 @@ pub fn start_with_backend(sf2_bytes: Option<Box<[u8]>>, backend: &str) -> Result
 
     let control_mode_clone = control_mode.clone();
 
-    let (stream, config, harmony_state_rx, event_queue_rx, font_queue, finished_recordings) =
-        audio::create_stream(
-            target_params_output,
-            control_mode,
-            sf2_bytes.as_deref(),
-            backend_type,
-        )
-        .map_err(|e| JsValue::from_str(&e))?;
+    let (
+        stream,
+        config,
+        harmony_state_rx,
+        event_queue_rx,
+        font_queue,
+        finished_recordings,
+        symbolic_state_rx,
+    ) = audio::create_stream(
+        target_params_output,
+        control_mode,
+        sf2_bytes.as_deref(),
+        backend_type,
+    )
+    .map_err(|e| JsValue::from_str(&e))?;
 
     // Phase 2: Create cached harmony state
     let cached_harmony_state = Arc::new(Mutex::new(engine::HarmonyState::default()));
@@ -953,6 +989,7 @@ pub fn start_with_backend(sf2_bytes: Option<Box<[u8]>>, backend: &str) -> Result
         cached_harmony_state,
         font_queue,
         finished_recordings,
+        symbolic_state_rx: Arc::new(Mutex::new(symbolic_state_rx)),
         bpm: config.bpm,
         key: config.key,
         scale: config.scale,

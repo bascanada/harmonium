@@ -37,6 +37,7 @@ pub fn create_stream(
         Arc<Mutex<rtrb::Consumer<VisualizationEvent>>>,
         crate::FontQueue,
         crate::FinishedRecordings,
+        triple_buffer::Output<crate::engine::SymbolicState>,
     ),
     String,
 > {
@@ -99,6 +100,10 @@ pub fn create_stream(
         HarmoniumEngine::new(sample_rate, target_params, control_mode, recorder_backend);
     let session_config = engine.config.clone();
 
+    // Phase 4: Create triple buffer for symbolic state (Audio -> UI)
+    let (mut symbolic_input, symbolic_output) =
+        triple_buffer::triple_buffer(&engine.get_symbolic_snapshot());
+
     // Wrap consumers in Arc<Mutex<>> for backwards compatibility with existing API
     // (Phase 2: temporary until we update callers to use consumers directly)
     let harmony_state = Arc::new(Mutex::new(harmony_state_rx));
@@ -112,6 +117,8 @@ pub fn create_stream(
             &config.into(),
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                 engine.process_buffer(data, channels);
+                // Update symbolic state for UI simulation
+                symbolic_input.write(engine.get_symbolic_snapshot());
             },
             err_fn,
             None,
@@ -120,7 +127,15 @@ pub fn create_stream(
 
     stream.play().map_err(|e| e.to_string())?;
 
-    Ok((stream, session_config, harmony_state, event_queue, font_queue, finished_recordings))
+    Ok((
+        stream,
+        session_config,
+        harmony_state,
+        event_queue,
+        font_queue,
+        finished_recordings,
+        symbolic_output,
+    ))
 }
 
 /// Offline export driver (faster-than-real-time)
