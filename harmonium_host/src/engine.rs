@@ -1,6 +1,5 @@
 use std::sync::{Arc, Mutex};
 
-use arrayvec::ArrayString;
 use harmonium_ai::mapper::EmotionMapper;
 use harmonium_audio::{
     backend::AudioRenderer,
@@ -64,10 +63,10 @@ impl Clone for SymbolicState {
 
 impl SymbolicState {
     /// Advance the symbolic state by one tick and return generated events
-    pub fn tick(&mut self, samples_per_step: usize) -> (usize, Vec<AudioEvent>) {
+    pub fn tick(&mut self, _samples_per_step: usize) -> (usize, Vec<AudioEvent>) {
         let mut events = Vec::new();
         let step_idx = self.sequencer_primary.current_step;
-        
+
         let trigger_primary = self.sequencer_primary.tick();
         let trigger_secondary = if self.sequencer_primary.mode == RhythmMode::Euclidean {
             self.sequencer_secondary.tick()
@@ -89,7 +88,7 @@ impl SymbolicState {
                         let chord = &self.current_progression[self.progression_index];
 
                         self.harmony.set_chord_context(chord.root_offset, chord.quality);
-                        
+
                         self.current_chord_type = match chord.quality {
                             ChordQuality::Major => ChordType::Major7,
                             ChordQuality::Minor => ChordType::Minor7,
@@ -100,9 +99,10 @@ impl SymbolicState {
 
                         self.last_harmony_state.current_chord_index = self.progression_index;
                         self.last_harmony_state.chord_root_offset = chord.root_offset;
-                        self.last_harmony_state.chord_is_minor = matches!(chord.quality, ChordQuality::Minor);
+                        self.last_harmony_state.chord_is_minor =
+                            matches!(chord.quality, ChordQuality::Minor);
                         self.last_harmony_state.measure_number = self.measure_counter;
-                        // Note: chord_name update omitted here for simplicity in symbolic, 
+                        // Note: chord_name update omitted here for simplicity in symbolic,
                         // but could be added if needed for look-ahead display.
                     }
                 }
@@ -125,7 +125,7 @@ impl SymbolicState {
 
                         self.current_chord_type = decision.next_chord.chord_type;
 
-                        self.last_harmony_state.current_chord_index = 0; 
+                        self.last_harmony_state.current_chord_index = 0;
                         self.last_harmony_state.chord_root_offset = root_offset;
                         self.last_harmony_state.chord_is_minor = driver.is_minor();
                         self.last_harmony_state.measure_number = self.measure_counter;
@@ -142,7 +142,8 @@ impl SymbolicState {
             self.last_harmony_state.primary_rotation = self.sequencer_primary.rotation;
             let primary_len = self.sequencer_primary.pattern.len();
             for i in 0..192 {
-                self.last_harmony_state.primary_pattern[i] = i < primary_len && self.sequencer_primary.pattern[i].is_any();
+                self.last_harmony_state.primary_pattern[i] =
+                    i < primary_len && self.sequencer_primary.pattern[i].is_any();
             }
 
             self.last_harmony_state.secondary_steps = self.sequencer_secondary.steps;
@@ -150,14 +151,15 @@ impl SymbolicState {
             self.last_harmony_state.secondary_rotation = self.sequencer_secondary.rotation;
             let secondary_len = self.sequencer_secondary.pattern.len();
             for i in 0..192 {
-                self.last_harmony_state.secondary_pattern[i] = i < secondary_len && self.sequencer_secondary.pattern[i].is_any();
+                self.last_harmony_state.secondary_pattern[i] =
+                    i < secondary_len && self.sequencer_secondary.pattern[i].is_any();
             }
             self.last_harmony_state.harmony_mode = self.harmony_mode;
         }
 
         // --- GENERATE EVENTS ---
         let rhythm_enabled = self.musical_params.enable_rhythm;
-        
+
         let is_high_tension = self.current_state.tension > 0.6;
         let is_high_density = self.current_state.density > 0.6;
         let is_high_energy = self.current_state.arousal > 0.7;
@@ -171,7 +173,7 @@ impl SymbolicState {
             && !self.musical_params.muted_channels.first().copied().unwrap_or(false)
         {
             let midi_note = if self.musical_params.fixed_kick {
-                36 
+                36
             } else {
                 (36 + self.last_harmony_state.chord_root_offset) as u8
             };
@@ -181,10 +183,10 @@ impl SymbolicState {
 
         let melody_enabled = self.musical_params.enable_melody;
         let play_lead = melody_enabled
-            && (trigger_primary.kick || trigger_primary.snare) 
+            && (trigger_primary.kick || trigger_primary.snare)
             && !(is_high_tension && is_in_fill_zone)
             && !self.musical_params.muted_channels.get(1).copied().unwrap_or(false);
-            
+
         if play_lead {
             let is_strong = trigger_primary.kick;
             let is_new_measure = step_idx == 0;
@@ -216,11 +218,19 @@ impl SymbolicState {
             if self.musical_params.enable_voicing && self.voicer.should_voice(&ctx) {
                 let voiced_notes = self.voicer.process_note(melody_midi, base_vel, &ctx);
                 for vn in voiced_notes {
-                    events.push(AudioEvent::NoteOn { note: vn.midi, velocity: vn.velocity, channel: 1 });
+                    events.push(AudioEvent::NoteOn {
+                        note: vn.midi,
+                        velocity: vn.velocity,
+                        channel: 1,
+                    });
                 }
             } else {
                 let solo_vel = (base_vel as f32 * 0.7) as u8;
-                events.push(AudioEvent::NoteOn { note: melody_midi, velocity: solo_vel, channel: 1 });
+                events.push(AudioEvent::NoteOn {
+                    note: melody_midi,
+                    velocity: solo_vel,
+                    channel: 1,
+                });
             }
         }
 
@@ -229,16 +239,21 @@ impl SymbolicState {
             && !self.musical_params.muted_channels.get(2).copied().unwrap_or(false)
         {
             let mut snare_note = 38u8;
-            let mut vel = self.musical_params.vel_base_snare + (self.current_state.arousal * 30.0) as u8;
+            let mut vel =
+                self.musical_params.vel_base_snare + (self.current_state.arousal * 30.0) as u8;
 
             if trigger_primary.velocity < 0.7 {
                 vel = (vel as f32 * 0.65) as u8;
-                if is_low_energy { snare_note = 37; }
+                if is_low_energy {
+                    snare_note = 37;
+                }
             }
 
             if is_high_tension && is_in_fill_zone {
                 snare_note = match step_idx % 3 {
-                    0 => 41, 1 => 45, _ => 50,
+                    0 => 41,
+                    1 => 45,
+                    _ => 50,
                 };
                 vel = (vel as f32 * 1.1).min(127.0) as u8;
             }
@@ -255,10 +270,14 @@ impl SymbolicState {
             let mut vel = 70 + (self.current_state.arousal * 30.0) as u8;
 
             if step_idx == 0 && is_high_energy {
-                hat_note = 49; vel = 110;
+                hat_note = 49;
+                vel = 110;
             } else if is_high_density {
-                if self.current_state.tension > 0.7 { hat_note = 51; }
-                else if !step_idx.is_multiple_of(2) { hat_note = 46; }
+                if self.current_state.tension > 0.7 {
+                    hat_note = 51;
+                } else if !step_idx.is_multiple_of(2) {
+                    hat_note = 46;
+                }
             } else if is_low_energy {
                 hat_note = 44;
             }
@@ -290,10 +309,10 @@ pub struct HarmoniumEngine {
     last_pulse_count: usize,
     last_rotation: usize, // Pour détecter les changements de rotation
 
-    last_valence_choice: f32, // Hystérésis: valence qui a déclenché le dernier choix
-    last_tension_choice: f32, // Hystérésis: tension qui a déclenché le dernier choix
+    _last_valence_choice: f32, // Hystérésis: valence qui a déclenché le dernier choix
+    _last_tension_choice: f32, // Hystérésis: tension qui a déclenché le dernier choix
 
-    active_lead_notes: Vec<u8>, // Notes actuellement jouées sur le channel Lead
+    _active_lead_notes: Vec<u8>, // Notes actuellement jouées sur le channel Lead
     active_bass_note: Option<u8>, // Note de basse actuellement jouée
 
     // === NOUVELLE ARCHITECTURE: Params Musicaux Découplés ===
@@ -433,9 +452,9 @@ impl HarmoniumEngine {
             samples_per_step,
             last_pulse_count: initial_pulses,
             last_rotation: 0,
-            last_valence_choice: initial_params.valence,
-            last_tension_choice: initial_params.tension,
-            active_lead_notes: Vec::with_capacity(8),
+            _last_valence_choice: initial_params.valence,
+            _last_tension_choice: initial_params.tension,
+            _active_lead_notes: Vec::with_capacity(8),
             active_bass_note: None,
             emotion_mapper,
             control_mode,
@@ -605,7 +624,8 @@ impl HarmoniumEngine {
         // === MORPHING (smooth transitions) ===
         let morph_factor = 0.03;
 
-        self.symbolic.current_state.bpm += (mp.bpm - self.symbolic.current_state.bpm) * morph_factor;
+        self.symbolic.current_state.bpm +=
+            (mp.bpm - self.symbolic.current_state.bpm) * morph_factor;
         self.symbolic.current_state.density +=
             (mp.rhythm_density - self.symbolic.current_state.density) * morph_factor;
         self.symbolic.current_state.tension +=
@@ -614,7 +634,7 @@ impl HarmoniumEngine {
             (mp.melody_smoothness - self.symbolic.current_state.smoothness) * morph_factor;
         self.symbolic.current_state.valence +=
             (mp.harmony_valence - self.symbolic.current_state.valence) * morph_factor;
-        
+
         let arousal_from_bpm = (mp.bpm - 70.0) / 110.0;
         self.symbolic.current_state.arousal +=
             (arousal_from_bpm - self.symbolic.current_state.arousal) * morph_factor;
@@ -636,7 +656,9 @@ impl HarmoniumEngine {
         self.symbolic.harmony.set_hurst_factor(mp.melody_smoothness);
 
         // === VOICING DENSITY → Comping Pattern ===
-        self.symbolic.voicer.on_density_change(mp.voicing_density, self.symbolic.sequencer_primary.steps);
+        self.symbolic
+            .voicer
+            .on_density_change(mp.voicing_density, self.symbolic.sequencer_primary.steps);
 
         // === MIXER GAINS (from MusicalParams) ===
         self.renderer.handle_event(AudioEvent::SetMixerGains {
@@ -799,7 +821,8 @@ impl HarmoniumEngine {
         if secondary_changed {
             if secondary_steps != self.symbolic.sequencer_secondary.steps {
                 self.symbolic.sequencer_secondary.steps = secondary_steps;
-                self.symbolic.sequencer_secondary.pattern = vec![StepTrigger::default(); secondary_steps];
+                self.symbolic.sequencer_secondary.pattern =
+                    vec![StepTrigger::default(); secondary_steps];
             }
             self.symbolic.sequencer_secondary.pulses = secondary_pulses;
             self.symbolic.sequencer_secondary.rotation = secondary_rotation;
@@ -808,8 +831,9 @@ impl HarmoniumEngine {
 
         // Timing
         let steps_per_beat = (self.symbolic.sequencer_primary.steps / 4) as f64;
-        let new_samples_per_step =
-            (self.sample_rate * 60.0 / (self.symbolic.current_state.bpm as f64) / steps_per_beat) as usize;
+        let new_samples_per_step = (self.sample_rate * 60.0
+            / (self.symbolic.current_state.bpm as f64)
+            / steps_per_beat) as usize;
         if new_samples_per_step != self.samples_per_step {
             self.samples_per_step = new_samples_per_step;
             self.renderer
@@ -829,7 +853,7 @@ impl HarmoniumEngine {
 
         // Handle physical side effects (audio engine only)
         self.events_buffer.clear();
-        
+
         // Stop previous bass note (Staccato / Note Switching) to prevent infinite sustain
         if let Some(old_note) = self.active_bass_note {
             self.renderer.handle_event(AudioEvent::NoteOff { note: old_note, channel: 0 });
@@ -865,7 +889,7 @@ impl HarmoniumEngine {
     }
 
     /// Formatte un nom d'accord pour l'UI (numération romaine)
-    fn format_chord_name(&self, root_offset: i32, quality: ChordQuality) -> String {
+    fn _format_chord_name(&self, root_offset: i32, quality: ChordQuality) -> String {
         // Conversion offset → degré de la gamme (simplifié pour pentatonique)
         let roman = match root_offset {
             0 => "I",

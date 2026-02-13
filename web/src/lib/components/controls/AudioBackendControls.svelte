@@ -3,15 +3,26 @@
 	import FundSPControls from './FundSPControls.svelte';
 	import Odin2Controls from './Odin2Controls.svelte';
 
-	// Props
-	export let bridge: HarmoniumBridge;
-	export let audioBackend: 'fundsp' | 'odin2';
-	export let filterCutoff: number;
-	export let filterResonance: number;
-	export let chorusMix: number;
-	export let delayMix: number;
-	export let reverbMix: number;
-	export let expression: number;
+	// Svelte 5 Props Destructuring
+	let {
+		bridge,
+		audioBackend,
+		filterCutoff,
+		filterResonance,
+		chorusMix,
+		delayMix,
+		reverbMix,
+		expression
+	} = $props<{
+		bridge: HarmoniumBridge;
+		audioBackend: 'fundsp' | 'odin2';
+		filterCutoff: number;
+		filterResonance: number;
+		chorusMix: number;
+		delayMix: number;
+		reverbMix: number;
+		expression: number;
+	}>();
 </script>
 
 <div class="mb-6">

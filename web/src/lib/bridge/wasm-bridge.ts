@@ -77,7 +77,7 @@ export class WasmBridge extends BaseBridge {
 
 	getLookaheadTruth(steps: number): string {
 		if (!this.handle) return '{}';
-		return (this.handle as any).get_lookahead_truth(BigInt(steps));
+		return this.handle.get_lookahead_truth(steps);
 	}
 
 	private startPolling(): void {
@@ -115,7 +115,7 @@ export class WasmBridge extends BaseBridge {
 
 		// Fetch latest harmony state from engine once per collection
 		// and use it as a trigger for changes
-		if ((h as any).fetch_harmony_state && (h as any).fetch_harmony_state()) {
+		if (h.fetch_harmony_state && h.fetch_harmony_state()) {
 			changed = true;
 		}
 

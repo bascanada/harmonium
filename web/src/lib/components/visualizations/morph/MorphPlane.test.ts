@@ -17,7 +17,7 @@ test('renders points at correct positions', async () => {
 	});
 
 	await expect.element(page.getByText('TEST PLANE')).toBeVisible();
-	
+
 	const centerPoint = page.getByLabelText('Center');
 	await expect.element(centerPoint).toBeVisible();
 	// Check style for positioning

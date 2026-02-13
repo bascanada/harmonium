@@ -20,7 +20,7 @@ test('renders EuclideanCircle with correct number of pulses', async () => {
 
 	// 4. Update pulses
 	await rerender({ pulses: 8 });
-	
+
 	await expect.element(page.getByLabelText('pulse-dot')).toHaveLength(8);
 });
 
@@ -30,6 +30,6 @@ test('highlights the current step', async () => {
 		pulses: 4,
 		currentStep: 0
 	});
-	
+
 	await expect.element(page.getByTestId('current-step')).toBeVisible();
 });

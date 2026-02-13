@@ -161,6 +161,7 @@ export class VstBridge extends BaseBridge {
 		return { ...this.currentState };
 	}
 
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	getLookaheadTruth(_steps: number): string {
 		// Lookahead IPC not yet implemented for VST
 		return '{}';

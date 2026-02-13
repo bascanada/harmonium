@@ -142,7 +142,6 @@ export interface HarmoniumBridge {
 	// === Look-ahead Simulation ===
 	getLookaheadTruth(steps: number): string;
 }
-}
 
 // Factory function type
 export type BridgeFactory = (mode: 'wasm' | 'vst') => HarmoniumBridge;

@@ -43,8 +43,13 @@
 	</div>
 
 	<div class="flex items-center justify-between rounded bg-neutral-900/50 p-2">
-		<span class="text-sm text-neutral-400" data-testid="measure-display">Measure {currentMeasure}</span>
-		<span data-testid="current-chord-display" class="text-2xl font-bold {isMinorChord ? 'text-blue-400' : 'text-yellow-400'}">
+		<span class="text-sm text-neutral-400" data-testid="measure-display"
+			>Measure {currentMeasure}</span
+		>
+		<span
+			data-testid="current-chord-display"
+			class="text-2xl font-bold {isMinorChord ? 'text-blue-400' : 'text-yellow-400'}"
+		>
 			{currentChord}
 		</span>
 	</div>

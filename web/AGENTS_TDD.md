@@ -22,18 +22,18 @@ import { page } from 'vitest/browser';
 import Counter from './Counter.svelte';
 
 test('increments the count when button is clicked', async () => {
-  // 1. Render component with props
-  render(Counter, { initialCount: 5 });
+	// 1. Render component with props
+	render(Counter, { initialCount: 5 });
 
-  // 2. Locate element by its accessible role
-  const button = page.getByRole('button', { name: /count is 5/i });
-  
-  // 3. Trigger action
-  await button.click();
+	// 2. Locate element by its accessible role
+	const button = page.getByRole('button', { name: /count is 5/i });
 
-  // 4. Assert updated state (using a new locator if the role/text changed)
-  const updatedButton = page.getByRole('button', { name: /count is 6/i });
-  await expect.element(updatedButton).toBeVisible();
+	// 3. Trigger action
+	await button.click();
+
+	// 4. Assert updated state (using a new locator if the role/text changed)
+	const updatedButton = page.getByRole('button', { name: /count is 6/i });
+	await expect.element(updatedButton).toBeVisible();
 });
 ```
 
@@ -41,12 +41,12 @@ test('increments the count when button is clicked', async () => {
 
 ```svelte
 <script lang="ts">
-  let { initialCount = 0 } = $props();
-  let count = $state(initialCount);
+	let { initialCount = 0 } = $props();
+	let count = $state(initialCount);
 </script>
 
 <button onclick={() => count++}>
-  count is {count}
+	count is {count}
 </button>
 ```
 

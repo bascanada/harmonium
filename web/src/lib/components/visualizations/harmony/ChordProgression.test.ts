@@ -16,7 +16,7 @@ test('renders ChordProgression with provided chords', async () => {
 	await expect.element(page.getByText('Driver')).toBeVisible();
 	await expect.element(page.getByTestId('measure-display')).toHaveTextContent('Measure 1');
 	await expect.element(page.getByTestId('current-chord-display')).toHaveTextContent('ii');
-	
+
 	// Check progression length
 	await expect.element(page.getByTestId('progression-chord')).toHaveLength(3);
 });

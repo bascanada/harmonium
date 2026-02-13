@@ -11,7 +11,8 @@
 	import RhythmVisualizer from '$lib/components/visualizations/rhythm/RhythmVisualizer.svelte';
 	import ChordProgression from '$lib/components/visualizations/harmony/ChordProgression.svelte';
 	import MorphVisualization from '$lib/components/visualizations/morph/MorphVisualization.svelte';
-	import MusicSheet from '$lib/components/visualizations/MusicSheet.svelte';	import init, { get_available_backends } from 'harmonium';
+	import MusicSheet from '$lib/components/visualizations/MusicSheet.svelte';
+	import init, { get_available_backends } from 'harmonium';
 
 	let bridge: HarmoniumBridge | null = null;
 	let state: EngineState = createEmptyState();

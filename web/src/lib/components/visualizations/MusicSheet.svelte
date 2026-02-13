@@ -60,15 +60,15 @@
 				const { note, channel, velocity } = event.NoteOn;
 				const x = (offset / steps) * width;
 				const y = height - ((note - minNote) / noteRange) * height;
-				
+
 				// Color by channel
 				const colors = ['#f87171', '#a78bfa', '#4ade80', '#fbbf24'];
 				ctx.fillStyle = colors[channel % colors.length];
-				
+
 				// Draw a small block
 				const noteWidth = (width / steps) * 0.8;
 				ctx.fillRect(x, y - 4, noteWidth, 8);
-				
+
 				// Glow for velocity
 				ctx.shadowBlur = velocity / 10;
 				ctx.shadowColor = ctx.fillStyle;
@@ -77,17 +77,16 @@
 	});
 </script>
 
-<div class="music-sheet-container rounded-xl border border-neutral-700 bg-neutral-900 p-2 shadow-inner">
+<div
+	class="music-sheet-container rounded-xl border border-neutral-700 bg-neutral-900 p-2 shadow-inner"
+>
 	<div class="mb-1 flex items-center justify-between px-2">
-		<span class="text-[10px] font-bold tracking-widest text-neutral-500 uppercase">Look-ahead Visualization</span>
+		<span class="text-[10px] font-bold tracking-widest text-neutral-500 uppercase"
+			>Look-ahead Visualization</span
+		>
 		<span class="text-[10px] text-neutral-600">Next {steps} steps</span>
 	</div>
-	<canvas
-		bind:this={canvas}
-		{width}
-		{height}
-		class="block w-full"
-	></canvas>
+	<canvas bind:this={canvas} {width} {height} class="block w-full"></canvas>
 </div>
 
 <style>

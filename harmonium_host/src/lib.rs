@@ -12,7 +12,7 @@ pub mod engine;
 pub use harmonium_ai::ai;
 pub use harmonium_ai::mapper;
 pub use harmonium_audio::{backend, realtime, synthesis, voice_manager, voicing};
-pub use harmonium_core::{events, fractal, harmony, log, params, sequencer};
+pub use harmonium_core::{events, fractal, harmony, log, params, sequencer, truth};
 
 // Real-time safety: Global allocator that panics on allocations in audio thread (debug builds only)
 // Uses fully qualified path to avoid local mod ambiguity
@@ -564,7 +564,7 @@ impl Handle {
         let mut events = Vec::new();
         // Advanced the cloned state by requested steps
         for i in 0..steps {
-            let (step_idx, tick_events) = symbolic.tick(1024);
+            let (_step_idx, tick_events) = symbolic.tick(1024);
             for event in tick_events {
                 // Return step-based timestamps for the UI
                 // Note: i is the future tick offset

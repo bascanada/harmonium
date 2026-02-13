@@ -4,20 +4,28 @@
 	import TechnicalControls from './TechnicalControls.svelte';
 	import ChannelMixer from './ChannelMixer.svelte';
 
-	// Props - bridge passed from parent
-	export let bridge: HarmoniumBridge;
-	export let state: EngineState;
+	// Svelte 5 Props Destructuring
+	let {
+		bridge,
+		state,
+		isAudioMode = true
+	} = $props<{
+		bridge: HarmoniumBridge;
+		state: EngineState;
+		isAudioMode?: boolean;
+	}>();
 
-	// Audio mode detection (true = web audio rendering, false = VST MIDI-only)
-	export let isAudioMode = true;
+	// Svelte 5 State
+	let localIsEmotionMode = $state(true);
+	let isEditing = $state(false);
+	let editTimeout: ReturnType<typeof setTimeout> | null = $state(null);
 
-	// Local control mode (decoupled from state during transitions)
-	let localIsEmotionMode = true;
-	let isEditing = false;
-	let editTimeout: ReturnType<typeof setTimeout> | null = null;
-
-	// Sync with state ONLY when not actively toggling
-	$: if (!isEditing) localIsEmotionMode = state.isEmotionMode;
+	// Svelte 5 Effect (replaces $: )
+	$effect(() => {
+		if (!isEditing) {
+			localIsEmotionMode = state.isEmotionMode;
+		}
+	});
 
 	function toggleControlMode() {
 		isEditing = true;

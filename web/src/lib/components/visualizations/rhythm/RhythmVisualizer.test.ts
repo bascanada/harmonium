@@ -13,10 +13,10 @@ test('renders one circle in PerfectBalance mode', async () => {
 
 	// Header tag
 	await expect.element(page.getByText('PerfectBalance')).toBeVisible();
-	
+
 	// Should have one background circle (1 EuclideanCircle)
 	await expect.element(page.getByLabelText('background-circle')).toHaveLength(1);
-	
+
 	// Should show density and tension info
 	await expect.element(page.getByText(/Density: 50%/)).toBeVisible();
 	await expect.element(page.getByText(/Tension: 30%/)).toBeVisible();
@@ -36,7 +36,7 @@ test('renders two circles in Euclidean mode', async () => {
 
 	// Should have two background circles (2 EuclideanCircles)
 	await expect.element(page.getByLabelText('background-circle')).toHaveLength(2);
-	
+
 	// Should show polyrhythm info
 	await expect.element(page.getByText(/16:12 polyrhythm/)).toBeVisible();
 });
