@@ -1,6 +1,6 @@
 // WASM Bridge - Implementation for web mode using harmonium.js
 import init, { start_with_backend, get_available_backends, type Handle } from 'harmonium';
-import type { EngineState, AudioBackendType } from './types';
+import type { EngineState, AudioBackendType, NoteEvent } from './types';
 import { createEmptyState } from './types';
 import { BaseBridge } from './base-bridge';
 
@@ -10,6 +10,7 @@ export class WasmBridge extends BaseBridge {
 	private _isEmotionMode = true;
 	private _currentBackend: AudioBackendType = 'fundsp';
 	private _availableBackends: AudioBackendType[] = ['fundsp'];
+	private eventSubscribers: ((events: NoteEvent[]) => void)[] = [];
 
 	constructor() {
 		super(createEmptyState());
@@ -80,6 +81,41 @@ export class WasmBridge extends BaseBridge {
 		return this.handle.get_lookahead_truth(steps);
 	}
 
+	/**
+	 * Subscribe to real-time note events.
+	 * Returns an unsubscribe function.
+	 */
+	subscribeToEvents(callback: (events: NoteEvent[]) => void): () => void {
+		this.eventSubscribers.push(callback);
+		return () => {
+			const idx = this.eventSubscribers.indexOf(callback);
+			if (idx >= 0) {
+				this.eventSubscribers.splice(idx, 1);
+			}
+		};
+	}
+
+	/**
+	 * Parse flat event array from WASM into structured NoteEvent objects.
+	 * Format: [note, instrument, step, duration, note, instrument, step, duration, ...]
+	 */
+	private parseEvents(flat: number[]): NoteEvent[] {
+		const events: NoteEvent[] = [];
+		const timestamp = performance.now();
+
+		for (let i = 0; i < flat.length; i += 4) {
+			events.push({
+				note: flat[i],
+				instrument: flat[i + 1],
+				step: flat[i + 2],
+				duration: flat[i + 3],
+				timestamp
+			});
+		}
+
+		return events;
+	}
+
 	private startPolling(): void {
 		const poll = () => {
 			if (!this.handle) return;
@@ -91,8 +127,12 @@ export class WasmBridge extends BaseBridge {
 				this.subscribers.forEach((cb) => cb({ ...this.currentState }));
 			}
 
-			// Clear event queue
-			this.handle.get_events();
+			// Parse and dispatch events to subscribers
+			const flatEvents = this.handle.get_events();
+			if (flatEvents && flatEvents.length > 0) {
+				const parsedEvents = this.parseEvents(flatEvents);
+				this.eventSubscribers.forEach((cb) => cb(parsedEvents));
+			}
 
 			this.animationId = requestAnimationFrame(poll);
 		};
