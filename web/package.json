@@ -14,7 +14,10 @@
 		"format": "prettier --write .",
 		"lint": "prettier --check . && eslint .",
 		"test:browser": "vitest --config vitest.config.ts",
-		"test": "vitest run --config vitest.config.ts"
+		"test": "vitest run --config vitest.config.ts",
+		"test:e2e": "playwright test",
+		"test:e2e:ui": "playwright test --ui",
+		"test:e2e:debug": "playwright test --debug"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-static": "^3.0.10",
@@ -46,6 +49,7 @@
 		"vitest-browser-svelte": "^2.0.2"
 	},
 	"dependencies": {
+		"@playwright/test": "^1.58.2",
 		"bits-ui": "^2.15.4",
 		"clsx": "^2.1.1",
 		"harmonium": "file:../pkg",

@@ -4,7 +4,7 @@
 
 	// Props
 	export let bridge: HarmoniumBridge;
-	export let state: EngineState;
+	export let engineState: EngineState;
 
 	// Placeholder Presets (User can update these with real data)
 	const PRESET_LOCATIONS = [
@@ -47,13 +47,13 @@
 	// Local copies of values to display during drag
 	// We initialize them from state, and update them from state only when not editing.
 	// We also blindly update them when dragging.
-	let localState = { ...state };
+	let localState = { ...engineState };
 
 	$: if (!isEditing) {
 		// Soft sync: only update if significant change or forced?
 		// Actually for Svelte 5 (or 4) reactivity, we just re-assign if not editing.
 		// Note: optimization can be added if this causes jitter, but usually fine.
-		localState = { ...state };
+		localState = { ...engineState };
 	}
 
 	function startEditing() {
@@ -120,7 +120,7 @@
 	const C_GHOST = '#525252'; // neutral-600
 
 	// Derived Points
-	$: isTechnical = !state.isEmotionMode;
+	$: isTechnical = !engineState.isEmotionMode;
 
 	$: pointsVA = (() => {
 		const pts = [];

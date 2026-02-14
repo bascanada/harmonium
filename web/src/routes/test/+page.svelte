@@ -12,10 +12,11 @@
 	import ChordProgression from '$lib/components/visualizations/harmony/ChordProgression.svelte';
 	import MorphVisualization from '$lib/components/visualizations/morph/MorphVisualization.svelte';
 	import MusicSheet from '$lib/components/visualizations/MusicSheet.svelte';
+	import LiveScore from '$lib/components/visualizations/LiveScore.svelte';
 	import init, { get_available_backends } from 'harmonium';
 
 	let bridge: HarmoniumBridge | null = null;
-	let state: EngineState = createEmptyState();
+	let engineState: EngineState = createEmptyState();
 	let unsubscribe: (() => void) | null = null;
 	let isPlaying = false;
 	let error = '';
@@ -214,7 +215,7 @@
 					progressionChords = [...progressionChords];
 				}
 
-				state = newState;
+				engineState = newState;
 			});
 
 			// Reset counters
@@ -491,11 +492,11 @@
 		{/if}
 	</div>
 
-	{#if isPlaying && state.key && state.scale}
+	{#if isPlaying && engineState.key && engineState.scale}
 		<div class="mt-2 flex flex-col items-center gap-2">
 			<div class="font-mono text-xl text-purple-300">
-				Global Key: {state.key}
-				{state.scale}
+				Global Key: {engineState.key}
+				{engineState.scale}
 			</div>
 			<div class="flex items-center gap-2">
 				<span
@@ -524,36 +525,37 @@
 				<!-- Left: Visualizations -->
 				<div class="flex flex-col gap-6">
 					{#if bridge}
+						<LiveScore {bridge} />
 						<MusicSheet {bridge} steps={32} />
 					{/if}
 
 					<RhythmVisualizer
-						rhythmMode={state.rhythmMode}
-						primarySteps={state.primarySteps}
-						primaryPulses={state.primaryPulses}
-						primaryRotation={state.primaryRotation}
-						primaryPattern={state.primaryPattern}
-						secondarySteps={state.secondarySteps}
-						secondaryPulses={state.secondaryPulses}
-						secondaryRotation={state.secondaryRotation}
-						secondaryPattern={state.secondaryPattern}
+						rhythmMode={engineState.rhythmMode}
+						primarySteps={engineState.primarySteps}
+						primaryPulses={engineState.primaryPulses}
+						primaryRotation={engineState.primaryRotation}
+						primaryPattern={engineState.primaryPattern}
+						secondarySteps={engineState.secondarySteps}
+						secondaryPulses={engineState.secondaryPulses}
+						secondaryRotation={engineState.secondaryRotation}
+						secondaryPattern={engineState.secondaryPattern}
 						currentStep={totalSteps}
-						rhythmDensity={state.rhythmDensity}
-						rhythmTension={state.rhythmTension}
+						rhythmDensity={engineState.rhythmDensity}
+						rhythmTension={engineState.rhythmTension}
 					/>
 
 					<ChordProgression
-						currentChord={state.currentChord}
-						currentMeasure={state.currentMeasure}
-						isMinorChord={state.isMinorChord}
-						progressionName={state.progressionName}
+						currentChord={engineState.currentChord}
+						currentMeasure={engineState.currentMeasure}
+						isMinorChord={engineState.isMinorChord}
+						progressionName={engineState.progressionName}
 						{progressionChords}
-						harmonyMode={state.harmonyMode}
+						harmonyMode={engineState.harmonyMode}
 					/>
 
 					{#if bridge}
 						{#key bridge}
-							<MorphVisualization {bridge} {state} />
+							<MorphVisualization {bridge} {engineState} />
 						{/key}
 					{/if}
 				</div>
@@ -561,7 +563,7 @@
 				<!-- Right: Controls -->
 				{#if bridge}
 					{#key bridge}
-						<ControlPanel {state} {bridge} {isAudioMode} />
+						<ControlPanel {engineState} {bridge} {isAudioMode} />
 					{/key}
 				{/if}
 			</div>
