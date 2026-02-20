@@ -1,3 +1,4 @@
+pub mod dna;
 pub mod events;
 pub mod export;
 pub mod fractal;
@@ -6,8 +7,14 @@ pub mod log;
 pub mod params;
 pub mod sequencer;
 pub mod truth;
+pub mod tuning;
 
 // Re-export common types
+// Re-export DNA types
+pub use dna::{
+    DNAExtractor, GlobalMetrics, HarmonicFrame, MusicalDNA, PolygonSignature, RhythmicDNA,
+    SerializableTRQ,
+};
 pub use events::AudioEvent;
 pub use export::{
     ChordSymbol, GitVersion, to_musicxml, to_musicxml_with_chords, write_musicxml,
@@ -15,14 +22,21 @@ pub use export::{
 };
 pub use params::{EngineParams, MusicalParams};
 pub use sequencer::Sequencer;
+// Re-export tuning types
+pub use tuning::{TuningError, TuningParams};
 
 // Define MusicKernel (skeleton for now, as requested in plan)
 use crate::events::AudioEvent as CoreAudioEvent;
-use crate::{params::MusicalParams as CoreMusicalParams, sequencer::Sequencer as CoreSequencer};
+use crate::{
+    params::MusicalParams as CoreMusicalParams, sequencer::Sequencer as CoreSequencer,
+    tuning::TuningParams as CoreTuningParams,
+};
 
 pub struct MusicKernel {
     pub sequencer: CoreSequencer,
     pub params: CoreMusicalParams,
+    /// Tuning parameters for algorithm optimization (foundation for DNA-based tuning)
+    pub tuning: CoreTuningParams,
     pub accumulator: f64,
     // Track active notes to send NoteOffs: (channel, note, duration_remaining)
     pub active_notes: Vec<(u8, u8, f64)>,
@@ -31,7 +45,17 @@ pub struct MusicKernel {
 impl MusicKernel {
     #[must_use]
     pub fn new(sequencer: CoreSequencer, params: CoreMusicalParams) -> Self {
-        Self { sequencer, params, accumulator: 0.0, active_notes: Vec::with_capacity(16) }
+        Self::with_tuning(sequencer, params, CoreTuningParams::default())
+    }
+
+    /// Create a MusicKernel with custom tuning parameters
+    #[must_use]
+    pub fn with_tuning(
+        sequencer: CoreSequencer,
+        params: CoreMusicalParams,
+        tuning: CoreTuningParams,
+    ) -> Self {
+        Self { sequencer, params, tuning, accumulator: 0.0, active_notes: Vec::with_capacity(16) }
     }
 
     pub fn update(&mut self, dt: f64) -> Vec<CoreAudioEvent> {

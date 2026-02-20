@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::tuning::TuningParams;
+
 // --- RHYTHM MODE (Strategy Pattern) ---
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -100,6 +102,8 @@ pub struct Sequencer {
     pub mode: RhythmMode,
     pub tension: f32,
     pub density: f32,
+    /// Optional tuning parameters for configurable rhythm generation
+    tuning: Option<TuningParams>,
 }
 
 impl Sequencer {
@@ -121,6 +125,36 @@ impl Sequencer {
             mode,
             tension: 0.0,
             density: 0.5,
+            tuning: None,
+        };
+        seq.regenerate_pattern();
+        seq
+    }
+
+    /// Create a Sequencer from TuningParams
+    ///
+    /// This constructor uses the centralized tuning configuration instead of
+    /// hardcoded defaults, enabling the LLM tuning loop to adjust rhythm parameters.
+    #[must_use]
+    pub fn from_tuning(
+        steps: usize,
+        pulses: usize,
+        bpm: f32,
+        mode: RhythmMode,
+        tuning: &TuningParams,
+    ) -> Self {
+        let mut seq = Self {
+            steps,
+            pulses,
+            pattern: vec![StepTrigger::default(); steps],
+            rotation: 0,
+            current_step: 0,
+            bpm,
+            last_tick_time: 0.0,
+            mode,
+            tension: 0.0,
+            density: 0.5,
+            tuning: Some(tuning.clone()),
         };
         seq.regenerate_pattern();
         seq
@@ -159,7 +193,17 @@ impl Sequencer {
             }
             RhythmMode::PerfectBalance => {
                 // Mode XronoMorph : Polygones réguliers superposés
-                generate_balanced_layers_48(self.steps, self.density, self.tension)
+                // Use tuning parameters if available, otherwise use defaults
+                if let Some(ref tuning) = self.tuning {
+                    generate_balanced_layers_with_tuning(
+                        self.steps,
+                        self.density,
+                        self.tension,
+                        tuning,
+                    )
+                } else {
+                    generate_balanced_layers_48(self.steps, self.density, self.tension)
+                }
             }
             RhythmMode::ClassicGroove => {
                 // Mode groove réaliste : Patterns de batterie avec ghost notes
@@ -347,6 +391,105 @@ pub fn generate_balanced_layers_48(steps: usize, density: f32, tension: f32) -> 
             if !mask {
                 trigger.hat = true;
                 // If it's the only element, apply its velocity
+                if !hit_kick && !hit_snare {
+                    trigger.velocity = hat_gon.velocity;
+                }
+            }
+        }
+
+        if hit_bass {
+            trigger.bass = true;
+        }
+        if hit_lead {
+            trigger.lead = true;
+        }
+    }
+
+    triggers
+}
+
+/// Generates a pattern based on the superposition of regular polygons using TuningParams.
+/// This version allows the LLM tuning loop to adjust polygon parameters.
+#[must_use]
+pub fn generate_balanced_layers_with_tuning(
+    steps: usize,
+    density: f32,
+    tension: f32,
+    tuning: &TuningParams,
+) -> Vec<StepTrigger> {
+    let mut triggers = vec![StepTrigger::default(); steps];
+
+    // --- 1. LAYER CONFIGURATION (from TuningParams) ---
+
+    // LAYER A: KICK (Foundation)
+    let kick_gon = if density < tuning.kick_density_threshold {
+        Polygon::new(tuning.kick_low_density_vertices, 0, 1.0)
+    } else {
+        Polygon::new(tuning.kick_high_density_vertices, 0, 1.0)
+    };
+
+    // LAYER B: SNARE (Counterpoint)
+    let snare_vertices = if density < tuning.snare_density_threshold {
+        tuning.snare_low_density_vertices
+    } else {
+        tuning.snare_high_density_vertices
+    };
+
+    let max_snare_shift = steps / snare_vertices;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let snare_offset = (tension * max_snare_shift as f32) as usize;
+    let snare_gon = Polygon::new(snare_vertices, snare_offset, 0.9);
+
+    // LAYER C: HI-HAT (Fill) - using density thresholds from tuning
+    let hat_vertices = if density < 0.25 {
+        tuning.hat_very_low_density_vertices
+    } else if density < 0.6 {
+        tuning.hat_low_density_vertices
+    } else if density < 0.85 {
+        tuning.hat_medium_density_vertices
+    } else {
+        tuning.hat_high_density_vertices
+    };
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let hat_offset =
+        if tension > 0.3 { (tension * (steps / hat_vertices) as f32 * 0.5) as usize } else { 0 };
+    let hat_gon = Polygon::new(hat_vertices, hat_offset, 0.6 * density.max(0.5));
+
+    // LAYER D: BASS (Harmonic Foundation)
+    let bass_gon = if density < 0.4 { kick_gon } else { Polygon::new(8, 0, 0.8) };
+
+    // LAYER E: LEAD (Melody)
+    let lead_vertices = if density < 0.3 { 3 } else { 5 };
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let lead_offset = (tension * (steps / lead_vertices) as f32) as usize;
+    let lead_gon = Polygon::new(lead_vertices, lead_offset, 0.7);
+
+    // --- 2. RASTERIZATION (Collision Calculation) ---
+
+    for (i, trigger) in triggers.iter_mut().enumerate().take(steps) {
+        let hit_kick = kick_gon.hits(i, steps);
+        let hit_snare = snare_gon.hits(i, steps);
+        let hit_hat = hat_gon.hits(i, steps);
+        let hit_bass = bass_gon.hits(i, steps);
+        let hit_lead = lead_gon.hits(i, steps);
+
+        // --- 3. CONFLICT RESOLUTION & VELOCITY ---
+
+        if hit_kick {
+            trigger.kick = true;
+            trigger.velocity = kick_gon.velocity;
+        }
+
+        if hit_snare {
+            trigger.snare = true;
+            trigger.velocity = if hit_kick { 1.0 } else { snare_gon.velocity };
+        }
+
+        if hit_hat {
+            let mask = (hit_kick || hit_snare) && density < 0.75;
+            if !mask {
+                trigger.hat = true;
                 if !hit_kick && !hit_snare {
                     trigger.velocity = hat_gon.velocity;
                 }

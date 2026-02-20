@@ -12,7 +12,7 @@ pub mod engine;
 pub use harmonium_ai::ai;
 pub use harmonium_ai::mapper;
 pub use harmonium_audio::{backend, realtime, synthesis, voice_manager, voicing};
-pub use harmonium_core::{events, fractal, harmony, log, params, sequencer, truth};
+pub use harmonium_core::{events, fractal, harmony, log, params, sequencer, truth, tuning};
 
 // Real-time safety: Global allocator that panics on allocations in audio thread (debug builds only)
 // Uses fully qualified path to avoid local mod ambiguity
@@ -84,12 +84,30 @@ impl RecordedData {
 pub type FontQueue = Arc<Mutex<Vec<(u32, Vec<u8>)>>>;
 pub type FinishedRecordings = Arc<Mutex<Vec<(events::RecordFormat, Vec<u8>)>>>;
 
+#[cfg(feature = "standalone")]
+struct SendStream(cpal::Stream);
+
+#[cfg(feature = "standalone")]
+#[allow(unsafe_code)]
+unsafe impl Send for SendStream {}
+#[cfg(feature = "standalone")]
+#[allow(unsafe_code)]
+unsafe impl Sync for SendStream {}
+
+#[cfg(feature = "standalone")]
+impl std::ops::Deref for SendStream {
+    type Target = cpal::Stream;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 // Handle and WASM bindings only available with standalone feature (cpal)
 #[cfg(feature = "standalone")]
 #[cfg_attr(feature = "wasm", wasm_bindgen)]
 pub struct Handle {
     #[allow(dead_code)]
-    stream: cpal::Stream,
+    stream: SendStream,
     /// Phase 3: Lock-free triple buffer for UI→Audio parameter updates
     target_params_input: Input<engine::EngineParams>,
     /// Phase 3: Local cache to avoid read-modify-write races
@@ -980,7 +998,7 @@ pub fn start_with_backend(sf2_bytes: Option<Box<[u8]>>, backend: &str) -> Result
     let cached_params = engine::EngineParams::default();
 
     Ok(Handle {
-        stream,
+        stream: SendStream(stream),
         target_params_input,
         cached_params,
         control_mode: control_mode_clone,
@@ -1006,4 +1024,57 @@ pub fn get_available_backends() -> Vec<JsValue> {
     #[cfg(feature = "odin2")]
     backends.push(JsValue::from_str("odin2"));
     backends
+}
+
+/// Start Harmonium natively (no WASM bindings)
+#[cfg(feature = "standalone")]
+pub fn start_native(sf2_bytes: Option<Box<[u8]>>) -> Result<Handle, String> {
+    // Default to FundSP backend for now
+    let backend_type = audio::AudioBackendType::FundSP;
+
+    // Phase 3: Create triple buffer for lock-free UI→Audio parameter updates
+    let (target_params_input, target_params_output) =
+        triple_buffer::triple_buffer(&engine::EngineParams::default());
+    let control_mode = Arc::new(Mutex::new(params::ControlMode::default()));
+
+    let control_mode_clone = control_mode.clone();
+
+    let (
+        stream,
+        config,
+        harmony_state_rx,
+        event_queue_rx,
+        font_queue,
+        finished_recordings,
+        symbolic_state_rx,
+    ) = audio::create_stream(
+        target_params_output,
+        control_mode,
+        sf2_bytes.as_deref(),
+        backend_type,
+    )?;
+
+    // Phase 2: Create cached harmony state
+    let cached_harmony_state = Arc::new(Mutex::new(engine::HarmonyState::default()));
+
+    // Phase 3: Initialize cached_params from the initial params written to triple buffer
+    let cached_params = engine::EngineParams::default();
+
+    Ok(Handle {
+        stream: SendStream(stream),
+        target_params_input,
+        cached_params,
+        control_mode: control_mode_clone,
+        harmony_state_rx,
+        event_queue_rx,
+        cached_harmony_state,
+        font_queue,
+        finished_recordings,
+        symbolic_state_rx: Arc::new(Mutex::new(symbolic_state_rx)),
+        bpm: config.bpm,
+        key: config.key,
+        scale: config.scale,
+        pulses: config.pulses,
+        steps: config.steps,
+    })
 }
