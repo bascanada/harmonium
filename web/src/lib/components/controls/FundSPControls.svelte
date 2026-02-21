@@ -10,10 +10,11 @@
 	}>();
 
 	// Svelte 5 State - Local state for controls (decoupled during active editing)
+	// Initialize with literal defaults; $effect below syncs from props when not editing
 	let local = $state({
-		filterCutoff,
-		reverbMix,
-		expression
+		filterCutoff: 0.7,
+		reverbMix: 0.3,
+		expression: 0.5
 	});
 
 	let isEditing = $state(false);
@@ -22,11 +23,9 @@
 	// Svelte 5 Effect - Sync props to local ONLY when not editing
 	$effect(() => {
 		if (!isEditing) {
-			local = {
-				filterCutoff,
-				reverbMix,
-				expression
-			};
+			if (local.filterCutoff !== filterCutoff) local.filterCutoff = filterCutoff;
+			if (local.reverbMix !== reverbMix) local.reverbMix = reverbMix;
+			if (local.expression !== expression) local.expression = expression;
 		}
 	});
 

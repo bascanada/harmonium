@@ -127,7 +127,7 @@ impl EmotionEngine {
                     density,
                     smoothness: 0.5,
                     algorithm: harmonium_core::sequencer::RhythmMode::default(),
-                    channel_routing: vec![0; 16],
+                    channel_routing: vec![-1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                     muted_channels: vec![false; 16],
 
                     record_wav: false,
@@ -166,7 +166,7 @@ impl EmotionEngine {
             density: 0.0,
             smoothness: 0.0,
             algorithm: harmonium_core::sequencer::RhythmMode::default(),
-            channel_routing: vec![0; 16],
+            channel_routing: vec![-1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
             muted_channels: vec![false; 16],
 
             record_wav: false,
@@ -215,7 +215,7 @@ impl EmotionEngine {
                 density: 0.2,
                 smoothness: 0.5,
                 algorithm: harmonium_core::sequencer::RhythmMode::default(),
-                channel_routing: vec![0; 16],
+                channel_routing: vec![-1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                 muted_channels: vec![false; 16],
 
                 record_wav: false,

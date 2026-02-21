@@ -17,10 +17,19 @@ use harmonium_core::{
     },
     log,
     sequencer::{RhythmMode, Sequencer, StepTrigger},
+    tuning::TuningParams,
 };
 use rand::Rng;
 use rust_music_theory::{note::PitchSymbol, scale::ScaleType};
 use triple_buffer::Output;
+
+/// Tracks a pending NoteOff event that should be sent after a delay
+#[derive(Clone, Debug)]
+struct PendingNoteOff {
+    note: u8,
+    channel: u8,
+    steps_remaining: usize,
+}
 
 /// Symbolic snapshot of the engine state for look-ahead simulation
 pub struct SymbolicState {
@@ -312,8 +321,9 @@ pub struct HarmoniumEngine {
     _last_valence_choice: f32, // Hystérésis: valence qui a déclenché le dernier choix
     _last_tension_choice: f32, // Hystérésis: tension qui a déclenché le dernier choix
 
-    _active_lead_notes: Vec<u8>, // Notes actuellement jouées sur le channel Lead
+    active_lead_note: Option<u8>, // Note actuellement jouée sur le channel Lead
     active_bass_note: Option<u8>, // Note de basse actuellement jouée
+    pending_noteoffs: Vec<PendingNoteOff>, // Scheduled NoteOff events with delay
 
     // === NOUVELLE ARCHITECTURE: Params Musicaux Découplés ===
     /// Mapper émotions → params musicaux
@@ -332,6 +342,9 @@ pub struct HarmoniumEngine {
 
     // Phase 2.5: Pre-allocated buffer for event generation (no Vec::new() in audio thread)
     events_buffer: Vec<AudioEvent>,
+
+    // Phase 3: Tuning parameters for algorithmic tuning (LLM iteration loop)
+    tuning: Option<TuningParams>,
 }
 
 impl HarmoniumEngine {
@@ -454,8 +467,9 @@ impl HarmoniumEngine {
             last_rotation: 0,
             _last_valence_choice: initial_params.valence,
             _last_tension_choice: initial_params.tension,
-            _active_lead_notes: Vec::with_capacity(8),
+            active_lead_note: None,
             active_bass_note: None,
+            pending_noteoffs: Vec::with_capacity(4),
             emotion_mapper,
             control_mode,
             is_recording_wav: false,
@@ -464,10 +478,152 @@ impl HarmoniumEngine {
             is_recording_truth: false,
             last_muted_channels: vec![false; 16],
             events_buffer: Vec::with_capacity(8),
+            tuning: None,
         };
 
         // Return engine and consumers (Phase 2: lock-free queues)
         (engine, harmony_state_rx, event_queue_rx)
+    }
+
+    /// Create engine with custom tuning parameters (Phase 3: LLM tuning loop)
+    ///
+    /// This constructor uses `TuningParams` to configure algorithm subsystems
+    /// instead of hardcoded defaults, enabling iterative parameter optimization.
+    pub fn with_tuning(
+        sample_rate: f64,
+        mut target_params: Output<EngineParams>,
+        control_mode: Arc<Mutex<ControlMode>>,
+        mut renderer: Box<dyn AudioRenderer>,
+        tuning: TuningParams,
+    ) -> (Self, rtrb::Consumer<HarmonyState>, rtrb::Consumer<VisualizationEvent>) {
+        let mut rng = rand::thread_rng();
+        let initial_params = target_params.read().clone();
+        let font_queue = Arc::new(Mutex::new(Vec::new()));
+        let bpm = initial_params.compute_bpm();
+        let steps = 16;
+        let initial_pulses = std::cmp::min((initial_params.density * 11.0) as usize + 1, 16);
+        let keys = [
+            PitchSymbol::C,
+            PitchSymbol::D,
+            PitchSymbol::E,
+            PitchSymbol::F,
+            PitchSymbol::G,
+            PitchSymbol::A,
+            PitchSymbol::B,
+        ];
+        let scales = [ScaleType::PentatonicMinor, ScaleType::PentatonicMajor];
+        let random_key = keys[rng.gen_range(0..keys.len())];
+        let random_scale = scales[rng.gen_range(0..scales.len())];
+
+        let config = SessionConfig {
+            bpm,
+            key: format!("{}", random_key),
+            scale: format!("{:?}", random_scale),
+            pulses: initial_pulses,
+            steps,
+        };
+
+        log::info(&format!("Session (tuned): {} {} | BPM: {:.1}", config.key, config.scale, bpm));
+
+        // Phase 2: Create lock-free SPSC queues for Audio→UI communication
+        let (harmony_state_tx, harmony_state_rx) = rtrb::RingBuffer::new(256);
+        let (event_queue_tx, event_queue_rx) = rtrb::RingBuffer::new(4096);
+        let last_harmony_state = HarmonyState::default();
+
+        // === Sequencers with TuningParams ===
+        let sequencer_primary =
+            Sequencer::from_tuning(steps, initial_pulses, bpm, RhythmMode::Euclidean, &tuning);
+        let secondary_pulses = std::cmp::min((initial_params.density * 8.0) as usize + 1, 12);
+        let sequencer_secondary =
+            Sequencer::from_tuning(12, secondary_pulses, bpm, RhythmMode::Euclidean, &tuning);
+
+        let harmony = HarmonyNavigator::new(random_key, random_scale, 4);
+        let samples_per_step = (sample_rate * 60.0 / (bpm as f64) / 4.0) as usize;
+
+        // Initialize renderer timing
+        renderer.handle_event(AudioEvent::TimingUpdate { samples_per_step });
+
+        // Progression initiale
+        let current_progression =
+            Progression::get_palette(initial_params.valence, initial_params.tension);
+
+        // === HarmonicDriver with TuningParams ===
+        let harmony_mode = initial_params.harmony_mode;
+        let key_pc = match random_key {
+            PitchSymbol::C => 0,
+            PitchSymbol::D => 2,
+            PitchSymbol::E => 4,
+            PitchSymbol::F => 5,
+            PitchSymbol::G => 7,
+            PitchSymbol::A => 9,
+            PitchSymbol::B => 11,
+            _ => 0,
+        };
+        let harmonic_driver = Some(HarmonicDriver::from_tuning(key_pc, &tuning));
+
+        // Créer le mapper et les params musicaux initiaux
+        let emotion_mapper = EmotionMapper::new();
+        let musical_params = emotion_mapper.map(&initial_params);
+
+        // Initialize session key/scale in control_mode for UI
+        if let Ok(mut mode) = control_mode.lock() {
+            mode.session_key = config.key.clone();
+            mode.session_scale = config.scale.clone();
+        }
+
+        let symbolic = SymbolicState {
+            sequencer_primary,
+            sequencer_secondary,
+            harmony,
+            harmonic_driver,
+            harmony_mode,
+            current_progression,
+            progression_index: 0,
+            measure_counter: 0,
+            musical_params,
+            current_chord_type: ChordType::Major,
+            voicer: Box::new(BlockChordVoicer::new(4)),
+            lcc: LydianChromaticConcept::new(),
+            last_harmony_state,
+            current_state: CurrentState::default(),
+        };
+
+        let engine = Self {
+            config,
+            target_params,
+            harmony_state_tx,
+            event_queue_tx,
+            font_queue,
+            symbolic,
+            renderer,
+            sample_rate,
+            sample_counter: 0,
+            samples_per_step,
+            last_pulse_count: initial_pulses,
+            last_rotation: 0,
+            _last_valence_choice: initial_params.valence,
+            _last_tension_choice: initial_params.tension,
+            active_lead_note: None,
+            active_bass_note: None,
+            pending_noteoffs: Vec::with_capacity(4),
+            emotion_mapper,
+            control_mode,
+            is_recording_wav: false,
+            is_recording_midi: false,
+            is_recording_musicxml: false,
+            is_recording_truth: false,
+            last_muted_channels: vec![false; 16],
+            events_buffer: Vec::with_capacity(8),
+            tuning: Some(tuning),
+        };
+
+        (engine, harmony_state_rx, event_queue_rx)
+    }
+
+    /// Returns the tuning parameters if available
+    #[must_use]
+    pub const fn tuning(&self) -> Option<&TuningParams> {
+        self.tuning.as_ref()
     }
 
     /// Change le voicer dynamiquement
@@ -854,11 +1010,20 @@ impl HarmoniumEngine {
         // Handle physical side effects (audio engine only)
         self.events_buffer.clear();
 
-        // Stop previous bass note (Staccato / Note Switching) to prevent infinite sustain
-        if let Some(old_note) = self.active_bass_note {
-            self.renderer.handle_event(AudioEvent::NoteOff { note: old_note, channel: 0 });
-            self.active_bass_note = None;
-        }
+        // Process pending NoteOff events (delayed note release)
+        // Decrement counters and send NoteOff when timer expires
+        self.pending_noteoffs.retain_mut(|pending| {
+            pending.steps_remaining = pending.steps_remaining.saturating_sub(1);
+            if pending.steps_remaining == 0 {
+                self.renderer.handle_event(AudioEvent::NoteOff {
+                    note: pending.note,
+                    channel: pending.channel,
+                });
+                false // Remove from queue
+            } else {
+                true // Keep in queue
+            }
+        });
 
         for event in events {
             self.renderer.handle_event(event.clone());
@@ -866,9 +1031,39 @@ impl HarmoniumEngine {
 
             // Phase 2: Send NoteOn events to UI via lock-free queue
             if let AudioEvent::NoteOn { note, channel, .. } = event {
-                // Track active bass note for NoteOff next tick
+                // Track active bass note and schedule delayed NoteOff for previous note
                 if channel == 0 {
+                    // Schedule NoteOff for previous bass note (if any) with 50% duration
+                    if let Some(old_note) = self.active_bass_note {
+                        // Duration: 2 divisions (50% of step) - prevents overlap with Odin backend
+                        // Still eliminates tiny rests while matching gate timer duration (~60%)
+                        let duration_steps = 2;
+                        self.pending_noteoffs.push(PendingNoteOff {
+                            note: old_note,
+                            channel: 0,
+                            steps_remaining: duration_steps,
+                        });
+                    }
                     self.active_bass_note = Some(note);
+                }
+
+                // Track active lead note and schedule NoteOff for current note
+                if channel == 1 {
+                    // Schedule NoteOff for previous lead note immediately (no overlap)
+                    if let Some(old_note) = self.active_lead_note {
+                        self.renderer.handle_event(AudioEvent::NoteOff {
+                            note: old_note,
+                            channel: 1,
+                        });
+                    }
+                    // Schedule NoteOff for THIS note with 50% duration (2 divisions)
+                    let duration_steps = 2;
+                    self.pending_noteoffs.push(PendingNoteOff {
+                        note,
+                        channel: 1,
+                        steps_remaining: duration_steps,
+                    });
+                    self.active_lead_note = Some(note);
                 }
 
                 let vis_event = VisualizationEvent {
@@ -913,5 +1108,37 @@ impl HarmoniumEngine {
         };
 
         format!("{}{}", roman, quality_symbol)
+    }
+
+    // =========================================================================
+    // DNA EXPORT
+    // =========================================================================
+
+    /// Export Musical DNA from a RecordingTruth
+    ///
+    /// This method extracts the complete Musical DNA profile from recorded
+    /// events, including harmonic and rhythmic characteristics.
+    ///
+    /// # Arguments
+    /// * `truth` - The RecordingTruth containing events and parameters
+    ///
+    /// # Returns
+    /// A `MusicalDNA` struct containing the extracted profile
+    #[must_use]
+    pub fn export_dna(truth: &harmonium_core::truth::RecordingTruth) -> harmonium_core::MusicalDNA {
+        harmonium_core::MusicalDNA::extract(truth)
+    }
+
+    /// Export Musical DNA to JSON string
+    ///
+    /// Convenience method that extracts DNA and serializes to JSON.
+    ///
+    /// # Errors
+    /// Returns error if JSON serialization fails
+    pub fn export_dna_json(
+        truth: &harmonium_core::truth::RecordingTruth,
+    ) -> Result<String, serde_json::Error> {
+        let dna = Self::export_dna(truth);
+        dna.to_json()
     }
 }

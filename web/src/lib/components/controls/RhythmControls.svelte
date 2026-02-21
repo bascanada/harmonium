@@ -109,9 +109,6 @@
 			localSteps = 16;
 		} else {
 			// Euclidean
-			// Keep current or reset to something standard? Leaving as is for now to match old logic mostly
-			// Old logic: local.rhythmSteps = mode === 1 ? 48 : 16;
-			// It seems it forced 16 for Euclidean/ClassicGroove
 			localSteps = 16;
 		}
 

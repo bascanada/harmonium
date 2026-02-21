@@ -18,6 +18,7 @@ use super::{
     pivot::{PivotDetector, PivotType},
     steedman_grammar::{GrammarStyle, SteedmanGrammar},
 };
+use crate::tuning::TuningParams;
 
 /// Mode de stratégie actuel (version V2 avec Parsimonious)
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -91,6 +92,8 @@ pub struct HarmonicDriver {
     pub neo_lower: f32,
     /// Seuil supérieur pour Neo-Riemannian (reste en Neo-Riemannian jusqu'à ce que la tension tombe en dessous)
     pub neo_upper: f32,
+    /// Hysteresis boost for strategy stability (prevents rapid switching)
+    pub hysteresis_boost: f32,
 }
 
 impl HarmonicDriver {
@@ -117,6 +120,37 @@ impl HarmonicDriver {
             steedman_upper: 0.55,
             neo_lower: 0.65,
             neo_upper: 0.75,
+            hysteresis_boost: 0.1,
+        }
+    }
+
+    /// Create a HarmonicDriver from TuningParams
+    ///
+    /// This constructor uses the centralized tuning configuration instead of
+    /// hardcoded defaults, enabling the LLM tuning loop to adjust these values.
+    #[must_use]
+    pub fn from_tuning(initial_key: PitchClass, tuning: &TuningParams) -> Self {
+        let lcc = Arc::new(LydianChromaticConcept::new());
+
+        Self {
+            steedman: SteedmanGrammar::new(lcc.clone()),
+            neo_riemannian: NeoRiemannianEngine::new(lcc.clone()),
+            parsimonious: ParsimoniousDriver::from_tuning(lcc.clone(), tuning),
+            pivot: PivotDetector::new(lcc.clone()),
+            lcc,
+            current_chord: Chord::new(initial_key, ChordType::Major),
+            chord_history: Vec::new(),
+            current_strategy: StrategyMode::Steedman,
+            phrase_position: 0,
+            last_tension: 0.5,
+            global_key: initial_key,
+            // Hysteresis fields from TuningParams
+            last_strategy: StrategyMode::Steedman,
+            steedman_lower: tuning.steedman_lower_threshold,
+            steedman_upper: tuning.steedman_upper_threshold,
+            neo_lower: tuning.neo_riemannian_lower_threshold,
+            neo_upper: tuning.neo_riemannian_upper_threshold,
+            hysteresis_boost: tuning.hysteresis_boost,
         }
     }
 
@@ -269,24 +303,24 @@ impl HarmonicDriver {
         }
 
         // Zones d'hystérésis: probabiliste avec biais vers la dernière stratégie
-        // Appliquer un boost de 10% à la stratégie précédente pour la stabilité
-        const HYSTERESIS_BOOST: f32 = 0.1;
+        // Appliquer un boost configurable à la stratégie précédente pour la stabilité
+        let hysteresis_boost = self.hysteresis_boost;
 
         match self.last_strategy {
             StrategyMode::Steedman => {
-                let boost = steedman_w * HYSTERESIS_BOOST;
+                let boost = steedman_w * hysteresis_boost;
                 steedman_w += boost;
                 parsimonious_w = boost.mul_add(-0.5, parsimonious_w).max(0.0);
                 neo_w = boost.mul_add(-0.5, neo_w).max(0.0);
             }
             StrategyMode::Parsimonious => {
-                let boost = parsimonious_w * HYSTERESIS_BOOST;
+                let boost = parsimonious_w * hysteresis_boost;
                 parsimonious_w += boost;
                 steedman_w = boost.mul_add(-0.5, steedman_w).max(0.0);
                 neo_w = boost.mul_add(-0.5, neo_w).max(0.0);
             }
             StrategyMode::NeoRiemannian => {
-                let boost = neo_w * HYSTERESIS_BOOST;
+                let boost = neo_w * hysteresis_boost;
                 neo_w += boost;
                 steedman_w = boost.mul_add(-0.5, steedman_w).max(0.0);
                 parsimonious_w = boost.mul_add(-0.5, parsimonious_w).max(0.0);

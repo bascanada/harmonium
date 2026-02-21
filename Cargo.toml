@@ -5,6 +5,7 @@ members = [
     "harmonium_audio",
     "harmonium_host",
     "harmonium_bevy",
+    "harmonium_lab",
     "xtask"
 ]
 resolver = "2"

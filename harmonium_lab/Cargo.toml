@@ -1,0 +1,43 @@
+[package]
+name = "harmonium_lab"
+version = "0.1.0"
+edition = "2024"
+description = "Musical DNA extraction, benchmarking, and LLM-assisted tuning for Harmonium"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "harmonium-lab"
+path = "src/main.rs"
+
+[dependencies]
+harmonium_core = { path = "../harmonium_core" }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# CLI
+clap = { version = "4.5", features = ["derive", "env"] }
+
+# Progress & UX
+indicatif = "0.17"
+
+# File system
+walkdir = "2.5"
+zip = "0.6"
+
+# MusicXML parsing
+musicxml = "1.1"
+
+# HTTP client for Claude API
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"

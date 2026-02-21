@@ -355,7 +355,9 @@ fn main() {
     if sf2_data.is_some() {
         if let Ok(mut input) = target_params_input.lock() {
             let mut params = input.input_buffer_mut().clone();
-            params.channel_routing = vec![0; 16];
+            // Keep channels 0-3 on FunDSP (-1) for synth instruments (bass, lead, snare, hat)
+            // Route channels 4-15 to Oxisynth bank 0 for SoundFont playback
+            params.channel_routing = vec![-1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
             input.write(params);
         }
     }
