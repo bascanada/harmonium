@@ -300,7 +300,7 @@ impl MusicXMLIngester {
                     current_time += backup_duration;
                 }
 
-                let is_rest = note_xml.contains("<rest");
+                let _is_rest = note_xml.contains("<rest");
                 let is_chord = note_xml.contains("<chord");
                 let duration = self.extract_duration(note_xml, divisions);
 
@@ -745,6 +745,7 @@ impl MusicXMLIngester {
 
 /// A note event extracted from MusicXML
 #[derive(Clone, Debug)]
+#[allow(dead_code)] // Fields reserved for future use
 struct NoteEvent {
     /// Time in beats from start
     time: f64,

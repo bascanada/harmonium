@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::params::TimeSignature;
 use crate::tuning::TuningParams;
 
 // --- RHYTHM MODE (Strategy Pattern) ---
@@ -92,11 +93,26 @@ impl Polygon {
 
 #[derive(Clone)]
 pub struct Sequencer {
+    /// Time signature (NEW: explicit instead of inferred)
+    pub time_signature: TimeSignature,
+
+    /// Steps per quarter note (subdivision resolution)
+    pub steps_per_quarter: usize,
+
+    /// DEPRECATED: Use steps_per_measure() instead
+    /// Kept for backward compatibility during migration
     pub steps: usize,
+
     pub pulses: usize,
     pub pattern: Vec<StepTrigger>, // Remplacement de Vec<bool>
     pub rotation: usize,
+
+    /// Current step within measure (0-indexed)
     pub current_step: usize,
+
+    /// Current measure number (1-indexed)
+    pub current_measure: usize,
+
     pub bpm: f32,
     pub last_tick_time: f64,
     pub mode: RhythmMode,
@@ -107,19 +123,69 @@ pub struct Sequencer {
 }
 
 impl Sequencer {
+    /// NEW: Create sequencer with explicit time signature
+    #[must_use]
+    pub fn new_with_time_sig(
+        time_sig: TimeSignature,
+        steps_per_quarter: usize,
+        pulses: usize,
+        bpm: f32,
+        mode: RhythmMode,
+    ) -> Self {
+        let steps_per_measure = time_sig.steps_per_measure(steps_per_quarter);
+        let mut seq = Self {
+            time_signature: time_sig,
+            steps_per_quarter,
+            steps: steps_per_measure,  // Deprecated field, kept for compat
+            pulses,
+            pattern: vec![StepTrigger::default(); steps_per_measure],
+            rotation: 0,
+            current_step: 0,
+            current_measure: 1,
+            bpm,
+            last_tick_time: 0.0,
+            mode,
+            tension: 0.0,
+            density: 0.5,
+            tuning: None,
+        };
+        seq.regenerate_pattern();
+        seq
+    }
+
+    /// DEPRECATED: Legacy constructor for backward compatibility
+    /// Use new_with_time_sig() for new code
     #[must_use]
     pub fn new(steps: usize, pulses: usize, bpm: f32) -> Self {
         Self::new_with_mode(steps, pulses, bpm, RhythmMode::Euclidean)
     }
 
+    /// DEPRECATED: Legacy constructor for backward compatibility
     #[must_use]
     pub fn new_with_mode(steps: usize, pulses: usize, bpm: f32, mode: RhythmMode) -> Self {
+        // Infer time signature from steps (legacy behavior)
+        let time_signature = match steps {
+            12 => TimeSignature::THREE_FOUR,
+            24 => TimeSignature::SIX_EIGHT,
+            _ => TimeSignature::FOUR_FOUR,
+        };
+        let steps_per_quarter = match steps {
+            12 | 16 | 24 => 4,
+            48 => 12,
+            96 => 24,
+            192 => 48,
+            _ => 4,
+        };
+
         let mut seq = Self {
+            time_signature,
+            steps_per_quarter,
             steps,
             pulses,
             pattern: vec![StepTrigger::default(); steps],
             rotation: 0,
             current_step: 0,
+            current_measure: 1,
             bpm,
             last_tick_time: 0.0,
             mode,
@@ -143,12 +209,29 @@ impl Sequencer {
         mode: RhythmMode,
         tuning: &TuningParams,
     ) -> Self {
+        // Infer time signature from steps (legacy behavior)
+        let time_signature = match steps {
+            12 => TimeSignature::THREE_FOUR,
+            24 => TimeSignature::SIX_EIGHT,
+            _ => TimeSignature::FOUR_FOUR,
+        };
+        let steps_per_quarter = match steps {
+            12 | 16 | 24 => 4,
+            48 => 12,
+            96 => 24,
+            192 => 48,
+            _ => 4,
+        };
+
         let mut seq = Self {
+            time_signature,
+            steps_per_quarter,
             steps,
             pulses,
             pattern: vec![StepTrigger::default(); steps],
             rotation: 0,
             current_step: 0,
+            current_measure: 1,
             bpm,
             last_tick_time: 0.0,
             mode,
@@ -158,6 +241,37 @@ impl Sequencer {
         };
         seq.regenerate_pattern();
         seq
+    }
+
+    /// Get total steps per measure (derived from time signature)
+    #[must_use]
+    pub fn steps_per_measure(&self) -> usize {
+        self.time_signature.steps_per_measure(self.steps_per_quarter)
+    }
+
+    /// Get current beat position (1-indexed) and step within beat (0-indexed)
+    ///
+    /// # Returns
+    /// (beat_number, step_in_beat) where beat_number is 1-indexed
+    ///
+    /// # Example
+    /// ```
+    /// # use harmonium_core::sequencer::Sequencer;
+    /// # use harmonium_core::params::TimeSignature;
+    /// # use harmonium_core::sequencer::RhythmMode;
+    /// let seq = Sequencer::new_with_time_sig(
+    ///     TimeSignature::FOUR_FOUR, 4, 4, 120.0, RhythmMode::Euclidean
+    /// );
+    /// let (beat, step_in_beat) = seq.current_beat_position();
+    /// assert_eq!(beat, 1);  // First beat
+    /// assert_eq!(step_in_beat, 0);  // First step in beat
+    /// ```
+    #[must_use]
+    pub fn current_beat_position(&self) -> (usize, usize) {
+        let steps_per_beat = self.steps_per_quarter * 4 / self.time_signature.denominator as usize;
+        let beat = (self.current_step / steps_per_beat) + 1;
+        let step_in_beat = self.current_step % steps_per_beat;
+        (beat, step_in_beat)
     }
 
     #[must_use]
@@ -175,10 +289,12 @@ impl Sequencer {
     }
 
     pub fn regenerate_pattern(&mut self) {
+        let steps_per_measure = self.steps_per_measure();
+
         let mut raw = match self.mode {
             RhythmMode::Euclidean => {
                 // Mode classique : On map le booléen sur Kick + Hat
-                let bools = generate_euclidean_bools(self.steps, self.pulses);
+                let bools = generate_euclidean_bools(steps_per_measure, self.pulses);
                 bools
                     .into_iter()
                     .map(|b| StepTrigger {
@@ -192,22 +308,24 @@ impl Sequencer {
                     .collect()
             }
             RhythmMode::PerfectBalance => {
-                // Mode XronoMorph : Polygones réguliers superposés
-                // Use tuning parameters if available, otherwise use defaults
-                if let Some(ref tuning) = self.tuning {
-                    generate_balanced_layers_with_tuning(
-                        self.steps,
-                        self.density,
-                        self.tension,
-                        tuning,
-                    )
-                } else {
-                    generate_balanced_layers_48(self.steps, self.density, self.tension)
-                }
+                // NEW: Use time-signature-aware generation
+                generate_balanced_layers_with_time_sig(
+                    self.time_signature,
+                    steps_per_measure,
+                    self.density,
+                    self.tension,
+                    self.tuning.as_ref(),
+                )
             }
             RhythmMode::ClassicGroove => {
-                // Mode groove réaliste : Patterns de batterie avec ghost notes
-                generate_classic_groove(self.steps, self.density, self.tension)
+                // NEW: Use time-signature-aware generation
+                // Falls back to PerfectBalance for non-4/4
+                generate_classic_groove_with_time_sig(
+                    self.time_signature,
+                    steps_per_measure,
+                    self.density,
+                    self.tension,
+                )
             }
         };
 
@@ -248,8 +366,17 @@ impl Sequencer {
         if self.current_step >= self.pattern.len() {
             self.current_step = 0;
         }
+
         let trigger = self.pattern[self.current_step];
-        self.current_step = (self.current_step + 1) % self.pattern.len();
+
+        // Advance position
+        self.current_step += 1;
+        let steps_in_measure = self.steps_per_measure();
+        if self.current_step >= steps_in_measure {
+            self.current_step = 0;
+            self.current_measure += 1;
+        }
+
         trigger
     }
 }
@@ -299,6 +426,130 @@ pub fn generate_euclidean_bools(steps: usize, pulses: usize) -> Vec<bool> {
 // Density controls polygon complexity (number of vertices)
 // Tension controls phase shift (rotation) for syncopation
 
+/// NEW: Generates a pattern with time signature awareness
+/// Adapts polygon vertices to the number of beats in the measure
+#[must_use]
+pub fn generate_balanced_layers_with_time_sig(
+    time_sig: TimeSignature,
+    steps_per_measure: usize,
+    density: f32,
+    tension: f32,
+    _tuning: Option<&TuningParams>,
+) -> Vec<StepTrigger> {
+    let mut triggers = vec![StepTrigger::default(); steps_per_measure];
+
+    // Calculate beat subdivisions based on time signature
+    let beats_per_measure = time_sig.numerator as usize;
+    let steps_per_beat = steps_per_measure / beats_per_measure;
+
+    // --- 1. LAYER CONFIGURATION ---
+
+    // LAYER A: KICK (Foundation) - Adapt to beats per measure
+    let kick_gon = if density < 0.3 {
+        // Low density: only downbeat
+        Polygon::new(1, 0, 1.0)
+    } else if density < 0.6 {
+        // Medium: all beats (e.g., 3 vertices for 3/4, 4 for 4/4, 5 for 5/4)
+        Polygon::new(beats_per_measure, 0, 1.0)
+    } else {
+        // High: beats + subdivisions
+        Polygon::new(beats_per_measure * 2, 0, 1.0)
+    };
+
+    // LAYER B: SNARE (Counterpoint) - Time-signature-aware patterns
+    let (snare_vertices, snare_base_offset) = match time_sig.numerator {
+        3 => (2, steps_per_beat),           // 3/4: snare on beat 2 (1 vertex, offset by 1 beat)
+        4 => (2, steps_per_beat),           // 4/4: snare on beats 2&4 (classic backbeat)
+        5 => (2, steps_per_beat),           // 5/4: snare on beats 2&4
+        6 => (3, steps_per_beat),           // 6/8: snare on beats 2,4,6
+        7 => (3, steps_per_beat * 2),       // 7/8: snare on beats 3,5,7
+        _ => (2, steps_per_beat),           // Default: backbeat pattern
+    };
+
+    // Apply tension as additional rotation
+    let max_snare_shift = steps_per_measure / snare_vertices;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let tension_offset = (tension * max_snare_shift as f32 * 0.5) as usize;
+    let snare_offset = snare_base_offset + tension_offset;
+
+    let snare_gon = Polygon::new(snare_vertices, snare_offset, 0.9);
+
+    // LAYER C: HI-HAT (Fill) - Density-based, time-signature agnostic
+    let hat_vertices = if density < 0.25 {
+        6   // Sparse
+    } else if density < 0.6 {
+        8   // Medium
+    } else if density < 0.85 {
+        12  // Dense
+    } else {
+        16  // Very dense
+    };
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let hat_offset = if tension > 0.3 {
+        (tension * (steps_per_measure / hat_vertices) as f32 * 0.5) as usize
+    } else {
+        0
+    };
+
+    let hat_gon = Polygon::new(hat_vertices, hat_offset, 0.6 * density.max(0.5));
+
+    // LAYER D: BASS (Harmonic Foundation)
+    let bass_gon = if density < 0.4 {
+        kick_gon
+    } else {
+        Polygon::new(8, 0, 0.8)
+    };
+
+    // LAYER E: LEAD (Melody)
+    let lead_vertices = if density < 0.3 { 3 } else { 5 };
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let lead_offset = (tension * (steps_per_measure / lead_vertices) as f32) as usize;
+    let lead_gon = Polygon::new(lead_vertices, lead_offset, 0.7);
+
+    // --- 2. RASTERIZATION (Collision Calculation) ---
+
+    for (i, trigger) in triggers.iter_mut().enumerate().take(steps_per_measure) {
+        let hit_kick = kick_gon.hits(i, steps_per_measure);
+        let hit_snare = snare_gon.hits(i, steps_per_measure);
+        let hit_hat = hat_gon.hits(i, steps_per_measure);
+        let hit_bass = bass_gon.hits(i, steps_per_measure);
+        let hit_lead = lead_gon.hits(i, steps_per_measure);
+
+        // --- 3. CONFLICT RESOLUTION & VELOCITY ---
+
+        if hit_kick {
+            trigger.kick = true;
+            trigger.velocity = kick_gon.velocity;
+        }
+
+        if hit_snare {
+            trigger.snare = true;
+            trigger.velocity = if hit_kick { 1.0 } else { snare_gon.velocity };
+        }
+
+        if hit_hat {
+            let mask = (hit_kick || hit_snare) && density < 0.75;
+            if !mask {
+                trigger.hat = true;
+                if !hit_kick && !hit_snare {
+                    trigger.velocity = hat_gon.velocity;
+                }
+            }
+        }
+
+        if hit_bass {
+            trigger.bass = true;
+        }
+        if hit_lead {
+            trigger.lead = true;
+        }
+    }
+
+    triggers
+}
+
+/// DEPRECATED: Use generate_balanced_layers_with_time_sig() for new code
 /// Generates a pattern based on the superposition of regular polygons.
 /// Respects the Perfect Balance theorem (sum of vectors is zero).
 #[must_use]
@@ -512,8 +763,35 @@ pub fn generate_balanced_layers_with_tuning(
 // Density contrôle la complexité rythmique
 // Tension contrôle la syncopation et les ghost notes
 
+/// NEW: Generates realistic drum patterns with time signature awareness
+/// Restricts to 4/4, falls back to PerfectBalance for other signatures
+#[must_use]
+pub fn generate_classic_groove_with_time_sig(
+    time_sig: TimeSignature,
+    steps_per_measure: usize,
+    density: f32,
+    tension: f32,
+) -> Vec<StepTrigger> {
+    // ClassicGroove patterns are specifically designed for 4/4
+    // For other time signatures, fallback to PerfectBalance
+    if time_sig != TimeSignature::FOUR_FOUR {
+        return generate_balanced_layers_with_time_sig(
+            time_sig,
+            steps_per_measure,
+            density,
+            tension,
+            None,
+        );
+    }
+
+    // Use legacy 4/4 implementation
+    generate_classic_groove(steps_per_measure, density, tension)
+}
+
+/// DEPRECATED: Use generate_classic_groove_with_time_sig() for new code
 /// Generates realistic drum patterns based on common grooves.
 /// Uses density for kick complexity and tension for ghost notes/syncopation.
+/// ONLY WORKS FOR 4/4 TIME
 #[allow(clippy::too_many_lines)]
 #[must_use]
 pub fn generate_classic_groove(steps: usize, density: f32, tension: f32) -> Vec<StepTrigger> {
@@ -704,4 +982,346 @@ pub fn generate_classic_groove(steps: usize, density: f32, tension: f32) -> Vec<
     }
 
     pattern
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// TESTS
+// ═══════════════════════════════════════════════════════════════════
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sequencer_bar_beat_tracking() {
+        let mut seq = Sequencer::new_with_time_sig(
+            TimeSignature::THREE_FOUR,
+            4,
+            3,
+            120.0,
+            RhythmMode::Euclidean,
+        );
+
+        // Initial state: Measure 1, Beat 1
+        assert_eq!(seq.current_measure, 1);
+        assert_eq!(seq.current_step, 0);
+        assert_eq!(seq.current_beat_position(), (1, 0));
+
+        // After 4 steps: Measure 1, Beat 2
+        for _ in 0..4 {
+            seq.tick();
+        }
+        assert_eq!(seq.current_measure, 1);
+        assert_eq!(seq.current_beat_position(), (2, 0));
+
+        // After 12 steps total (full 3/4 measure): Measure 2, Beat 1
+        for _ in 0..8 {
+            seq.tick();
+        }
+        assert_eq!(seq.current_measure, 2);
+        assert_eq!(seq.current_step, 0);
+        assert_eq!(seq.current_beat_position(), (1, 0));
+    }
+
+    #[test]
+    fn test_sequencer_4_4_tracking() {
+        let mut seq = Sequencer::new_with_time_sig(
+            TimeSignature::FOUR_FOUR,
+            4,
+            4,
+            120.0,
+            RhythmMode::Euclidean,
+        );
+
+        assert_eq!(seq.steps_per_measure(), 16);
+        assert_eq!(seq.current_measure, 1);
+
+        // Tick through one measure
+        for _ in 0..16 {
+            seq.tick();
+        }
+
+        // Should be at measure 2 now
+        assert_eq!(seq.current_measure, 2);
+        assert_eq!(seq.current_step, 0);
+    }
+
+    #[test]
+    fn test_sequencer_5_4_tracking() {
+        let mut seq = Sequencer::new_with_time_sig(
+            TimeSignature::FIVE_FOUR,
+            4,
+            5,
+            120.0,
+            RhythmMode::Euclidean,
+        );
+
+        assert_eq!(seq.steps_per_measure(), 20);
+
+        // Tick through one measure
+        for i in 0..20 {
+            let (beat, _) = seq.current_beat_position();
+            // Verify beats are 1-5
+            assert!(beat >= 1 && beat <= 5, "Beat {} at step {}", beat, i);
+            seq.tick();
+        }
+
+        // Should be at measure 2
+        assert_eq!(seq.current_measure, 2);
+        assert_eq!(seq.current_step, 0);
+    }
+
+    #[test]
+    fn test_sequencer_beat_position_calculation() {
+        let seq = Sequencer::new_with_time_sig(
+            TimeSignature::FOUR_FOUR,
+            4,
+            4,
+            120.0,
+            RhythmMode::Euclidean,
+        );
+
+        // 4/4 with 4 steps per quarter = 4 steps per beat
+        // Step 0 = Beat 1, Step 0
+        assert_eq!(seq.current_beat_position(), (1, 0));
+
+        // Create another seq at different positions
+        let mut seq2 = seq.clone();
+        seq2.current_step = 4;
+        assert_eq!(seq2.current_beat_position(), (2, 0));  // Beat 2
+
+        seq2.current_step = 8;
+        assert_eq!(seq2.current_beat_position(), (3, 0));  // Beat 3
+
+        seq2.current_step = 12;
+        assert_eq!(seq2.current_beat_position(), (4, 0));  // Beat 4
+    }
+
+    #[test]
+    fn test_backward_compat_legacy_constructor() {
+        // Old way should still work
+        let seq = Sequencer::new(16, 4, 120.0);
+
+        // Should infer 4/4
+        assert_eq!(seq.time_signature, TimeSignature::FOUR_FOUR);
+        assert_eq!(seq.steps_per_quarter, 4);
+        assert_eq!(seq.steps_per_measure(), 16);
+        assert_eq!(seq.current_measure, 1);
+
+        // Deprecated steps field should match
+        assert_eq!(seq.steps, 16);
+    }
+
+    #[test]
+    fn test_backward_compat_3_4_inference() {
+        let seq = Sequencer::new(12, 3, 120.0);
+
+        // Should infer 3/4
+        assert_eq!(seq.time_signature, TimeSignature::THREE_FOUR);
+        assert_eq!(seq.steps_per_measure(), 12);
+    }
+
+    #[test]
+    fn test_backward_compat_6_8_inference() {
+        let seq = Sequencer::new(24, 6, 120.0);
+
+        // Should infer 6/8
+        assert_eq!(seq.time_signature, TimeSignature::SIX_EIGHT);
+        assert_eq!(seq.steps_per_measure(), 12);  // 6 eighths = 3 quarters
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // PERFECT BALANCE TESTS
+    // ═══════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_perfect_balance_3_4() {
+        let pattern = generate_balanced_layers_with_time_sig(
+            TimeSignature::THREE_FOUR,
+            12,
+            0.5,
+            0.3,
+            None,
+        );
+
+        assert_eq!(pattern.len(), 12);
+
+        // In 3/4 with medium density, should have 3 kick hits (one per beat)
+        let kick_count = pattern.iter().filter(|t| t.kick).count();
+        assert_eq!(kick_count, 3, "3/4 should have 3 kicks");
+    }
+
+    #[test]
+    fn test_perfect_balance_4_4() {
+        let pattern = generate_balanced_layers_with_time_sig(
+            TimeSignature::FOUR_FOUR,
+            16,
+            0.5,
+            0.3,
+            None,
+        );
+
+        assert_eq!(pattern.len(), 16);
+
+        // In 4/4 with medium density, should have 4 kick hits (one per beat)
+        let kick_count = pattern.iter().filter(|t| t.kick).count();
+        assert_eq!(kick_count, 4, "4/4 should have 4 kicks");
+    }
+
+    #[test]
+    fn test_perfect_balance_5_4() {
+        let pattern = generate_balanced_layers_with_time_sig(
+            TimeSignature::FIVE_FOUR,
+            20,
+            0.5,
+            0.3,
+            None,
+        );
+
+        assert_eq!(pattern.len(), 20);
+
+        // In 5/4 with medium density, should have 5 kick hits (one per beat)
+        let kick_count = pattern.iter().filter(|t| t.kick).count();
+        assert_eq!(kick_count, 5, "5/4 should have 5 kicks");
+    }
+
+    #[test]
+    fn test_perfect_balance_7_8() {
+        let pattern = generate_balanced_layers_with_time_sig(
+            TimeSignature::SEVEN_EIGHT,
+            14,  // 7 eighths ≈ 3.5 quarters, with 4 steps per quarter = 14
+            0.5,
+            0.3,
+            None,
+        );
+
+        assert_eq!(pattern.len(), 14);
+
+        // Should still generate valid pattern
+        let kick_count = pattern.iter().filter(|t| t.kick).count();
+        assert!(kick_count > 0, "7/8 should have kicks");
+    }
+
+    #[test]
+    fn test_perfect_balance_low_density() {
+        let pattern = generate_balanced_layers_with_time_sig(
+            TimeSignature::FOUR_FOUR,
+            16,
+            0.2,  // Low density
+            0.3,
+            None,
+        );
+
+        // Low density should have only 1 kick (downbeat only)
+        let kick_count = pattern.iter().filter(|t| t.kick).count();
+        assert_eq!(kick_count, 1, "Low density should have 1 kick");
+    }
+
+    #[test]
+    fn test_perfect_balance_high_density() {
+        let pattern = generate_balanced_layers_with_time_sig(
+            TimeSignature::FOUR_FOUR,
+            16,
+            0.8,  // High density
+            0.3,
+            None,
+        );
+
+        // High density should have 8 kicks (beats + subdivisions)
+        let kick_count = pattern.iter().filter(|t| t.kick).count();
+        assert_eq!(kick_count, 8, "High density should have 8 kicks");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // CLASSIC GROOVE TESTS
+    // ═══════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_classic_groove_4_4_works() {
+        let pattern = generate_classic_groove_with_time_sig(
+            TimeSignature::FOUR_FOUR,
+            16,
+            0.5,
+            0.3,
+        );
+
+        assert_eq!(pattern.len(), 16);
+
+        // Should have kicks and snares (realistic drum pattern)
+        let kick_count = pattern.iter().filter(|t| t.kick).count();
+        let snare_count = pattern.iter().filter(|t| t.snare).count();
+
+        assert!(kick_count > 0, "4/4 ClassicGroove should have kicks");
+        assert!(snare_count > 0, "4/4 ClassicGroove should have snares");
+    }
+
+    #[test]
+    fn test_classic_groove_non_4_4_fallback() {
+        // 3/4 should fallback to PerfectBalance
+        let pattern_3_4 = generate_classic_groove_with_time_sig(
+            TimeSignature::THREE_FOUR,
+            12,
+            0.5,
+            0.3,
+        );
+
+        assert_eq!(pattern_3_4.len(), 12);
+        let kick_count = pattern_3_4.iter().filter(|t| t.kick).count();
+        // PerfectBalance with 3/4 should give 3 kicks
+        assert_eq!(kick_count, 3, "3/4 should fallback to PerfectBalance with 3 kicks");
+    }
+
+    #[test]
+    fn test_classic_groove_5_4_fallback() {
+        // 5/4 should fallback to PerfectBalance
+        let pattern_5_4 = generate_classic_groove_with_time_sig(
+            TimeSignature::FIVE_FOUR,
+            20,
+            0.5,
+            0.3,
+        );
+
+        assert_eq!(pattern_5_4.len(), 20);
+        let kick_count = pattern_5_4.iter().filter(|t| t.kick).count();
+        // PerfectBalance with 5/4 should give 5 kicks
+        assert_eq!(kick_count, 5, "5/4 should fallback to PerfectBalance with 5 kicks");
+    }
+
+    #[test]
+    fn test_sequencer_classic_groove_mode() {
+        // Test that sequencer with ClassicGroove mode works
+        let mut seq = Sequencer::new_with_time_sig(
+            TimeSignature::FOUR_FOUR,
+            4,
+            4,
+            120.0,
+            RhythmMode::ClassicGroove,
+        );
+
+        // Pattern should be generated
+        assert!(!seq.pattern.is_empty());
+        assert_eq!(seq.pattern.len(), 16);
+
+        // Should have some hits
+        let has_hits = seq.pattern.iter().any(|t| t.is_any());
+        assert!(has_hits, "ClassicGroove pattern should have hits");
+    }
+
+    #[test]
+    fn test_sequencer_classic_groove_fallback_3_4() {
+        // Test that sequencer with 3/4 + ClassicGroove falls back to PerfectBalance
+        let mut seq = Sequencer::new_with_time_sig(
+            TimeSignature::THREE_FOUR,
+            4,
+            3,
+            120.0,
+            RhythmMode::ClassicGroove,
+        );
+
+        assert_eq!(seq.pattern.len(), 12);
+
+        // Should have 3 kicks (PerfectBalance behavior)
+        let kick_count = seq.pattern.iter().filter(|t| t.kick).count();
+        assert_eq!(kick_count, 3, "3/4 ClassicGroove should fallback to 3 kicks");
+    }
 }

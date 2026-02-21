@@ -273,4 +273,39 @@ export class WasmBridge extends BaseBridge {
 		this.currentState.secondaryPulses = secondaryPulses;
 		this.currentState.secondaryRotation = secondaryRotation;
 	}
+
+	// === Recording Methods ===
+	startRecordingWav(): void {
+		this.handle?.start_recording_wav();
+	}
+
+	stopRecordingWav(): void {
+		this.handle?.stop_recording_wav();
+	}
+
+	startRecordingMidi(): void {
+		this.handle?.start_recording_midi();
+	}
+
+	stopRecordingMidi(): void {
+		this.handle?.stop_recording_midi();
+	}
+
+	startRecordingMusicXml(): void {
+		this.handle?.start_recording_musicxml();
+	}
+
+	stopRecordingMusicXml(): void {
+		this.handle?.stop_recording_musicxml();
+	}
+
+	popFinishedRecording(): { format: string; data: Uint8Array } | null {
+		if (!this.handle) return null;
+		const recording = this.handle.pop_finished_recording();
+		if (!recording) return null;
+		return {
+			format: recording.format,
+			data: recording.data
+		};
+	}
 }

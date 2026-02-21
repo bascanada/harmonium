@@ -303,30 +303,8 @@ pub const fn key_name(key_root: u8, is_minor: bool) -> &'static str {
     }
 }
 
-/// Infer time signature from `rhythm_steps`
-///
-/// Returns (beats, `beat_type`) e.g., (4, 4) for 4/4 time
-#[must_use]
-pub const fn time_signature_from_steps(rhythm_steps: usize) -> (u8, u8) {
-    match rhythm_steps {
-        12 => (3, 4), // 3/4 time
-        24 => (6, 8), // 6/8 time (compound duple)
-        _ => (4, 4),  // Default to 4/4 (includes 16, 48, 96, 192)
-    }
-}
-
-/// Calculate steps per quarter note based on `rhythm_steps`
-const fn steps_per_quarter(rhythm_steps: usize) -> usize {
-    match rhythm_steps {
-        12 => 4,   // 3/4: 12 steps / 3 beats = 4 steps per quarter
-        16 => 4,   // 4/4: 16 steps / 4 beats = 4 steps per quarter
-        24 => 4,   // 6/8: treat as 4 steps per quarter (compound time)
-        48 => 12,  // 4/4 high-res: 48 steps / 4 beats = 12 steps per quarter
-        96 => 24,  // 4/4 very high-res
-        192 => 48, // 4/4 ultra high-res
-        _ => 4,    // Default
-    }
-}
+// REMOVED: time_signature_from_steps() - Use explicit time signature from MusicalParams
+// REMOVED: steps_per_quarter() - Use explicit steps_per_quarter from MusicalParams
 
 /// Main builder for `MusicXML` output
 pub struct MusicXmlBuilder {
@@ -370,8 +348,10 @@ impl MusicXmlBuilder {
         let is_minor = params.harmony_valence < 0.0;
         let fifths = fifths_from_key(params.key_root, is_minor);
         let mode = if is_minor { KeyMode::Minor } else { KeyMode::Major };
-        let time_sig = time_signature_from_steps(params.rhythm_steps);
-        let divisions = steps_per_quarter(params.rhythm_steps);
+
+        // Use explicit time signature from params (no inference)
+        let time_sig = (params.time_signature.numerator, params.time_signature.denominator);
+        let divisions = params.steps_per_quarter;
 
         let mut builder = Self {
             events,
@@ -1148,8 +1128,8 @@ impl MusicXmlBuilder {
     }
 
     /// Calculate steps per measure
-    const fn steps_per_measure(&self) -> usize {
-        self.params.rhythm_steps
+    fn steps_per_measure(&self) -> usize {
+        self.params.steps_per_measure()
     }
 
     /// Calculate total measures needed based on ALL notes (not just one part)
@@ -1301,20 +1281,7 @@ mod tests {
         assert_eq!(fifths_from_key(2, true), -1);
     }
 
-    #[test]
-    fn test_time_signature_16_steps() {
-        assert_eq!(time_signature_from_steps(16), (4, 4));
-    }
-
-    #[test]
-    fn test_time_signature_12_steps() {
-        assert_eq!(time_signature_from_steps(12), (3, 4));
-    }
-
-    #[test]
-    fn test_time_signature_24_steps() {
-        assert_eq!(time_signature_from_steps(24), (6, 8));
-    }
+    // REMOVED: test_time_signature_*_steps - No longer needed with explicit time signatures
 
     #[test]
     fn test_pitch_c4() {
@@ -1446,7 +1413,9 @@ mod tests {
         let events = vec![note_on(0.0, 60, 100, 1), note_off(11025.0, 60, 1)];
 
         let mut params = MusicalParams::default();
-        params.rhythm_steps = 12; // 3/4 time
+        // NEW: Use explicit time signature instead of rhythm_steps
+        params.time_signature = crate::params::TimeSignature::THREE_FOUR;
+        params.steps_per_quarter = 4;
 
         let xml = to_musicxml(&events, &params, 11025);
         assert!(xml.contains("<beats>3</beats>"));

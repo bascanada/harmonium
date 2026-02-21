@@ -49,54 +49,46 @@
 	let isRecordingMidi = false;
 	let isRecordingMusicXml = false;
 
-	// Access WASM handle for recording (bridge doesn't expose recording methods yet)
-	function getHandle() {
-		return bridge && (bridge as any).handle;
-	}
-
+	// Recording functions using bridge API
 	function toggleWavRecording() {
-		const handle = getHandle();
-		if (!handle) return;
+		if (!bridge) return;
 		if (isRecordingWav) {
-			handle.stop_recording_wav();
+			bridge.stopRecordingWav?.();
 			isRecordingWav = false;
 		} else {
-			handle.start_recording_wav();
+			bridge.startRecordingWav?.();
 			isRecordingWav = true;
 		}
 	}
 
 	function toggleMidiRecording() {
-		const handle = getHandle();
-		if (!handle) return;
+		if (!bridge) return;
 		if (isRecordingMidi) {
-			handle.stop_recording_midi();
+			bridge.stopRecordingMidi?.();
 			isRecordingMidi = false;
 		} else {
-			handle.start_recording_midi();
+			bridge.startRecordingMidi?.();
 			isRecordingMidi = true;
 		}
 	}
 
 	function toggleMusicXmlRecording() {
-		const handle = getHandle();
-		if (!handle) return;
+		if (!bridge) return;
 		if (isRecordingMusicXml) {
-			handle.stop_recording_musicxml();
+			bridge.stopRecordingMusicXml?.();
 			isRecordingMusicXml = false;
 		} else {
-			handle.start_recording_musicxml();
+			bridge.startRecordingMusicXml?.();
 			isRecordingMusicXml = true;
 		}
 	}
 
 	function checkRecordings() {
-		const handle = getHandle();
-		if (!handle) return;
+		if (!bridge || !bridge.popFinishedRecording) return;
 
 		// Loop to get all finished recordings
 		while (true) {
-			const recording = handle.pop_finished_recording();
+			const recording = bridge.popFinishedRecording();
 			if (!recording) break;
 
 			const fmt = recording.format;

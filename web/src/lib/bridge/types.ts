@@ -141,6 +141,15 @@ export interface HarmoniumBridge {
 
 	// === Look-ahead Simulation ===
 	getLookaheadTruth(steps: number): string;
+
+	// === Recording (WASM only) ===
+	startRecordingWav?(): void;
+	stopRecordingWav?(): void;
+	startRecordingMidi?(): void;
+	stopRecordingMidi?(): void;
+	startRecordingMusicXml?(): void;
+	stopRecordingMusicXml?(): void;
+	popFinishedRecording?(): { format: string; data: Uint8Array } | null;
 }
 
 // Factory function type

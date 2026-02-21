@@ -23,6 +23,14 @@ use rand::Rng;
 use rust_music_theory::{note::PitchSymbol, scale::ScaleType};
 use triple_buffer::Output;
 
+/// Tracks a pending NoteOff event that should be sent after a delay
+#[derive(Clone, Debug)]
+struct PendingNoteOff {
+    note: u8,
+    channel: u8,
+    steps_remaining: usize,
+}
+
 /// Symbolic snapshot of the engine state for look-ahead simulation
 pub struct SymbolicState {
     pub sequencer_primary: Sequencer,
@@ -313,8 +321,9 @@ pub struct HarmoniumEngine {
     _last_valence_choice: f32, // Hystérésis: valence qui a déclenché le dernier choix
     _last_tension_choice: f32, // Hystérésis: tension qui a déclenché le dernier choix
 
-    _active_lead_notes: Vec<u8>, // Notes actuellement jouées sur le channel Lead
+    active_lead_note: Option<u8>, // Note actuellement jouée sur le channel Lead
     active_bass_note: Option<u8>, // Note de basse actuellement jouée
+    pending_noteoffs: Vec<PendingNoteOff>, // Scheduled NoteOff events with delay
 
     // === NOUVELLE ARCHITECTURE: Params Musicaux Découplés ===
     /// Mapper émotions → params musicaux
@@ -458,8 +467,9 @@ impl HarmoniumEngine {
             last_rotation: 0,
             _last_valence_choice: initial_params.valence,
             _last_tension_choice: initial_params.tension,
-            _active_lead_notes: Vec::with_capacity(8),
+            active_lead_note: None,
             active_bass_note: None,
+            pending_noteoffs: Vec::with_capacity(4),
             emotion_mapper,
             control_mode,
             is_recording_wav: false,
@@ -593,8 +603,9 @@ impl HarmoniumEngine {
             last_rotation: 0,
             _last_valence_choice: initial_params.valence,
             _last_tension_choice: initial_params.tension,
-            _active_lead_notes: Vec::with_capacity(8),
+            active_lead_note: None,
             active_bass_note: None,
+            pending_noteoffs: Vec::with_capacity(4),
             emotion_mapper,
             control_mode,
             is_recording_wav: false,
@@ -999,11 +1010,20 @@ impl HarmoniumEngine {
         // Handle physical side effects (audio engine only)
         self.events_buffer.clear();
 
-        // Stop previous bass note (Staccato / Note Switching) to prevent infinite sustain
-        if let Some(old_note) = self.active_bass_note {
-            self.renderer.handle_event(AudioEvent::NoteOff { note: old_note, channel: 0 });
-            self.active_bass_note = None;
-        }
+        // Process pending NoteOff events (delayed note release)
+        // Decrement counters and send NoteOff when timer expires
+        self.pending_noteoffs.retain_mut(|pending| {
+            pending.steps_remaining = pending.steps_remaining.saturating_sub(1);
+            if pending.steps_remaining == 0 {
+                self.renderer.handle_event(AudioEvent::NoteOff {
+                    note: pending.note,
+                    channel: pending.channel,
+                });
+                false // Remove from queue
+            } else {
+                true // Keep in queue
+            }
+        });
 
         for event in events {
             self.renderer.handle_event(event.clone());
@@ -1011,9 +1031,39 @@ impl HarmoniumEngine {
 
             // Phase 2: Send NoteOn events to UI via lock-free queue
             if let AudioEvent::NoteOn { note, channel, .. } = event {
-                // Track active bass note for NoteOff next tick
+                // Track active bass note and schedule delayed NoteOff for previous note
                 if channel == 0 {
+                    // Schedule NoteOff for previous bass note (if any) with 50% duration
+                    if let Some(old_note) = self.active_bass_note {
+                        // Duration: 2 divisions (50% of step) - prevents overlap with Odin backend
+                        // Still eliminates tiny rests while matching gate timer duration (~60%)
+                        let duration_steps = 2;
+                        self.pending_noteoffs.push(PendingNoteOff {
+                            note: old_note,
+                            channel: 0,
+                            steps_remaining: duration_steps,
+                        });
+                    }
                     self.active_bass_note = Some(note);
+                }
+
+                // Track active lead note and schedule NoteOff for current note
+                if channel == 1 {
+                    // Schedule NoteOff for previous lead note immediately (no overlap)
+                    if let Some(old_note) = self.active_lead_note {
+                        self.renderer.handle_event(AudioEvent::NoteOff {
+                            note: old_note,
+                            channel: 1,
+                        });
+                    }
+                    // Schedule NoteOff for THIS note with 50% duration (2 divisions)
+                    let duration_steps = 2;
+                    self.pending_noteoffs.push(PendingNoteOff {
+                        note,
+                        channel: 1,
+                        steps_remaining: duration_steps,
+                    });
+                    self.active_lead_note = Some(note);
                 }
 
                 let vis_event = VisualizationEvent {

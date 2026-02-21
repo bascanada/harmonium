@@ -7,7 +7,7 @@
 	// Svelte 5 Props Destructuring
 	let {
 		bridge,
-		state,
+		state: engineState,
 		isAudioMode = true
 	} = $props<{
 		bridge: HarmoniumBridge;
@@ -23,7 +23,7 @@
 	// Svelte 5 Effect (replaces $: )
 	$effect(() => {
 		if (!isEditing) {
-			localIsEmotionMode = state.isEmotionMode;
+			localIsEmotionMode = engineState.isEmotionMode;
 		}
 	});
 
@@ -77,43 +77,43 @@
 
 	<!-- CHANNEL MIXER (always visible) -->
 	<div class="mb-4">
-		<ChannelMixer {bridge} {state} />
+		<ChannelMixer {bridge} state={engineState} />
 	</div>
 
 	{#if localIsEmotionMode}
 		<EmotionalControls
 			{bridge}
-			arousal={state.arousal}
-			valence={state.valence}
-			density={state.density}
-			tension={state.tension}
+			arousal={engineState.arousal}
+			valence={engineState.valence}
+			density={engineState.density}
+			tension={engineState.tension}
 		/>
 	{:else}
 		<TechnicalControls
 			{bridge}
-			{state}
+			state={engineState}
 			{isAudioMode}
-			audioBackend={state.audioBackend}
-			enableRhythm={state.enableRhythm}
-			enableHarmony={state.enableHarmony}
-			enableMelody={state.enableMelody}
-			enableVoicing={state.enableVoicing}
-			fixedKick={state.fixedKick}
-			bpm={state.bpm}
-			rhythmMode={state.rhythmMode}
-			rhythmSteps={state.primarySteps}
-			rhythmPulses={state.primaryPulses}
-			rhythmRotation={state.primaryRotation}
-			rhythmDensity={state.rhythmDensity}
-			rhythmTension={state.rhythmTension}
-			secondarySteps={state.secondarySteps}
-			secondaryPulses={state.secondaryPulses}
-			secondaryRotation={state.secondaryRotation}
-			harmonyValence={state.harmonyValence}
-			harmonyTension={state.harmonyTension}
-			melodySmoothness={state.melodySmoothness}
-			voicingDensity={state.voicingDensity}
-			filterCutoff={state.voicingTension}
+			audioBackend={engineState.audioBackend}
+			enableRhythm={engineState.enableRhythm}
+			enableHarmony={engineState.enableHarmony}
+			enableMelody={engineState.enableMelody}
+			enableVoicing={engineState.enableVoicing}
+			fixedKick={engineState.fixedKick}
+			bpm={engineState.bpm}
+			rhythmMode={engineState.rhythmMode}
+			rhythmSteps={engineState.primarySteps}
+			rhythmPulses={engineState.primaryPulses}
+			rhythmRotation={engineState.primaryRotation}
+			rhythmDensity={engineState.rhythmDensity}
+			rhythmTension={engineState.rhythmTension}
+			secondarySteps={engineState.secondarySteps}
+			secondaryPulses={engineState.secondaryPulses}
+			secondaryRotation={engineState.secondaryRotation}
+			harmonyValence={engineState.harmonyValence}
+			harmonyTension={engineState.harmonyTension}
+			melodySmoothness={engineState.melodySmoothness}
+			voicingDensity={engineState.voicingDensity}
+			filterCutoff={engineState.voicingTension}
 			filterResonance={0.3}
 			chorusMix={0.0}
 			delayMix={0.0}
