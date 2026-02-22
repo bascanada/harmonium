@@ -142,6 +142,15 @@ export interface HarmoniumBridge {
 	// === Look-ahead Simulation ===
 	getLookaheadTruth(steps: number): string;
 
+	// === Musical Score (HarmoniumScore format) ===
+	/**
+	 * Returns a JSON-serialized HarmoniumScore for the next `bars` bars.
+	 * Each ScoreNoteEvent carries an `id` that can be used to highlight notes
+	 * in VexFlow as the corresponding AudioEvent plays.
+	 * Use `parseScore()` from `$lib/utils/notation` to deserialize.
+	 */
+	getLookaheadScore(bars: number): string;
+
 	// === Recording (WASM only) ===
 	startRecordingWav?(): void;
 	stopRecordingWav?(): void;

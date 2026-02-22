@@ -6,6 +6,7 @@ use triple_buffer::Input;
 use wasm_bindgen::prelude::*;
 
 pub mod engine;
+pub mod score;
 
 // Re-exports from workspace crates
 #[cfg(feature = "ai")]
@@ -631,7 +632,7 @@ impl Handle {
 
             for event in tick_events {
                 match event {
-                    events::AudioEvent::NoteOn { note, velocity, channel } => {
+                    events::AudioEvent::NoteOn { note, velocity, channel, .. } => {
                         if velocity > 0 {
                             // Start tracking this note with its position and velocity
                             pending_notes.insert((channel, note), (i, position.clone(), velocity));
@@ -649,7 +650,7 @@ impl Handle {
                             }
                         }
                     }
-                    events::AudioEvent::NoteOff { note, channel } => {
+                    events::AudioEvent::NoteOff { note, channel, .. } => {
                         if let Some((start_step, start_position, start_velocity)) = pending_notes.remove(&(channel, note)) {
                             let duration = i.saturating_sub(start_step).max(1);
                             events.push(params::VisualizationEventV2 {
@@ -679,6 +680,82 @@ impl Handle {
         }
 
         serde_json::to_string(&events).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    /// Get look-ahead score in HarmoniumScore format for VexFlow visualization.
+    /// Returns a JSON string of HarmoniumScore with purely musical notation.
+    ///
+    /// This method generates a synchronized score where each ScoreNoteEvent
+    /// has an ID that matches the corresponding AudioEvent, enabling
+    /// real-time playback highlighting.
+    pub fn get_lookahead_score(&self, bars: usize) -> String {
+        let mut symbolic = if let Ok(mut rx) = self.symbolic_state_rx.lock() {
+            rx.update();
+            rx.read().clone()
+        } else {
+            return "{}".to_string();
+        };
+
+        // Extract tempo and key from symbolic state
+        let tempo = symbolic.musical_params.bpm;
+        let time_sig = (
+            symbolic.musical_params.time_signature.numerator,
+            symbolic.musical_params.time_signature.denominator,
+        );
+        let key_root = symbolic.last_harmony_state.chord_root_offset as u8;
+        let is_minor = symbolic.last_harmony_state.chord_is_minor;
+
+        // Create score buffer
+        let mut score_buffer = score::ScoreBuffer::new(tempo, time_sig, key_root, is_minor);
+
+        // Calculate steps per bar
+        let steps_per_bar = symbolic.musical_params.steps_per_measure();
+        let total_steps = bars * steps_per_bar;
+
+        // Generate events for the requested number of bars
+        for _ in 0..total_steps {
+            let (_step_idx, mut tick_events) = symbolic.tick(1024);
+
+            // Process audio events and generate synchronized score events
+            let _ = score_buffer.process_audio_events(&mut tick_events, 2);
+
+            // Advance score buffer position
+            score_buffer.advance_step();
+        }
+
+        // Return score as JSON
+        score_buffer.to_json()
+    }
+
+    /// Get the current score with detailed pretty-printed JSON format.
+    /// Useful for debugging and display.
+    pub fn get_lookahead_score_pretty(&self, bars: usize) -> String {
+        let mut symbolic = if let Ok(mut rx) = self.symbolic_state_rx.lock() {
+            rx.update();
+            rx.read().clone()
+        } else {
+            return "{}".to_string();
+        };
+
+        let tempo = symbolic.musical_params.bpm;
+        let time_sig = (
+            symbolic.musical_params.time_signature.numerator,
+            symbolic.musical_params.time_signature.denominator,
+        );
+        let key_root = symbolic.last_harmony_state.chord_root_offset as u8;
+        let is_minor = symbolic.last_harmony_state.chord_is_minor;
+
+        let mut score_buffer = score::ScoreBuffer::new(tempo, time_sig, key_root, is_minor);
+        let steps_per_bar = symbolic.musical_params.steps_per_measure();
+        let total_steps = bars * steps_per_bar;
+
+        for _ in 0..total_steps {
+            let (_step_idx, mut tick_events) = symbolic.tick(1024);
+            let _ = score_buffer.process_audio_events(&mut tick_events, 2);
+            score_buffer.advance_step();
+        }
+
+        score_buffer.to_json_pretty()
     }
 
     /// Récupère le dernier enregistrement terminé (WAV, MIDI, or MusicXML)
@@ -1174,8 +1251,35 @@ pub fn get_available_backends() -> Vec<JsValue> {
 #[cfg(feature = "standalone")]
 pub fn start_native(sf2_bytes: Option<Box<[u8]>>) -> Result<Handle, String> {
     // Default to FundSP backend for now
-    let backend_type = audio::AudioBackendType::FundSP;
+    start_native_with_backend(sf2_bytes, audio::AudioBackendType::FundSP)
+}
 
+/// Start Harmonium natively with a specific audio backend
+#[cfg(feature = "standalone")]
+pub fn start_native_with_backend(
+    sf2_bytes: Option<Box<[u8]>>,
+    backend_type: audio::AudioBackendType,
+) -> Result<Handle, String> {
+    start_native_impl(sf2_bytes, backend_type, false)
+}
+
+/// Start Harmonium natively in paused state (for sight reading / score apps)
+/// The audio stream won't play until resume() is called.
+/// This ensures the engine stays at bar 1 until explicitly started.
+#[cfg(feature = "standalone")]
+pub fn start_native_paused(
+    sf2_bytes: Option<Box<[u8]>>,
+    backend_type: audio::AudioBackendType,
+) -> Result<Handle, String> {
+    start_native_impl(sf2_bytes, backend_type, true)
+}
+
+#[cfg(feature = "standalone")]
+fn start_native_impl(
+    sf2_bytes: Option<Box<[u8]>>,
+    backend_type: audio::AudioBackendType,
+    start_paused: bool,
+) -> Result<Handle, String> {
     // Phase 3: Create triple buffer for lock-free UI→Audio parameter updates
     let (target_params_input, target_params_output) =
         triple_buffer::triple_buffer(&engine::EngineParams::default());
@@ -1191,12 +1295,21 @@ pub fn start_native(sf2_bytes: Option<Box<[u8]>>) -> Result<Handle, String> {
         font_queue,
         finished_recordings,
         symbolic_state_rx,
-    ) = audio::create_stream(
-        target_params_output,
-        control_mode,
-        sf2_bytes.as_deref(),
-        backend_type,
-    )?;
+    ) = if start_paused {
+        audio::create_stream_paused(
+            target_params_output,
+            control_mode,
+            sf2_bytes.as_deref(),
+            backend_type,
+        )?
+    } else {
+        audio::create_stream(
+            target_params_output,
+            control_mode,
+            sf2_bytes.as_deref(),
+            backend_type,
+        )?
+    };
 
     // Phase 2: Create cached harmony state
     let cached_harmony_state = Arc::new(Mutex::new(engine::HarmonyState::default()));

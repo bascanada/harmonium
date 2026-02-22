@@ -187,7 +187,7 @@ impl SymbolicState {
                 (36 + self.last_harmony_state.chord_root_offset) as u8
             };
             let vel = self.musical_params.vel_base_bass + (self.current_state.arousal * 25.0) as u8;
-            events.push(AudioEvent::NoteOn { note: midi_note, velocity: vel, channel: 0 });
+            events.push(AudioEvent::NoteOn { id: None, note: midi_note, velocity: vel, channel: 0 });
         }
 
         let melody_enabled = self.musical_params.enable_melody;
@@ -228,6 +228,7 @@ impl SymbolicState {
                 let voiced_notes = self.voicer.process_note(melody_midi, base_vel, &ctx);
                 for vn in voiced_notes {
                     events.push(AudioEvent::NoteOn {
+                        id: None,
                         note: vn.midi,
                         velocity: vn.velocity,
                         channel: 1,
@@ -236,6 +237,7 @@ impl SymbolicState {
             } else {
                 let solo_vel = (base_vel as f32 * 0.7) as u8;
                 events.push(AudioEvent::NoteOn {
+                    id: None,
                     note: melody_midi,
                     velocity: solo_vel,
                     channel: 1,
@@ -267,7 +269,7 @@ impl SymbolicState {
                 vel = (vel as f32 * 1.1).min(127.0) as u8;
             }
 
-            events.push(AudioEvent::NoteOn { note: snare_note, velocity: vel, channel: 2 });
+            events.push(AudioEvent::NoteOn { id: None, note: snare_note, velocity: vel, channel: 2 });
         }
 
         let play_hat = trigger_primary.hat || trigger_secondary.hat;
@@ -291,7 +293,7 @@ impl SymbolicState {
                 hat_note = 44;
             }
 
-            events.push(AudioEvent::NoteOn { note: hat_note, velocity: vel, channel: 3 });
+            events.push(AudioEvent::NoteOn { id: None, note: hat_note, velocity: vel, channel: 3 });
         }
 
         (step_idx, events)
@@ -1016,6 +1018,7 @@ impl HarmoniumEngine {
             pending.steps_remaining = pending.steps_remaining.saturating_sub(1);
             if pending.steps_remaining == 0 {
                 self.renderer.handle_event(AudioEvent::NoteOff {
+                    id: None,
                     note: pending.note,
                     channel: pending.channel,
                 });
@@ -1052,6 +1055,7 @@ impl HarmoniumEngine {
                     // Schedule NoteOff for previous lead note immediately (no overlap)
                     if let Some(old_note) = self.active_lead_note {
                         self.renderer.handle_event(AudioEvent::NoteOff {
+                            id: None,
                             note: old_note,
                             channel: 1,
                         });

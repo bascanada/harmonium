@@ -20,6 +20,10 @@
 //! ```
 
 use crate::events::AudioEvent;
+use crate::notation::{
+    Clef, DurationBase, HarmoniumScore, NoteEventType, NoteStep, Part, Pitch,
+    ScoreNoteEvent, ChordSymbol as NotationChordSymbol, Duration as NotationDuration,
+};
 
 /// Escape special XML characters to produce valid XML output.
 /// Handles: & < > " '
@@ -557,7 +561,7 @@ impl MusicXmlBuilder {
             let step = step_timestamp.round() as usize;
 
             match event {
-                AudioEvent::NoteOn { note, velocity, channel } => {
+                AudioEvent::NoteOn { note, velocity, channel, .. } => {
                     if *velocity > 0 {
                         // If this note is already pending (common for percussion), finalize it first
                         if let Some((old_start, old_vel)) = pending.get(&(*channel, *note)) {
@@ -590,7 +594,7 @@ impl MusicXmlBuilder {
                         }
                     }
                 }
-                AudioEvent::NoteOff { note, channel } => {
+                AudioEvent::NoteOff { note, channel, .. } => {
                     if let Some((start, vel)) = pending.remove(&(*channel, *note)) {
                         notes.push(ScoreNote {
                             pitch: *note,
@@ -1230,12 +1234,12 @@ mod tests {
 
     // Helper to create NoteOn event
     fn note_on(time: f64, note: u8, vel: u8, channel: u8) -> (f64, AudioEvent) {
-        (time, AudioEvent::NoteOn { note, velocity: vel, channel })
+        (time, AudioEvent::NoteOn { id: None, note, velocity: vel, channel })
     }
 
     // Helper to create NoteOff event
     fn note_off(time: f64, note: u8, channel: u8) -> (f64, AudioEvent) {
-        (time, AudioEvent::NoteOff { note, channel })
+        (time, AudioEvent::NoteOff { id: None, note, channel })
     }
 
     #[test]

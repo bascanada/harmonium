@@ -80,6 +80,11 @@ export class WasmBridge extends BaseBridge {
 		return this.handle.get_lookahead_truth(steps);
 	}
 
+	getLookaheadScore(bars: number): string {
+		if (!this.handle) return '{}';
+		return this.handle.get_lookahead_score(bars);
+	}
+
 	private startPolling(): void {
 		const poll = () => {
 			if (!this.handle) return;

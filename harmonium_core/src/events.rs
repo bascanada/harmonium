@@ -2,14 +2,25 @@ use serde::{Deserialize, Serialize};
 
 use crate::params::MusicalParams;
 
+/// Audio events for playback and recording
+///
+/// NoteOn and NoteOff events include an optional `id` field that links
+/// them to corresponding ScoreNoteEvents for synchronized visualization.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum AudioEvent {
     NoteOn {
+        /// Unique note identifier for audio/score synchronization
+        /// If None, the note is not tracked for visualization
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<u64>,
         note: u8,
         velocity: u8,
         channel: u8,
     },
     NoteOff {
+        /// References the corresponding NoteOn id
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<u64>,
         note: u8,
         channel: u8,
     },

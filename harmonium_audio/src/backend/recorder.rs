@@ -237,7 +237,7 @@ impl AudioRenderer for RecorderBackend {
 
         // MIDI recording logic - convert step delta to ticks
         match &event {
-            AudioEvent::NoteOn { note, velocity, channel } => {
+            AudioEvent::NoteOn { note, velocity, channel, .. } => {
                 // Compute delta before mutable borrow
                 let delta = self.steps_to_ticks(self.midi_steps_since_last);
                 if let Some(track) = &mut self.midi_track {
@@ -254,7 +254,7 @@ impl AudioRenderer for RecorderBackend {
                     });
                 }
             }
-            AudioEvent::NoteOff { note, channel } => {
+            AudioEvent::NoteOff { note, channel, .. } => {
                 // Compute delta before mutable borrow
                 let delta = self.steps_to_ticks(self.midi_steps_since_last);
                 if let Some(track) = &mut self.midi_track {

@@ -154,7 +154,7 @@ impl VoiceManager {
 
     pub fn process_event(&mut self, event: AudioEvent, samples_per_step: usize) {
         match event {
-            AudioEvent::NoteOn { note, velocity, channel } => {
+            AudioEvent::NoteOn { note, velocity, channel, .. } => {
                 if let ChannelType::Oxisynth { .. } = self.channel_routing[channel as usize] {
                     let _ = self.synth.send_event(oxisynth::MidiEvent::NoteOn {
                         channel,
@@ -204,7 +204,7 @@ impl VoiceManager {
                     _ => {}
                 }
             }
-            AudioEvent::NoteOff { note, channel } => {
+            AudioEvent::NoteOff { note, channel, .. } => {
                 if let ChannelType::Oxisynth { .. } = self.channel_routing[channel as usize] {
                     let _ =
                         self.synth.send_event(oxisynth::MidiEvent::NoteOff { channel, key: note });

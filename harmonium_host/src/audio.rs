@@ -25,10 +25,54 @@ pub enum AudioBackendType {
 
 #[allow(clippy::type_complexity)]
 pub fn create_stream(
+    target_params: triple_buffer::Output<EngineParams>,
+    control_mode: Arc<Mutex<ControlMode>>,
+    sf2_bytes: Option<&[u8]>,
+    backend_type: AudioBackendType,
+) -> Result<
+    (
+        cpal::Stream,
+        SessionConfig,
+        Arc<Mutex<rtrb::Consumer<HarmonyState>>>,
+        Arc<Mutex<rtrb::Consumer<VisualizationEvent>>>,
+        crate::FontQueue,
+        crate::FinishedRecordings,
+        triple_buffer::Output<crate::engine::SymbolicState>,
+    ),
+    String,
+> {
+    create_stream_inner(target_params, control_mode, sf2_bytes, backend_type, false)
+}
+
+/// Create stream that starts paused (for sight reading / score display apps)
+#[allow(clippy::type_complexity)]
+pub fn create_stream_paused(
+    target_params: triple_buffer::Output<EngineParams>,
+    control_mode: Arc<Mutex<ControlMode>>,
+    sf2_bytes: Option<&[u8]>,
+    backend_type: AudioBackendType,
+) -> Result<
+    (
+        cpal::Stream,
+        SessionConfig,
+        Arc<Mutex<rtrb::Consumer<HarmonyState>>>,
+        Arc<Mutex<rtrb::Consumer<VisualizationEvent>>>,
+        crate::FontQueue,
+        crate::FinishedRecordings,
+        triple_buffer::Output<crate::engine::SymbolicState>,
+    ),
+    String,
+> {
+    create_stream_inner(target_params, control_mode, sf2_bytes, backend_type, true)
+}
+
+#[allow(clippy::type_complexity)]
+fn create_stream_inner(
     mut target_params: triple_buffer::Output<EngineParams>,
     control_mode: Arc<Mutex<ControlMode>>,
     sf2_bytes: Option<&[u8]>,
     backend_type: AudioBackendType,
+    start_paused: bool,
 ) -> Result<
     (
         cpal::Stream,
@@ -125,7 +169,10 @@ pub fn create_stream(
         )
         .map_err(|e| e.to_string())?;
 
-    stream.play().map_err(|e| e.to_string())?;
+    // Only start playing if not requested to start paused
+    if !start_paused {
+        stream.play().map_err(|e| e.to_string())?;
+    }
 
     Ok((
         stream,
