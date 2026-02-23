@@ -3,7 +3,7 @@
 //! This module provides integration with the Anthropic Claude API
 //! for suggesting parameter adjustments based on DNA analysis.
 
-use harmonium_core::{dna::GlobalMetrics, tuning::TuningParams};
+use harmonium_core::{exporters::dna::GlobalMetrics, tuning::TuningParams};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

@@ -12,7 +12,8 @@
 		arousal = $bindable(0.5),
 		valence = $bindable(0.3),
 		density = $bindable(0.5),
-		tension = $bindable(0.3)
+		tension = $bindable(0.3),
+		algorithm = $bindable(0)
 	} = $props();
 
 	// Local state for sliders - decoupled from props during active editing
@@ -20,6 +21,7 @@
 	let localValence = $state(valence);
 	let localDensity = $state(density);
 	let localTension = $state(tension);
+	let localAlgo = $state(algorithm);
 
 	// Track which slider is being actively edited (prevent backend overwrite)
 	let activeSlider = $state<string | null>(null);
@@ -30,6 +32,7 @@
 		if (activeSlider !== 'valence') localValence = valence;
 		if (activeSlider !== 'density') localDensity = density;
 		if (activeSlider !== 'tension') localTension = tension;
+		if (activeSlider !== 'algorithm') localAlgo = algorithm;
 	});
 
 	// Calculated BPM from local arousal (for display)
@@ -51,6 +54,7 @@
 		if (activeSlider === 'valence') valence = localValence;
 		if (activeSlider === 'density') density = localDensity;
 		if (activeSlider === 'tension') tension = localTension;
+		if (activeSlider === 'algorithm') algorithm = localAlgo;
 		activeSlider = null;
 	}
 
@@ -68,6 +72,12 @@
 
 	function updateTension() {
 		bridge.setTension(localTension);
+	}
+
+	function updateAlgorithm(newAlgo: number) {
+		localAlgo = newAlgo;
+		algorithm = newAlgo;
+		bridge.setAlgorithm(newAlgo);
 	}
 
 	async function analyzeText() {
@@ -140,6 +150,34 @@
 			</span>
 		</div>
 		<p class="mt-2 text-sm text-neutral-500">Calculated from Arousal</p>
+	</div>
+
+	<!-- Rhythm Algorithm Selection -->
+	<div class="rounded-lg bg-neutral-900 p-4">
+		<h3 class="mb-3 text-xs font-semibold text-neutral-400 uppercase tracking-wider">Rhythm Engine</h3>
+		<div class="flex gap-2">
+			<button
+				onclick={() => updateAlgorithm(0)}
+				class="flex-1 rounded-md py-2 text-xs font-semibold transition-all duration-200
+          {localAlgo === 0 ? 'bg-orange-600 text-white shadow-lg' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}"
+			>
+				Euclidean
+			</button>
+			<button
+				onclick={() => updateAlgorithm(1)}
+				class="flex-1 rounded-md py-2 text-xs font-semibold transition-all duration-200
+          {localAlgo === 1 ? 'bg-purple-600 text-white shadow-lg' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}"
+			>
+				PerfectBalance
+			</button>
+			<button
+				onclick={() => updateAlgorithm(2)}
+				class="flex-1 rounded-md py-2 text-xs font-semibold transition-all duration-200
+          {localAlgo === 2 ? 'bg-cyan-600 text-white shadow-lg' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}"
+			>
+				ClassicGroove
+			</button>
+		</div>
 	</div>
 
 	<Card class="space-y-6">

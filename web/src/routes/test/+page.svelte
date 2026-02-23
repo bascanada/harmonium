@@ -98,7 +98,7 @@
 				fmt === 'wav' ? 'audio/wav' : fmt === 'midi' ? 'audio/midi' : 'application/xml';
 			const ext = fmt === 'wav' ? 'wav' : fmt === 'midi' ? 'mid' : 'musicxml';
 
-			const blob = new Blob([data], { type: mimeType });
+			const blob = new Blob([data as any], { type: mimeType });
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement('a');
 			a.href = url;
@@ -164,35 +164,39 @@
 			bridge.setDensity(0.5);
 			bridge.setTension(0.3);
 
-			// Subscribe to state updates
-			unsubscribe = bridge.subscribe((newState) => {
-				// Reset step tracking when mode or steps change
-				const rhythmModeChanged = newState.rhythmMode !== lastRhythmMode;
-				const stepsChanged = newState.primarySteps !== lastPrimarySteps;
-				const emotionModeChanged = newState.isEmotionMode !== lastIsEmotionMode;
-
-				if (rhythmModeChanged || stepsChanged || emotionModeChanged) {
-					lastEngineStep = -1;
-					lastPrimarySteps = newState.primarySteps;
-					lastRhythmMode = newState.rhythmMode;
-					lastIsEmotionMode = newState.isEmotionMode;
-				}
-
-				// Track continuous step counter
-				const rawStep = newState.currentStep;
-				if (rawStep !== lastEngineStep) {
-					let delta = rawStep - lastEngineStep;
-					if (delta < 0) {
-						delta += newState.primarySteps;
-					}
-					if (lastEngineStep === -1) {
-						totalSteps = rawStep;
-					} else {
-						totalSteps += delta;
-					}
-					lastEngineStep = rawStep;
-				}
-
+						// Subscribe to state updates
+						unsubscribe = bridge.subscribe((newState) => {
+							// Reset step tracking when mode or steps change
+							const rhythmModeChanged = newState.rhythmMode !== lastRhythmMode;
+							const stepsChanged = newState.primarySteps !== lastPrimarySteps;
+							const emotionModeChanged = newState.isEmotionMode !== lastIsEmotionMode;
+			
+							if (rhythmModeChanged || stepsChanged || emotionModeChanged) {
+								lastEngineStep = -1;
+								lastPrimarySteps = newState.primarySteps;
+								lastRhythmMode = newState.rhythmMode;
+								lastIsEmotionMode = newState.isEmotionMode;
+								// Synchronize totalSteps with currentStep on reset
+								totalSteps = newState.currentStep;
+							}
+			
+							// Track continuous step counter
+							const rawStep = newState.currentStep;
+							if (rawStep !== lastEngineStep) {
+								if (lastEngineStep === -1) {
+									totalSteps = rawStep;
+								} else {
+									let delta = rawStep - lastEngineStep;
+									if (delta < 0) {
+										// Wrapped around or engine reset
+										delta = rawStep;
+										totalSteps = rawStep;
+									} else {
+										totalSteps += delta;
+									}
+								}
+								lastEngineStep = rawStep;
+							}
 				// Update progression chords
 				if (newState.progressionLength !== progressionChords.length) {
 					progressionChords = Array(newState.progressionLength).fill('?');

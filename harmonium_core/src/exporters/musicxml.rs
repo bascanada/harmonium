@@ -1,29 +1,24 @@
 //! `MusicXML` Export Module
 //!
-//! Lightweight `MusicXML` generation for testing and reviewing music generation quality.
-//! No audio dependencies - works purely with event history and musical parameters.
+//! Converts `HarmoniumScore` notation data to MusicXML format.
 //!
 //! # Example
 //! ```ignore
-//! use harmonium_core::export::{to_musicxml_with_chords, ChordSymbol};
-//! use harmonium_core::params::MusicalParams;
-//! use harmonium_core::events::AudioEvent;
+//! use harmonium_core::export::score_to_musicxml;
+//! use harmonium_core::notation::HarmoniumScore;
 //!
-//! let events: Vec<(u64, AudioEvent)> = vec![/* ... */];
-//! let chords = vec![
-//!     ChordSymbol { step: 0, root: 0, kind: "major".into(), text: "C".into() },
-//!     ChordSymbol { step: 16, root: 7, kind: "major".into(), text: "G".into() },
-//! ];
-//! let params = MusicalParams::default();
-//! let xml = to_musicxml_with_chords(&events, &chords, &params, 11025);
+//! let score = HarmoniumScore::default();
+//! let xml = score_to_musicxml(&score);
 //! std::fs::write("output.musicxml", xml).unwrap();
 //! ```
 
-use crate::events::AudioEvent;
 use crate::notation::{
     Clef, DurationBase, HarmoniumScore, NoteEventType, NoteStep, Part, Pitch,
     ScoreNoteEvent, ChordSymbol as NotationChordSymbol, Duration as NotationDuration,
 };
+use crate::events::AudioEvent;
+use crate::params::MusicalParams;
+use std::collections::HashMap;
 
 /// Escape special XML characters to produce valid XML output.
 /// Handles: & < > " '
@@ -43,9 +38,7 @@ fn xml_escape(s: &str) -> String {
 }
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::{collections::HashMap, fmt::Write as FmtWrite, io::Write, path::Path};
-
-use crate::params::MusicalParams;
+use std::{fmt::Write as FmtWrite, io::Write, path::Path};
 
 /// Get current date in YYYY-MM-DD format (no external dependencies)
 fn chrono_date() -> String {
@@ -60,7 +53,7 @@ fn chrono_date() -> String {
         // Simple date calculation (no leap second handling, good enough for metadata)
         let days_since_epoch = secs / 86400;
         let mut year = 1970;
-        let mut remaining_days = days_since_epoch.cast_signed(); // Explicitly use i64 for calculation
+        let mut remaining_days = days_since_epoch as i64; // Explicitly use i64 for calculation
 
         loop {
             let days_in_year = if is_leap_year(year) { 366 } else { 365 };
@@ -135,14 +128,14 @@ impl Default for GitVersion {
     }
 }
 
-/// Chord symbol for harmony annotation in `MusicXML`
+
+
 #[derive(Clone, Debug)]
 pub struct ChordSymbol {
-    /// Step number where chord starts (0-indexed)
     pub step: usize,
     /// Root pitch class (0-11, where 0=C)
     pub root: u8,
-    /// `MusicXML` chord kind (e.g., "major", "minor", "dominant", "major-seventh")
+    /// MusicXML chord kind (e.g., "major", "minor", "dominant", "major-seventh")
     pub kind: String,
     /// Display text (e.g., "Cmaj7", "Am")
     pub text: String,
@@ -1157,6 +1150,7 @@ impl MusicXmlBuilder {
 /// # Returns
 /// A complete `MusicXML` 4.0 string ready to be saved or opened in notation software
 #[must_use]
+#[deprecated(since = "0.2.0", note = "Use score_to_musicxml with ScoreBuffer instead")]
 pub fn to_musicxml(
     events: &[(f64, AudioEvent)], // Changed from u64 to f64
     params: &MusicalParams,
@@ -1173,12 +1167,14 @@ pub fn to_musicxml(
 /// * `params` - Musical parameters containing key, time signature info
 /// * `samples_per_step` - Number of audio samples per sequencer step
 /// * `path` - Output file path
+#[deprecated(since = "0.2.0", note = "Use score_to_musicxml with ScoreBuffer instead")]
 pub fn write_musicxml(
-    events: &[(f64, AudioEvent)], // Changed to f64
+    events: &[(f64, AudioEvent)],
     params: &MusicalParams,
     samples_per_step: usize,
     path: &Path,
 ) -> std::io::Result<()> {
+    #[allow(deprecated)]
     let xml = to_musicxml(events, params, samples_per_step);
     let mut file = std::fs::File::create(path)?;
     file.write_all(xml.as_bytes())?;
@@ -1196,6 +1192,7 @@ pub fn write_musicxml(
 /// # Returns
 /// A complete `MusicXML` 4.0 string with chord symbols above the lead part
 #[must_use]
+#[deprecated(since = "0.2.0", note = "Use score_to_musicxml with ScoreBuffer instead")]
 pub fn to_musicxml_with_chords(
     events: &[(f64, AudioEvent)], // Changed from u64 to f64
     chords: &[ChordSymbol],
@@ -1215,14 +1212,452 @@ pub fn to_musicxml_with_chords(
 /// * `params` - Musical parameters containing key, time signature info
 /// * `samples_per_step` - Number of audio samples per sequencer step
 /// * `path` - Output file path
+#[deprecated(since = "0.2.0", note = "Use score_to_musicxml with ScoreBuffer instead")]
 pub fn write_musicxml_with_chords(
-    events: &[(f64, AudioEvent)], // Changed to f64
+    events: &[(f64, AudioEvent)],
     chords: &[ChordSymbol],
     params: &MusicalParams,
     samples_per_step: usize,
     path: &Path,
 ) -> std::io::Result<()> {
+    #[allow(deprecated)]
     let xml = to_musicxml_with_chords(events, chords, params, samples_per_step);
+    let mut file = std::fs::File::create(path)?;
+    file.write_all(xml.as_bytes())?;
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// HARMONIUM SCORE TO MUSICXML
+// ═══════════════════════════════════════════════════════════════════
+
+/// Convert a HarmoniumScore to MusicXML string
+///
+/// This provides a direct path from the musical notation format to MusicXML
+/// without requiring conversion through AudioEvents.
+///
+/// # Arguments
+/// * `score` - The HarmoniumScore containing musical notation data
+///
+/// # Returns
+/// A complete MusicXML 4.0 string
+#[must_use]
+pub fn score_to_musicxml(score: &HarmoniumScore) -> String {
+    let git = GitVersion::detect();
+    score_to_musicxml_with_version(score, &git.tag, &git.sha)
+}
+
+/// Convert a HarmoniumScore to MusicXML with explicit version info
+#[must_use]
+#[allow(clippy::too_many_lines)]
+pub fn score_to_musicxml_with_version(score: &HarmoniumScore, version: &str, git_sha: &str) -> String {
+    let mut xml = String::new();
+
+    // Escape version info
+    let version_escaped = xml_escape(version);
+    let git_sha_escaped = xml_escape(git_sha);
+
+    // XML header
+    let _ = writeln!(xml, r#"<?xml version="1.0" encoding="UTF-8"?>"#);
+    let _ = writeln!(
+        xml,
+        r#"<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">"#
+    );
+    let _ = writeln!(xml, r#"<score-partwise version="4.0">"#);
+
+    // Work title
+    let version_display = if version_escaped.starts_with('v') {
+        version_escaped.clone()
+    } else {
+        format!("v{version_escaped}")
+    };
+    let _ = writeln!(xml, "  <work>");
+    let _ = writeln!(
+        xml,
+        "    <work-title>Harmonium {version_display}-{git_sha_escaped}</work-title>"
+    );
+    let _ = writeln!(xml, "  </work>");
+
+    // Identification
+    let _ = writeln!(xml, "  <identification>");
+    let _ = writeln!(xml, r#"    <creator type="composer">Harmonium</creator>"#);
+    let _ = writeln!(xml, "    <encoding>");
+    let _ = writeln!(
+        xml,
+        "      <software>harmonium_core {version_display}-{git_sha_escaped}</software>"
+    );
+    let _ = writeln!(xml, "      <encoding-date>{}</encoding-date>", chrono_date());
+    let _ = writeln!(xml, "    </encoding>");
+    let _ = writeln!(xml, "    <miscellaneous>");
+    let _ = writeln!(
+        xml,
+        "      <miscellaneous-field name=\"key\">{} {}</miscellaneous-field>",
+        score.key_signature.root,
+        format!("{:?}", score.key_signature.mode).to_lowercase()
+    );
+    let _ = writeln!(
+        xml,
+        "      <miscellaneous-field name=\"bpm\">{}</miscellaneous-field>",
+        score.tempo
+    );
+    let _ = writeln!(
+        xml,
+        "      <miscellaneous-field name=\"time_signature\">{}/{}</miscellaneous-field>",
+        score.time_signature.0, score.time_signature.1
+    );
+    let _ = writeln!(xml, "    </miscellaneous>");
+    let _ = writeln!(xml, "  </identification>");
+
+    // Part list
+    let _ = writeln!(xml, "  <part-list>");
+    for part in &score.parts {
+        let part_id_escaped = xml_escape(&part.id);
+        let part_name_escaped = xml_escape(&part.name);
+        let _ = writeln!(xml, r#"    <score-part id="P-{part_id_escaped}">"#);
+        let _ = writeln!(xml, "      <part-name>{part_name_escaped}</part-name>");
+        let _ = writeln!(xml, "    </score-part>");
+    }
+    let _ = writeln!(xml, "  </part-list>");
+
+    // Write each part
+    for part in &score.parts {
+        write_score_part(&mut xml, score, part);
+    }
+
+    let _ = writeln!(xml, "</score-partwise>");
+    xml
+}
+
+/// Write a single part from HarmoniumScore to MusicXML
+fn write_score_part(xml: &mut String, score: &HarmoniumScore, part: &Part) {
+    let part_id_escaped = xml_escape(&part.id);
+    let _ = writeln!(xml, r#"  <part id="P-{part_id_escaped}">"#);
+
+    // Calculate divisions (steps per quarter note)
+    // Standard: 4 steps per quarter = 16th note resolution
+    let divisions = 4;
+
+    // Get maximum measure count across all parts
+    let max_measures = score.parts.iter().map(|p| p.measures.len()).max().unwrap_or(1);
+
+    for measure_idx in 0..max_measures {
+        let measure_num = measure_idx + 1;
+        let _ = writeln!(xml, r#"    <measure number="{measure_num}">"#);
+
+        // Attributes on first measure
+        if measure_idx == 0 {
+            let _ = writeln!(xml, "      <attributes>");
+            let _ = writeln!(xml, "        <divisions>{divisions}</divisions>");
+            let _ = writeln!(
+                xml,
+                "        <key><fifths>{}</fifths></key>",
+                score.key_signature.fifths
+            );
+            let _ = writeln!(
+                xml,
+                "        <time><beats>{}</beats><beat-type>{}</beat-type></time>",
+                score.time_signature.0, score.time_signature.1
+            );
+
+            // Clef
+            match part.clef {
+                Clef::Treble => {
+                    let _ = writeln!(xml, "        <clef><sign>G</sign><line>2</line></clef>");
+                }
+                Clef::Bass => {
+                    let _ = writeln!(xml, "        <clef><sign>F</sign><line>4</line></clef>");
+                }
+                Clef::Percussion => {
+                    let _ = writeln!(xml, "        <clef><sign>percussion</sign><line>2</line></clef>");
+                }
+            }
+            let _ = writeln!(xml, "      </attributes>");
+        }
+
+        // Get the measure if it exists
+        if let Some(measure) = part.measures.get(measure_idx) {
+            // Write chord symbols first (for lead part)
+            for chord in &measure.chords {
+                write_notation_harmony(xml, chord);
+            }
+
+            // Write events
+            let beats_per_measure = score.time_signature.0 as f32;
+            let mut current_beat = 1.0f32;
+
+            // Sort events by beat position
+            let mut events: Vec<&ScoreNoteEvent> = measure.events.iter().collect();
+            events.sort_by(|a, b| a.beat.partial_cmp(&b.beat).unwrap_or(std::cmp::Ordering::Equal));
+
+            for event in events {
+                // Fill rest before this event if needed
+                if event.beat > current_beat {
+                    let rest_beats = event.beat - current_beat;
+                    let rest_divisions = (rest_beats * divisions as f32) as usize;
+                    if rest_divisions > 0 {
+                        write_score_rest(xml, rest_divisions, divisions);
+                    }
+                    current_beat = event.beat;
+                }
+
+                // Write the event
+                let event_duration_beats = event.duration.to_beats();
+                let event_divisions = (event_duration_beats * divisions as f32) as usize;
+
+                match event.event_type {
+                    NoteEventType::Rest => {
+                        write_score_rest(xml, event_divisions, divisions);
+                    }
+                    NoteEventType::Note | NoteEventType::Chord => {
+                        for (i, pitch) in event.pitches.iter().enumerate() {
+                            write_score_note(xml, pitch, &event.duration, i > 0, event.dynamic.as_ref());
+                        }
+                    }
+                    NoteEventType::Drum => {
+                        // Map to drum display position
+                        write_score_drum_note(xml, &event.duration, event.pitches.first());
+                    }
+                }
+
+                current_beat += event_duration_beats;
+            }
+
+            // Fill rest at end of measure
+            if current_beat < beats_per_measure + 1.0 {
+                let rest_beats = (beats_per_measure + 1.0) - current_beat;
+                let rest_divisions = (rest_beats * divisions as f32) as usize;
+                if rest_divisions > 0 {
+                    write_score_rest(xml, rest_divisions, divisions);
+                }
+            }
+        } else {
+            // Empty measure - write full rest
+            let beats_per_measure = score.time_signature.0;
+            let rest_divisions = beats_per_measure as usize * divisions;
+            write_score_rest(xml, rest_divisions, divisions);
+        }
+
+        let _ = writeln!(xml, "    </measure>");
+    }
+
+    let _ = writeln!(xml, "  </part>");
+}
+
+/// Write a harmony element from notation ChordSymbol
+fn write_notation_harmony(xml: &mut String, chord: &NotationChordSymbol) {
+    let root_escaped = xml_escape(&chord.root);
+    let quality_escaped = xml_escape(&chord.quality);
+
+    // Parse root into step and alter
+    let (root_step, root_alter) = parse_note_name(&chord.root);
+
+    // Map quality to MusicXML kind
+    let kind = quality_to_musicxml_kind(&chord.quality);
+
+    let _ = writeln!(xml, "      <harmony>");
+    let _ = writeln!(xml, "        <root>");
+    let _ = writeln!(xml, "          <root-step>{root_step}</root-step>");
+    if root_alter != 0 {
+        let _ = writeln!(xml, "          <root-alter>{root_alter}</root-alter>");
+    }
+    let _ = writeln!(xml, "        </root>");
+    let _ = writeln!(
+        xml,
+        "        <kind text=\"{root_escaped}{quality_escaped}\">{kind}</kind>"
+    );
+    let _ = writeln!(xml, "      </harmony>");
+}
+
+/// Parse a note name like "C", "F#", "Bb" into (step, alter)
+fn parse_note_name(name: &str) -> (&'static str, i8) {
+    let chars: Vec<char> = name.chars().collect();
+    if chars.is_empty() {
+        return ("C", 0);
+    }
+
+    let step = match chars[0].to_ascii_uppercase() {
+        'C' => "C",
+        'D' => "D",
+        'E' => "E",
+        'F' => "F",
+        'G' => "G",
+        'A' => "A",
+        'B' => "B",
+        _ => "C",
+    };
+
+    let alter = if chars.len() > 1 {
+        match chars[1] {
+            '#' => 1,
+            'b' => -1,
+            _ => 0,
+        }
+    } else {
+        0
+    };
+
+    (step, alter)
+}
+
+/// Convert chord quality string to MusicXML kind
+fn quality_to_musicxml_kind(quality: &str) -> &'static str {
+    match quality {
+        "" | "maj" | "major" | "M" => "major",
+        "m" | "min" | "minor" => "minor",
+        "7" | "dom7" => "dominant",
+        "maj7" | "M7" => "major-seventh",
+        "m7" | "min7" => "minor-seventh",
+        "dim" => "diminished",
+        "dim7" => "diminished-seventh",
+        "m7b5" | "half-dim" => "half-diminished",
+        "aug" | "+" => "augmented",
+        "sus2" => "suspended-second",
+        "sus4" => "suspended-fourth",
+        "6" => "major-sixth",
+        "m6" => "minor-sixth",
+        "9" => "dominant-ninth",
+        "add9" => "major-ninth",
+        _ => "major",
+    }
+}
+
+/// Write a pitched note from ScoreNoteEvent
+fn write_score_note(
+    xml: &mut String,
+    pitch: &Pitch,
+    duration: &NotationDuration,
+    is_chord: bool,
+    dynamic: Option<&crate::notation::Dynamic>,
+) {
+    let step = match pitch.step {
+        NoteStep::C => "C",
+        NoteStep::D => "D",
+        NoteStep::E => "E",
+        NoteStep::F => "F",
+        NoteStep::G => "G",
+        NoteStep::A => "A",
+        NoteStep::B => "B",
+    };
+
+    let (note_type, dots) = duration_to_musicxml_type(duration);
+    let divisions = (duration.to_beats() * 4.0) as usize; // 4 divisions per quarter
+
+    let _ = writeln!(xml, "      <note>");
+    if is_chord {
+        let _ = writeln!(xml, "        <chord/>");
+    }
+    let _ = writeln!(xml, "        <pitch>");
+    let _ = writeln!(xml, "          <step>{step}</step>");
+    if pitch.alter != 0 {
+        let _ = writeln!(xml, "          <alter>{}</alter>", pitch.alter);
+    }
+    let _ = writeln!(xml, "          <octave>{}</octave>", pitch.octave);
+    let _ = writeln!(xml, "        </pitch>");
+    let _ = writeln!(xml, "        <duration>{divisions}</duration>");
+    let _ = writeln!(xml, "        <type>{note_type}</type>");
+    for _ in 0..dots {
+        let _ = writeln!(xml, "        <dot/>");
+    }
+    if pitch.alter != 0 {
+        let acc = if pitch.alter > 0 { "sharp" } else { "flat" };
+        let _ = writeln!(xml, "        <accidental>{acc}</accidental>");
+    }
+    if let Some(dyn_mark) = dynamic {
+        let dyn_str = format!("{dyn_mark:?}").to_lowercase();
+        let _ = writeln!(xml, "        <dynamics><{dyn_str}/></dynamics>");
+    }
+    let _ = writeln!(xml, "      </note>");
+}
+
+/// Write a drum note
+fn write_score_drum_note(xml: &mut String, duration: &NotationDuration, pitch: Option<&Pitch>) {
+    // Use pitch octave to determine drum type, or default to snare
+    let (display_step, display_octave) = if let Some(p) = pitch {
+        // Map common drum sounds
+        match p.octave {
+            2 => ("F", 4), // Kick
+            3 => ("E", 4), // Snare
+            4 => ("G", 5), // Hi-hat
+            _ => ("E", 4), // Default snare
+        }
+    } else {
+        ("E", 4) // Default snare
+    };
+
+    let (note_type, dots) = duration_to_musicxml_type(duration);
+    let divisions = (duration.to_beats() * 4.0) as usize;
+
+    let _ = writeln!(xml, "      <note>");
+    let _ = writeln!(xml, "        <unpitched>");
+    let _ = writeln!(xml, "          <display-step>{display_step}</display-step>");
+    let _ = writeln!(xml, "          <display-octave>{display_octave}</display-octave>");
+    let _ = writeln!(xml, "        </unpitched>");
+    let _ = writeln!(xml, "        <duration>{divisions}</duration>");
+    let _ = writeln!(xml, "        <type>{note_type}</type>");
+    for _ in 0..dots {
+        let _ = writeln!(xml, "        <dot/>");
+    }
+    let _ = writeln!(xml, "      </note>");
+}
+
+/// Write a rest
+fn write_score_rest(xml: &mut String, divisions: usize, divisions_per_quarter: usize) {
+    if divisions == 0 {
+        return;
+    }
+
+    let quarters = divisions as f32 / divisions_per_quarter as f32;
+    let (note_type, dots) = quarters_to_musicxml_type(quarters);
+
+    let _ = writeln!(xml, "      <note>");
+    let _ = writeln!(xml, "        <rest/>");
+    let _ = writeln!(xml, "        <duration>{divisions}</duration>");
+    let _ = writeln!(xml, "        <type>{note_type}</type>");
+    for _ in 0..dots {
+        let _ = writeln!(xml, "        <dot/>");
+    }
+    let _ = writeln!(xml, "      </note>");
+}
+
+/// Convert notation Duration to MusicXML type
+fn duration_to_musicxml_type(duration: &NotationDuration) -> (&'static str, usize) {
+    let note_type = match duration.base {
+        DurationBase::Whole => "whole",
+        DurationBase::Half => "half",
+        DurationBase::Quarter => "quarter",
+        DurationBase::Eighth => "eighth",
+        DurationBase::Sixteenth => "16th",
+        DurationBase::ThirtySecond => "32nd",
+    };
+    (note_type, duration.dots)
+}
+
+/// Convert duration in quarter notes to MusicXML type
+fn quarters_to_musicxml_type(quarters: f32) -> (&'static str, usize) {
+    if quarters >= 4.0 {
+        ("whole", 0)
+    } else if quarters >= 3.0 {
+        ("half", 1)
+    } else if quarters >= 2.0 {
+        ("half", 0)
+    } else if quarters >= 1.5 {
+        ("quarter", 1)
+    } else if quarters >= 1.0 {
+        ("quarter", 0)
+    } else if quarters >= 0.75 {
+        ("eighth", 1)
+    } else if quarters >= 0.5 {
+        ("eighth", 0)
+    } else if quarters >= 0.25 {
+        ("16th", 0)
+    } else {
+        ("32nd", 0)
+    }
+}
+
+/// Write HarmoniumScore to MusicXML file
+pub fn write_score_musicxml(score: &HarmoniumScore, path: &Path) -> std::io::Result<()> {
+    let xml = score_to_musicxml(score);
     let mut file = std::fs::File::create(path)?;
     file.write_all(xml.as_bytes())?;
     Ok(())
@@ -1232,236 +1667,10 @@ pub fn write_musicxml_with_chords(
 mod tests {
     use super::*;
 
-    // Helper to create NoteOn event
-    fn note_on(time: f64, note: u8, vel: u8, channel: u8) -> (f64, AudioEvent) {
-        (time, AudioEvent::NoteOn { id: None, note, velocity: vel, channel })
-    }
-
-    // Helper to create NoteOff event
-    fn note_off(time: f64, note: u8, channel: u8) -> (f64, AudioEvent) {
-        (time, AudioEvent::NoteOff { id: None, note, channel })
-    }
-
     #[test]
-    fn test_fifths_from_key_c_major() {
-        assert_eq!(fifths_from_key(0, false), 0); // C major = 0 sharps/flats
-    }
-
-    #[test]
-    fn test_fifths_from_key_g_major() {
-        assert_eq!(fifths_from_key(7, false), 1); // G major = 1 sharp
-    }
-
-    #[test]
-    fn test_fifths_from_key_d_major() {
-        assert_eq!(fifths_from_key(2, false), 2); // D major = 2 sharps
-    }
-
-    #[test]
-    fn test_fifths_from_key_f_major() {
-        assert_eq!(fifths_from_key(5, false), -1); // F major = 1 flat
-    }
-
-    #[test]
-    fn test_fifths_from_key_bb_major() {
-        assert_eq!(fifths_from_key(10, false), -2); // Bb major = 2 flats
-    }
-
-    #[test]
-    fn test_fifths_from_key_a_minor() {
-        // A minor (root=9) has same signature as C major (relative major)
-        assert_eq!(fifths_from_key(9, true), 0);
-    }
-
-    #[test]
-    fn test_fifths_from_key_e_minor() {
-        // E minor (root=4) has same signature as G major (1 sharp)
-        assert_eq!(fifths_from_key(4, true), 1);
-    }
-
-    #[test]
-    fn test_fifths_from_key_d_minor() {
-        // D minor (root=2) has same signature as F major (1 flat)
-        assert_eq!(fifths_from_key(2, true), -1);
-    }
-
-    // REMOVED: test_time_signature_*_steps - No longer needed with explicit time signatures
-
-    #[test]
-    fn test_pitch_c4() {
-        let params = MusicalParams::default();
-        let builder = MusicXmlBuilder::new(vec![], &params, 11025);
-        let (step, alter, octave) = builder.midi_to_pitch(60);
-        assert_eq!((step, alter, octave), ("C", 0, 4));
-    }
-
-    #[test]
-    fn test_pitch_c_sharp_in_sharp_key() {
-        let mut params = MusicalParams::default();
-        params.key_root = 7; // G major (sharp key)
-        params.harmony_valence = 0.5;
-        let builder = MusicXmlBuilder::new(vec![], &params, 11025);
-        let (step, alter, _) = builder.midi_to_pitch(61); // C#4
-        assert_eq!((step, alter), ("C", 1)); // Should be C#, not Db
-    }
-
-    #[test]
-    fn test_pitch_d_flat_in_flat_key() {
-        let mut params = MusicalParams::default();
-        params.key_root = 5; // F major (flat key)
-        params.harmony_valence = 0.5;
-        let builder = MusicXmlBuilder::new(vec![], &params, 11025);
-        let (step, alter, _) = builder.midi_to_pitch(61); // Db4
-        assert_eq!((step, alter), ("D", -1)); // Should be Db, not C#
-    }
-
-    #[test]
-    fn test_duration_whole_note() {
-        let params = MusicalParams::default(); // rhythm_steps = 16, divisions = 4
-        let builder = MusicXmlBuilder::new(vec![], &params, 11025);
-        let (note_type, dots) = builder.duration_to_type(16); // 16 steps = 4 quarters = whole
-        assert_eq!((note_type, dots), ("whole", 0));
-    }
-
-    #[test]
-    fn test_duration_quarter_note() {
-        let params = MusicalParams::default();
-        let builder = MusicXmlBuilder::new(vec![], &params, 11025);
-        let (note_type, dots) = builder.duration_to_type(4); // 4 steps = 1 quarter
-        assert_eq!((note_type, dots), ("quarter", 0));
-    }
-
-    #[test]
-    fn test_duration_eighth_note() {
-        let params = MusicalParams::default();
-        let builder = MusicXmlBuilder::new(vec![], &params, 11025);
-        let (note_type, dots) = builder.duration_to_type(2); // 2 steps = 0.5 quarter = eighth
-        assert_eq!((note_type, dots), ("eighth", 0));
-    }
-
-    #[test]
-    fn test_simple_note_produces_valid_xml() {
-        let samples_per_step = 11025;
-        let events = vec![note_on(0.0, 60, 100, 1), note_off(samples_per_step as f64, 60, 1)];
-
-        let params = MusicalParams::default();
-        let xml = to_musicxml(&events, &params, samples_per_step);
-
-        assert!(xml.contains("<?xml"));
-        assert!(xml.contains("<score-partwise"));
-        assert!(xml.contains("<part-list>"));
-        assert!(xml.contains("<pitch>"));
-        assert!(xml.contains("<step>C</step>"));
-        assert!(xml.contains("<octave>4</octave>"));
-    }
-
-    #[test]
-    fn test_bass_channel_uses_bass_clef() {
-        let events = vec![
-            note_on(0.0, 36, 100, 0), // Channel 0 = Bass
-            note_off(11025.0, 36, 0),
-        ];
-
-        let params = MusicalParams::default();
-        let xml = to_musicxml(&events, &params, 11025);
-
-        // Check Bass part has F clef
-        assert!(xml.contains(r#"<part id="P2">"#)); // Bass is P2
-        assert!(xml.contains("<sign>F</sign>"));
-        assert!(xml.contains("<line>4</line>"));
-    }
-
-    #[test]
-    fn test_drums_use_percussion_clef() {
-        let events = vec![
-            note_on(0.0, 38, 100, 2), // Channel 2 = Snare
-            note_off(11025.0, 38, 2),
-        ];
-
-        let params = MusicalParams::default();
-        let xml = to_musicxml(&events, &params, 11025);
-
-        assert!(xml.contains("<sign>percussion</sign>"));
-        assert!(xml.contains("<unpitched>"));
-        assert!(xml.contains("<display-step>E</display-step>")); // Snare on E
-    }
-
-    #[test]
-    fn test_key_signature_g_major() {
-        let events = vec![note_on(0.0, 67, 100, 1), note_off(11025.0, 67, 1)];
-
-        let mut params = MusicalParams::default();
-        params.key_root = 7; // G
-        params.harmony_valence = 0.5; // Major
-
-        let xml = to_musicxml(&events, &params, 11025);
-        assert!(xml.contains("<fifths>1</fifths>")); // One sharp
-        assert!(xml.contains("<mode>major</mode>"));
-    }
-
-    #[test]
-    fn test_key_signature_d_minor() {
-        let events = vec![note_on(0.0, 62, 100, 1), note_off(11025.0, 62, 1)];
-
-        let mut params = MusicalParams::default();
-        params.key_root = 2; // D
-        params.harmony_valence = -0.5; // Minor
-
-        let xml = to_musicxml(&events, &params, 11025);
-        assert!(xml.contains("<fifths>-1</fifths>")); // One flat (relative major = F)
-        assert!(xml.contains("<mode>minor</mode>"));
-    }
-
-    #[test]
-    fn test_time_signature_3_4() {
-        let events = vec![note_on(0.0, 60, 100, 1), note_off(11025.0, 60, 1)];
-
-        let mut params = MusicalParams::default();
-        // NEW: Use explicit time signature instead of rhythm_steps
-        params.time_signature = crate::params::TimeSignature::THREE_FOUR;
-        params.steps_per_quarter = 4;
-
-        let xml = to_musicxml(&events, &params, 11025);
-        assert!(xml.contains("<beats>3</beats>"));
-        assert!(xml.contains("<beat-type>4</beat-type>"));
-    }
-
-    #[test]
-    fn test_chord_notation() {
-        let events = vec![
-            note_on(0.0, 60, 100, 1), // C
-            note_on(0.0, 64, 100, 1), // E (same time = chord)
-            note_on(0.0, 67, 100, 1), // G (same time = chord)
-            note_off(11025.0, 60, 1),
-            note_off(11025.0, 64, 1),
-            note_off(11025.0, 67, 1),
-        ];
-
-        let xml = to_musicxml(&events, &MusicalParams::default(), 11025);
-
-        // Second and third notes in chord should have <chord/> element
-        let chord_count = xml.matches("<chord/>").count();
-        assert_eq!(chord_count, 2);
-    }
-
-    #[test]
-    fn test_rest_generation() {
-        // Note starts on step 4 (after a rest)
-        let samples_per_step = 11025;
-        let samples_per_step_f64 = samples_per_step as f64;
-        let events = vec![
-            note_on(4.0 * samples_per_step_f64, 60, 100, 1),
-            note_off(5.0 * samples_per_step_f64, 60, 1),
-        ];
-
-        let xml = to_musicxml(&events, &MusicalParams::default(), samples_per_step);
-        assert!(xml.contains("<rest/>"));
-    }
-
-    #[test]
-    fn test_empty_events_produces_valid_xml() {
-        let events: Vec<(f64, AudioEvent)> = vec![];
-        let xml = to_musicxml(&events, &MusicalParams::default(), 11025);
+    fn test_score_to_musicxml_empty_score() {
+        let score = HarmoniumScore::default();
+        let xml = score_to_musicxml(&score);
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("<score-partwise"));
@@ -1469,11 +1678,177 @@ mod tests {
     }
 
     #[test]
-    fn test_key_name() {
-        assert_eq!(key_name(0, false), "C major");
-        assert_eq!(key_name(7, false), "G major");
-        assert_eq!(key_name(5, false), "F major");
-        assert_eq!(key_name(9, true), "A minor");
-        assert_eq!(key_name(4, true), "E minor");
+    fn test_score_to_musicxml_with_parts() {
+        use crate::notation::{Measure, KeySignature, KeyMode as NotationKeyMode};
+
+        let mut score = HarmoniumScore::default();
+        score.tempo = 120.0;
+        score.time_signature = (4, 4);
+        score.key_signature = KeySignature {
+            root: "C".to_string(),
+            mode: NotationKeyMode::Major,
+            fifths: 0,
+        };
+        score.parts = vec![
+            Part {
+                id: "lead".to_string(),
+                name: "Lead".to_string(),
+                clef: Clef::Treble,
+                transposition: None,
+                measures: vec![Measure::new(1)],
+            },
+            Part {
+                id: "bass".to_string(),
+                name: "Bass".to_string(),
+                clef: Clef::Bass,
+                transposition: None,
+                measures: vec![Measure::new(1)],
+            },
+        ];
+
+        let xml = score_to_musicxml(&score);
+
+        // Check parts are created
+        assert!(xml.contains(r#"<score-part id="P-lead">"#));
+        assert!(xml.contains(r#"<score-part id="P-bass">"#));
+        assert!(xml.contains("<part-name>Lead</part-name>"));
+        assert!(xml.contains("<part-name>Bass</part-name>"));
+
+        // Check clefs
+        assert!(xml.contains("<sign>G</sign>")); // Treble
+        assert!(xml.contains("<sign>F</sign>")); // Bass
+    }
+
+    #[test]
+    fn test_score_to_musicxml_with_notes() {
+        use crate::notation::{Measure, KeySignature, KeyMode as NotationKeyMode, Dynamic};
+
+        let mut score = HarmoniumScore::default();
+        score.key_signature = KeySignature {
+            root: "C".to_string(),
+            mode: NotationKeyMode::Major,
+            fifths: 0,
+        };
+
+        // Create a measure with a C4 quarter note
+        let mut measure = Measure::new(1);
+        measure.events.push(ScoreNoteEvent {
+            id: 1,
+            beat: 1.0,
+            event_type: NoteEventType::Note,
+            pitches: vec![Pitch::new(NoteStep::C, 4, 0)],
+            duration: NotationDuration::new(DurationBase::Quarter),
+            dynamic: Some(Dynamic::MezzoForte),
+            articulation: None,
+        });
+
+        score.parts = vec![Part {
+            id: "lead".to_string(),
+            name: "Lead".to_string(),
+            clef: Clef::Treble,
+            transposition: None,
+            measures: vec![measure],
+        }];
+
+        let xml = score_to_musicxml(&score);
+
+        assert!(xml.contains("<pitch>"));
+        assert!(xml.contains("<step>C</step>"));
+        assert!(xml.contains("<octave>4</octave>"));
+        assert!(xml.contains("<type>quarter</type>"));
+    }
+
+    #[test]
+    fn test_score_to_musicxml_with_accidentals() {
+        use crate::notation::{Measure, KeySignature, KeyMode as NotationKeyMode};
+
+        let mut score = HarmoniumScore::default();
+        score.key_signature = KeySignature {
+            root: "C".to_string(),
+            mode: NotationKeyMode::Major,
+            fifths: 0,
+        };
+
+        // Create a measure with a C#4 quarter note
+        let mut measure = Measure::new(1);
+        measure.events.push(ScoreNoteEvent {
+            id: 1,
+            beat: 1.0,
+            event_type: NoteEventType::Note,
+            pitches: vec![Pitch::new(NoteStep::C, 4, 1)], // C#
+            duration: NotationDuration::new(DurationBase::Quarter),
+            dynamic: None,
+            articulation: None,
+        });
+
+        score.parts = vec![Part {
+            id: "lead".to_string(),
+            name: "Lead".to_string(),
+            clef: Clef::Treble,
+            transposition: None,
+            measures: vec![measure],
+        }];
+
+        let xml = score_to_musicxml(&score);
+
+        assert!(xml.contains("<step>C</step>"));
+        assert!(xml.contains("<alter>1</alter>"));
+        assert!(xml.contains("<accidental>sharp</accidental>"));
+    }
+
+    #[test]
+    fn test_score_to_musicxml_with_chord_symbols() {
+        use crate::notation::{Measure, KeySignature, KeyMode as NotationKeyMode};
+
+        let mut score = HarmoniumScore::default();
+        score.key_signature = KeySignature {
+            root: "C".to_string(),
+            mode: NotationKeyMode::Major,
+            fifths: 0,
+        };
+
+        let mut measure = Measure::new(1);
+        measure.chords.push(NotationChordSymbol {
+            beat: 1.0,
+            duration: 4.0,
+            root: "C".to_string(),
+            quality: "maj7".to_string(),
+            bass: None,
+            scale: None,
+        });
+
+        score.parts = vec![Part {
+            id: "lead".to_string(),
+            name: "Lead".to_string(),
+            clef: Clef::Treble,
+            transposition: None,
+            measures: vec![measure],
+        }];
+
+        let xml = score_to_musicxml(&score);
+
+        assert!(xml.contains("<harmony>"));
+        assert!(xml.contains("<root-step>C</root-step>"));
+        assert!(xml.contains("major-seventh")); // maj7 -> major-seventh
+    }
+
+    #[test]
+    fn test_parse_note_name() {
+        assert_eq!(parse_note_name("C"), ("C", 0));
+        assert_eq!(parse_note_name("D"), ("D", 0));
+        assert_eq!(parse_note_name("F#"), ("F", 1));
+        assert_eq!(parse_note_name("Bb"), ("B", -1));
+        assert_eq!(parse_note_name("G#"), ("G", 1));
+    }
+
+    #[test]
+    fn test_quality_to_musicxml_kind() {
+        assert_eq!(quality_to_musicxml_kind(""), "major");
+        assert_eq!(quality_to_musicxml_kind("m"), "minor");
+        assert_eq!(quality_to_musicxml_kind("7"), "dominant");
+        assert_eq!(quality_to_musicxml_kind("maj7"), "major-seventh");
+        assert_eq!(quality_to_musicxml_kind("m7"), "minor-seventh");
+        assert_eq!(quality_to_musicxml_kind("dim"), "diminished");
+        assert_eq!(quality_to_musicxml_kind("m7b5"), "half-diminished");
     }
 }

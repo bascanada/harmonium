@@ -14,12 +14,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     events::AudioEvent,
+    exporters::truth::RecordingTruth,
     harmony::{
         chord::{Chord, PitchClass},
         parsimonious::TRQ,
     },
     sequencer::RhythmMode,
-    truth::RecordingTruth,
 };
 
 /// Complete Musical DNA capturing harmonic and rhythmic characteristics

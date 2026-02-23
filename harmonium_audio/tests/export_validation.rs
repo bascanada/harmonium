@@ -110,20 +110,20 @@ fn run_30s_complex_validation_test(sample_rate: u32) -> Vec<(RecordFormat, Vec<u
         } else if step < 116 {
             // Play a bass note on every 4th step
             if step % 4 == 0 {
-                recorder.handle_event(AudioEvent::NoteOn { note: 36, velocity: 100, channel: 0 });
+                recorder.handle_event(AudioEvent::NoteOn { id: None, note: 36, velocity: 100, channel: 0 });
             }
             if step % 4 == 3 {
-                recorder.handle_event(AudioEvent::NoteOff { note: 36, channel: 0 });
+                recorder.handle_event(AudioEvent::NoteOff { id: None, note: 36, channel: 0 });
             }
 
             // Play a lead chord on every 8th step
             if step % 8 == 0 {
-                recorder.handle_event(AudioEvent::NoteOn { note: 60, velocity: 80, channel: 1 });
-                recorder.handle_event(AudioEvent::NoteOn { note: 64, velocity: 80, channel: 1 });
+                recorder.handle_event(AudioEvent::NoteOn { id: None, note: 60, velocity: 80, channel: 1 });
+                recorder.handle_event(AudioEvent::NoteOn { id: None, note: 64, velocity: 80, channel: 1 });
             }
             if step % 8 == 6 {
-                recorder.handle_event(AudioEvent::NoteOff { note: 60, channel: 1 });
-                recorder.handle_event(AudioEvent::NoteOff { note: 64, channel: 1 });
+                recorder.handle_event(AudioEvent::NoteOff { id: None, note: 60, channel: 1 });
+                recorder.handle_event(AudioEvent::NoteOff { id: None, note: 64, channel: 1 });
             }
         }
 

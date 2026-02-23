@@ -3,7 +3,7 @@
 //! Compares Musical DNA profiles against reference style profiles
 //! and generates reports for LLM-assisted tuning.
 
-use harmonium_core::dna::{GlobalMetrics, MusicalDNA};
+use harmonium_core::exporters::dna::{GlobalMetrics, MusicalDNA};
 use serde::{Deserialize, Serialize};
 
 use crate::benchmark::StyleProfile;

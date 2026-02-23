@@ -1,26 +1,22 @@
-pub mod dna;
 pub mod events;
-pub mod export;
+pub mod exporters;
 pub mod fractal;
 pub mod harmony;
 pub mod log;
 pub mod notation;
 pub mod params;
+pub mod score_buffer;
 pub mod sequencer;
-pub mod truth;
 pub mod tuning;
 
 // Re-export common types
-// Re-export DNA types
-pub use dna::{
-    DNAExtractor, GlobalMetrics, HarmonicFrame, MusicalDNA, PolygonSignature, RhythmicDNA,
-    SerializableTRQ,
+// Re-export exporter types
+pub use exporters::{
+    score_to_musicxml, score_to_musicxml_with_version, write_score_musicxml, ChordSymbol,
+    DNAExtractor, GlobalMetrics, GitVersion, HarmonicFrame, MusicalDNA, PolygonSignature,
+    RecordingTruth, RhythmicDNA, SerializableTRQ,
 };
 pub use events::AudioEvent;
-pub use export::{
-    ChordSymbol, GitVersion, to_musicxml, to_musicxml_with_chords, write_musicxml,
-    write_musicxml_with_chords,
-};
 // Re-export notation types
 pub use notation::{
     fifths_from_key, midi_to_pitch, next_note_id, steps_to_duration, Articulation, ChordSymbol as ScoreChordSymbol,
@@ -29,6 +25,7 @@ pub use notation::{
     TransposeInterval,
 };
 pub use params::{EngineParams, MusicalParams};
+pub use score_buffer::ScoreBuffer;
 pub use sequencer::Sequencer;
 // Re-export tuning types
 pub use tuning::{TuningError, TuningParams};

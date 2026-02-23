@@ -175,6 +175,7 @@ export class WasmBridge extends BaseBridge {
 		update('progressionName', h.get_progression_name());
 		update('progressionLength', h.get_progression_length());
 		update('harmonyMode', h.get_harmony_mode());
+		update('rhythmMode', h.get_algorithm());
 
 		// Rhythm state - Primary
 		update('primarySteps', h.get_primary_steps());
@@ -198,7 +199,6 @@ export class WasmBridge extends BaseBridge {
 
 		// Direct params (always sync from engine)
 		update('bpm', h.get_direct_bpm());
-		update('rhythmMode', h.get_direct_rhythm_mode());
 		update('enableRhythm', h.get_direct_enable_rhythm());
 		update('enableHarmony', h.get_direct_enable_harmony());
 		update('enableMelody', h.get_direct_enable_melody());

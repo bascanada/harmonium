@@ -13,7 +13,7 @@ pub mod score;
 pub use harmonium_ai::ai;
 pub use harmonium_ai::mapper;
 pub use harmonium_audio::{backend, realtime, synthesis, voice_manager, voicing};
-pub use harmonium_core::{events, fractal, harmony, log, params, sequencer, truth, tuning};
+pub use harmonium_core::{events, exporters, fractal, harmony, log, params, sequencer, tuning};
 
 // Real-time safety: Global allocator that panics on allocations in audio thread (debug builds only)
 // Uses fully qualified path to avoid local mod ambiguity
@@ -150,11 +150,11 @@ impl Handle {
     }
 
     pub fn get_pulses(&self) -> usize {
-        self.pulses
+        self.cached_harmony_state.lock().map(|s| s.primary_pulses).unwrap_or(self.pulses)
     }
 
     pub fn get_steps(&self) -> usize {
-        self.steps
+        self.cached_harmony_state.lock().map(|s| s.primary_steps).unwrap_or(self.steps)
     }
 
     // Phase 2: Helper to update cached harmony state from consumer
@@ -221,13 +221,16 @@ impl Handle {
         self.target_params_input.write(self.cached_params.clone());
     }
 
-    /// Obtenir l'algorithme rythmique actuel (0 = Euclidean, 1 = PerfectBalance, 2 = ClassicGroove)
-    pub fn get_algorithm(&mut self) -> u8 {
-        match self.target_params_input.input_buffer_mut().algorithm {
-            RhythmMode::Euclidean => 0,
-            RhythmMode::PerfectBalance => 1,
-            RhythmMode::ClassicGroove => 2,
-        }
+    /// Obtenir l'algorithme rythmique actuel depuis l'état du moteur (0 = Euclidean, 1 = PerfectBalance, 2 = ClassicGroove)
+    pub fn get_algorithm(&self) -> u8 {
+        self.cached_harmony_state
+            .lock()
+            .map(|s| match s.rhythm_mode {
+                RhythmMode::Euclidean => 0,
+                RhythmMode::PerfectBalance => 1,
+                RhythmMode::ClassicGroove => 2,
+            })
+            .unwrap_or(0)
     }
 
     /// Définir le mode d'harmonie (0 = Basic, 1 = Driver)
@@ -591,7 +594,7 @@ impl Handle {
             }
         }
 
-        let truth = truth::RecordingTruth::new(events, symbolic.musical_params.clone(), 44100);
+        let truth = exporters::RecordingTruth::new(events, symbolic.musical_params.clone(), 44100);
         serde_json::to_string(&truth).unwrap_or_else(|_| "{}".to_string())
     }
 

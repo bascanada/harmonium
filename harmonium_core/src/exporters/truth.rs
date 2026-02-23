@@ -1,6 +1,8 @@
+//! Recording truth - ground truth of a recording session
+
 use serde::{Deserialize, Serialize};
 
-use crate::{events::AudioEvent, export::GitVersion, params::MusicalParams};
+use crate::{events::AudioEvent, params::MusicalParams};
 
 /// The "Ground Truth" of a recording session.
 /// This structure captures everything needed to reconstruct or verify
@@ -22,7 +24,7 @@ pub struct RecordingTruth {
 impl RecordingTruth {
     /// Create a new recording truth from events and parameters
     pub fn new(events: Vec<(f64, AudioEvent)>, params: MusicalParams, sample_rate: u32) -> Self {
-        let git = GitVersion::detect();
+        let git = super::version::GitVersion::detect();
         Self { version: git.tag, git_sha: git.sha, params, events, sample_rate }
     }
 }

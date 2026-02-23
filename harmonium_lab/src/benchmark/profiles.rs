@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use harmonium_core::dna::{GlobalMetrics, MusicalDNA};
+use harmonium_core::exporters::dna::{GlobalMetrics, MusicalDNA};
 use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 

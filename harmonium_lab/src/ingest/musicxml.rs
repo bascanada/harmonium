@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 
 use harmonium_core::{
-    dna::{
+    exporters::dna::{
         GlobalMetrics, HarmonicFrame, MusicalDNA, PolygonSignature, RhythmicDNA, SerializableTRQ,
     },
     harmony::{

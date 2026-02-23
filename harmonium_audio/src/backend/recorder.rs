@@ -4,9 +4,10 @@ use std::{
 };
 
 use harmonium_core::{
+    ScoreBuffer,
     events::{AudioEvent, RecordFormat},
+    exporters::RecordingTruth,
     params::MusicalParams,
-    truth::RecordingTruth,
 };
 use hound::{WavSpec, WavWriter};
 use midly::{Format, Header, MetaMessage, MidiMessage, Smf, Timing, TrackEvent, TrackEventKind};
@@ -71,6 +72,11 @@ pub struct RecorderBackend {
     // Truth State (centralizes events and params)
     truth: Option<RecordingTruth>,
     steps_elapsed: f64,
+
+    // MusicXML State (ScoreBuffer-based, replaces legacy AudioEvent path)
+    score_buffer: Option<ScoreBuffer>,
+    musical_params: MusicalParams,
+    score_steps_fractional: f64,
 }
 
 impl RecorderBackend {
@@ -90,6 +96,9 @@ impl RecorderBackend {
             current_samples_per_step: 11025,
             truth: None,
             steps_elapsed: 0.0,
+            score_buffer: None,
+            musical_params: MusicalParams::default(),
+            score_steps_fractional: 0.0,
         }
     }
 
@@ -169,14 +178,19 @@ impl RecorderBackend {
     }
 
     fn start_musicxml(&mut self) {
-        self.ensure_truth_active();
+        let p = &self.musical_params;
+        let time_sig = (p.time_signature.numerator, p.time_signature.denominator);
+        // Derive minor from harmony_valence: negative valence = minor tendency
+        let is_minor = p.harmony_valence < 0.0;
+        self.score_buffer = Some(ScoreBuffer::new(p.bpm, time_sig, p.key_root, is_minor));
+        self.score_steps_fractional = 0.0;
     }
 
     fn stop_musicxml(&mut self) {
-        if let Some(truth) = &self.truth
+        if let Some(buf) = self.score_buffer.take()
             && let Ok(mut queue) = self.finished_recordings.lock()
         {
-            let xml = harmonium_core::export::to_musicxml(&truth.events, &truth.params, 1);
+            let xml = harmonium_core::exporters::score_to_musicxml(buf.get_score());
             queue.push((RecordFormat::MusicXml, xml.into_bytes()));
         }
     }
@@ -222,8 +236,13 @@ impl AudioRenderer for RecorderBackend {
                 self.current_samples_per_step = *samples_per_step;
             }
             AudioEvent::UpdateMusicalParams { params } => {
+                self.musical_params = *params.clone();
                 if let Some(truth) = &mut self.truth {
                     truth.params = *params.clone();
+                }
+                if let Some(buf) = &mut self.score_buffer {
+                    buf.set_tempo(params.bpm);
+                    buf.set_key(params.key_root, params.harmony_valence < 0.0);
                 }
             }
             AudioEvent::NoteOn { .. } | AudioEvent::NoteOff { .. } => {
@@ -233,6 +252,20 @@ impl AudioRenderer for RecorderBackend {
                 }
             }
             _ => {}
+        }
+
+        // Score buffer recording — feed NoteOn events for MusicXML export
+        if let AudioEvent::NoteOn { note, velocity, channel, .. } = &event {
+            if let Some(buf) = &mut self.score_buffer {
+                let mut tmp = vec![AudioEvent::NoteOn {
+                    id: None,
+                    note: *note,
+                    velocity: *velocity,
+                    channel: *channel,
+                }];
+                // duration_steps: 2 = 1/8 note at 16th-note resolution
+                buf.process_audio_events(&mut tmp, 2);
+            }
         }
 
         // MIDI recording logic - convert step delta to ticks
@@ -297,6 +330,16 @@ impl AudioRenderer for RecorderBackend {
             // Advance Central Truth time (steps)
             if self.truth.is_some() {
                 self.steps_elapsed += steps_in_buffer;
+            }
+
+            // Advance ScoreBuffer by whole integer steps
+            if let Some(buf) = &mut self.score_buffer {
+                let prev_whole = self.score_steps_fractional.floor() as usize;
+                self.score_steps_fractional += steps_in_buffer;
+                let new_whole = self.score_steps_fractional.floor() as usize;
+                for _ in 0..(new_whole.saturating_sub(prev_whole)) {
+                    buf.advance_step();
+                }
             }
         }
     }

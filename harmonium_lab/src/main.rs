@@ -16,7 +16,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use harmonium_core::{dna::GlobalMetrics, tuning::TuningParams};
+use harmonium_core::{exporters::dna::GlobalMetrics, tuning::TuningParams};
 use harmonium_lab::{DNAComparator, MusicXMLIngester, StyleProfile, agent::ClaudeAgent};
 use indicatif::{ProgressBar, ProgressStyle};
 

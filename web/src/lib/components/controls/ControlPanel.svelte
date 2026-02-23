@@ -87,6 +87,7 @@
 			valence={engineState.valence}
 			density={engineState.density}
 			tension={engineState.tension}
+			algorithm={engineState.rhythmMode}
 		/>
 	{:else}
 		<TechnicalControls
