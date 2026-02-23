@@ -4,10 +4,12 @@
 //! to HarmoniumScore format. This module lives in harmonium_core to
 //! be accessible from both harmonium_host and harmonium_audio.
 
-use crate::events::AudioEvent;
-use crate::notation::{
-    ChordSymbol, Clef, Dynamic, HarmoniumScore, KeySignature, Measure, NoteEventType, Part,
-    ScoreNoteEvent, midi_to_pitch, next_note_id, steps_to_duration,
+use crate::{
+    events::AudioEvent,
+    notation::{
+        ChordSymbol, Clef, Dynamic, HarmoniumScore, KeySignature, Measure, NoteEventType, Part,
+        ScoreNoteEvent, midi_to_pitch, next_note_id, steps_to_duration,
+    },
 };
 
 /// Score buffer for accumulating generated measures
@@ -118,8 +120,8 @@ impl ScoreBuffer {
     /// Add a note event to the appropriate part
     fn add_event(&mut self, event: ScoreNoteEvent, channel: u8) {
         let part_idx = match channel {
-            0 => 1, // Bass
-            1 => 0, // Lead
+            0 => 1,     // Bass
+            1 => 0,     // Lead
             2 | 3 => 2, // Drums (snare, hat)
             _ => 0,
         };
@@ -168,8 +170,8 @@ impl ScoreBuffer {
     /// Finalize any remaining events (call at end of recording)
     pub fn finalize(&mut self) {
         // If there are any events in the current measure, finalize it
-        let has_events = self.measure_events.iter().any(|e| !e.is_empty())
-            || !self.measure_chords.is_empty();
+        let has_events =
+            self.measure_events.iter().any(|e| !e.is_empty()) || !self.measure_chords.is_empty();
         if has_events || self.step_in_measure > 0 {
             self.finalize_measure();
         }
@@ -208,13 +210,7 @@ impl ScoreBuffer {
         let mut score_events = Vec::new();
 
         for event in events.iter_mut() {
-            if let AudioEvent::NoteOn {
-                id,
-                note,
-                velocity,
-                channel,
-            } = event
-            {
+            if let AudioEvent::NoteOn { id, note, velocity, channel } = event {
                 // Generate shared note ID
                 let note_id = next_note_id();
                 *id = Some(note_id);
@@ -256,13 +252,7 @@ impl ScoreBuffer {
         event: &mut AudioEvent,
         duration_steps: usize,
     ) -> Option<ScoreNoteEvent> {
-        if let AudioEvent::NoteOn {
-            id,
-            note,
-            velocity,
-            channel,
-        } = event
-        {
+        if let AudioEvent::NoteOn { id, note, velocity, channel } = event {
             // Generate shared note ID
             let note_id = next_note_id();
             *id = Some(note_id);
@@ -306,11 +296,7 @@ impl ScoreBuffer {
     /// Get total number of completed measures
     #[must_use]
     pub fn completed_measures(&self) -> usize {
-        if self.score.parts.is_empty() {
-            0
-        } else {
-            self.score.parts[0].measures.len()
-        }
+        if self.score.parts.is_empty() { 0 } else { self.score.parts[0].measures.len() }
     }
 }
 
@@ -357,12 +343,7 @@ mod tests {
     fn test_audio_event_processing() {
         let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
 
-        let mut events = vec![AudioEvent::NoteOn {
-            id: None,
-            note: 60,
-            velocity: 100,
-            channel: 1,
-        }];
+        let mut events = vec![AudioEvent::NoteOn { id: None, note: 60, velocity: 100, channel: 1 }];
 
         let score_events = buffer.process_audio_events(&mut events, 2);
 

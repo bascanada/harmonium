@@ -16,9 +16,9 @@ pub use dna::{
     SerializableTRQ,
 };
 pub use musicxml::{
-    score_to_musicxml, score_to_musicxml_with_version, to_musicxml, to_musicxml_with_chords,
-    write_musicxml, write_musicxml_with_chords, write_score_musicxml, ChordSymbol, ClefType,
-    KeyMode, ScoreNote,
+    ChordSymbol, ClefType, KeyMode, ScoreNote, score_to_musicxml, score_to_musicxml_with_version,
+    to_musicxml, to_musicxml_with_chords, write_musicxml, write_musicxml_with_chords,
+    write_score_musicxml,
 };
 pub use truth::RecordingTruth;
 pub use version::GitVersion;

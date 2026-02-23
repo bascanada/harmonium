@@ -23,7 +23,6 @@
 //! ```
 
 use harmonium_core::notation::{HarmoniumScore, ScoreNoteEvent};
-
 // Re-export ScoreBuffer from harmonium_core
 pub use harmonium_core::score_buffer::ScoreBuffer;
 
@@ -67,18 +66,13 @@ impl ScoreGenerator {
         let (step_idx, mut audio_events) = state.tick(samples_per_step);
 
         // Generate score events with shared IDs
-        let score_events = self
-            .buffer
-            .process_audio_events(&mut audio_events, self.default_duration_steps);
+        let score_events =
+            self.buffer.process_audio_events(&mut audio_events, self.default_duration_steps);
 
         // Advance the score buffer
         self.buffer.advance_step();
 
-        TickResult {
-            audio_events,
-            score_events,
-            step_idx,
-        }
+        TickResult { audio_events, score_events, step_idx }
     }
 
     /// Get the current score

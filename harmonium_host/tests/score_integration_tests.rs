@@ -7,11 +7,11 @@
 
 use std::collections::HashSet;
 
+use harmonium::score::ScoreBuffer;
 use harmonium_core::{
     events::AudioEvent,
-    notation::{HarmoniumScore, KeyMode, NoteStep, DurationBase},
+    notation::{DurationBase, HarmoniumScore, KeyMode, NoteStep},
 };
-use harmonium::score::ScoreBuffer;
 
 // ═══════════════════════════════════════════════════════════════════
 // ID SYNCHRONIZATION TESTS
@@ -88,12 +88,7 @@ fn test_audio_score_id_synchronization_multiple_notes() {
     for (i, event) in events.iter().enumerate() {
         if let AudioEvent::NoteOn { id, .. } = event {
             assert!(id.is_some(), "Event {} should have ID assigned", i);
-            assert_eq!(
-                *id,
-                Some(score_events[i].id),
-                "Event {} IDs should match",
-                i
-            );
+            assert_eq!(*id, Some(score_events[i].id), "Event {} IDs should match", i);
         }
     }
 
@@ -115,12 +110,8 @@ fn test_audio_score_id_uniqueness_across_measures() {
         // 4 measures
         for _ in 0..16 {
             // 16 steps per measure
-            let mut events = vec![AudioEvent::NoteOn {
-                id: None,
-                note: 60,
-                velocity: 100,
-                channel: 1,
-            }];
+            let mut events =
+                vec![AudioEvent::NoteOn { id: None, note: 60, velocity: 100, channel: 1 }];
 
             let score_events = buffer.process_audio_events(&mut events, 4);
 
@@ -149,27 +140,14 @@ fn test_noteoff_events_ignored() {
     let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
 
     let mut events = vec![
-        AudioEvent::NoteOn {
-            id: None,
-            note: 60,
-            velocity: 100,
-            channel: 1,
-        },
-        AudioEvent::NoteOff {
-            id: Some(1),
-            note: 60,
-            channel: 1,
-        },
+        AudioEvent::NoteOn { id: None, note: 60, velocity: 100, channel: 1 },
+        AudioEvent::NoteOff { id: Some(1), note: 60, channel: 1 },
     ];
 
     let score_events = buffer.process_audio_events(&mut events, 4);
 
     // Only NoteOn should create ScoreNoteEvent
-    assert_eq!(
-        score_events.len(),
-        1,
-        "Only NoteOn should create score events"
-    );
+    assert_eq!(score_events.len(), 1, "Only NoteOn should create score events");
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -283,8 +261,7 @@ fn test_score_json_roundtrip() {
     let json2 = serde_json::to_string(&score).expect("Should serialize again");
 
     // Deserialize again
-    let score2: HarmoniumScore =
-        serde_json::from_str(&json2).expect("Should deserialize again");
+    let score2: HarmoniumScore = serde_json::from_str(&json2).expect("Should deserialize again");
 
     // Compare
     assert_eq!(score.version, score2.version);
@@ -300,14 +277,10 @@ fn test_score_json_pretty_format() {
 
     // Pretty format should have newlines and indentation
     assert!(json.contains('\n'), "Pretty JSON should have newlines");
-    assert!(
-        json.contains("  "),
-        "Pretty JSON should have indentation"
-    );
+    assert!(json.contains("  "), "Pretty JSON should have indentation");
 
     // Should still be valid JSON
-    let _score: HarmoniumScore =
-        serde_json::from_str(&json).expect("Pretty JSON should be valid");
+    let _score: HarmoniumScore = serde_json::from_str(&json).expect("Pretty JSON should be valid");
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -356,12 +329,7 @@ fn test_duration_assignment_in_score() {
     // Note: Don't reset the global counter in parallel tests
     let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
 
-    let mut events = vec![AudioEvent::NoteOn {
-        id: None,
-        note: 60,
-        velocity: 100,
-        channel: 1,
-    }];
+    let mut events = vec![AudioEvent::NoteOn { id: None, note: 60, velocity: 100, channel: 1 }];
 
     // Default duration of 2 steps = eighth note (at 4 steps per quarter)
     let score_events = buffer.process_audio_events(&mut events, 2);
@@ -381,11 +349,7 @@ fn test_measure_counting() {
     let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
 
     assert_eq!(buffer.current_measure(), 1, "Should start at measure 1");
-    assert_eq!(
-        buffer.completed_measures(),
-        0,
-        "No completed measures initially"
-    );
+    assert_eq!(buffer.completed_measures(), 0, "No completed measures initially");
 
     // Advance through first measure (16 steps for 4/4 at 4 steps/beat)
     for _ in 0..16 {
@@ -393,11 +357,7 @@ fn test_measure_counting() {
     }
 
     assert_eq!(buffer.current_measure(), 2, "Should be at measure 2");
-    assert_eq!(
-        buffer.completed_measures(),
-        1,
-        "One measure completed"
-    );
+    assert_eq!(buffer.completed_measures(), 1, "One measure completed");
 
     // Advance through second measure
     for _ in 0..16 {
@@ -405,11 +365,7 @@ fn test_measure_counting() {
     }
 
     assert_eq!(buffer.current_measure(), 3, "Should be at measure 3");
-    assert_eq!(
-        buffer.completed_measures(),
-        2,
-        "Two measures completed"
-    );
+    assert_eq!(buffer.completed_measures(), 2, "Two measures completed");
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -470,28 +426,18 @@ fn test_empty_events_handled() {
     let mut events: Vec<AudioEvent> = vec![];
     let score_events = buffer.process_audio_events(&mut events, 4);
 
-    assert!(
-        score_events.is_empty(),
-        "Empty input should produce empty output"
-    );
+    assert!(score_events.is_empty(), "Empty input should produce empty output");
 }
 
 #[test]
 fn test_control_change_events_ignored() {
     let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
 
-    let mut events = vec![AudioEvent::ControlChange {
-        ctrl: 1,
-        value: 64,
-        channel: 1,
-    }];
+    let mut events = vec![AudioEvent::ControlChange { ctrl: 1, value: 64, channel: 1 }];
 
     let score_events = buffer.process_audio_events(&mut events, 4);
 
-    assert!(
-        score_events.is_empty(),
-        "ControlChange should not create score events"
-    );
+    assert!(score_events.is_empty(), "ControlChange should not create score events");
 }
 
 #[test]
@@ -502,12 +448,7 @@ fn test_various_velocities_to_dynamics() {
     let velocities = [20, 40, 64, 80, 100, 127];
     let mut events: Vec<AudioEvent> = velocities
         .iter()
-        .map(|&v| AudioEvent::NoteOn {
-            id: None,
-            note: 60,
-            velocity: v,
-            channel: 1,
-        })
+        .map(|&v| AudioEvent::NoteOn { id: None, note: 60, velocity: v, channel: 1 })
         .collect();
 
     let score_events = buffer.process_audio_events(&mut events, 4);
@@ -516,9 +457,6 @@ fn test_various_velocities_to_dynamics() {
 
     // All should have dynamics assigned
     for event in &score_events {
-        assert!(
-            event.dynamic.is_some(),
-            "Each event should have a dynamic"
-        );
+        assert!(event.dynamic.is_some(), "Each event should have a dynamic");
     }
 }

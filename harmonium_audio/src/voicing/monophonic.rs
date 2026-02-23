@@ -79,6 +79,7 @@ impl Voicer for MonophonicVoicer {
 #[cfg(test)]
 mod tests {
     use harmonium_core::harmony::chord::ChordType;
+
     use super::*;
 
     #[test]

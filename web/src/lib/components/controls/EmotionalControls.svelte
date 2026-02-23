@@ -154,26 +154,34 @@
 
 	<!-- Rhythm Algorithm Selection -->
 	<div class="rounded-lg bg-neutral-900 p-4">
-		<h3 class="mb-3 text-xs font-semibold text-neutral-400 uppercase tracking-wider">Rhythm Engine</h3>
+		<h3 class="mb-3 text-xs font-semibold tracking-wider text-neutral-400 uppercase">
+			Rhythm Engine
+		</h3>
 		<div class="flex gap-2">
 			<button
 				onclick={() => updateAlgorithm(0)}
 				class="flex-1 rounded-md py-2 text-xs font-semibold transition-all duration-200
-          {localAlgo === 0 ? 'bg-orange-600 text-white shadow-lg' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}"
+          {localAlgo === 0
+					? 'bg-orange-600 text-white shadow-lg'
+					: 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}"
 			>
 				Euclidean
 			</button>
 			<button
 				onclick={() => updateAlgorithm(1)}
 				class="flex-1 rounded-md py-2 text-xs font-semibold transition-all duration-200
-          {localAlgo === 1 ? 'bg-purple-600 text-white shadow-lg' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}"
+          {localAlgo === 1
+					? 'bg-purple-600 text-white shadow-lg'
+					: 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}"
 			>
 				PerfectBalance
 			</button>
 			<button
 				onclick={() => updateAlgorithm(2)}
 				class="flex-1 rounded-md py-2 text-xs font-semibold transition-all duration-200
-          {localAlgo === 2 ? 'bg-cyan-600 text-white shadow-lg' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}"
+          {localAlgo === 2
+					? 'bg-cyan-600 text-white shadow-lg'
+					: 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}"
 			>
 				ClassicGroove
 			</button>

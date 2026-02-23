@@ -28,7 +28,8 @@
 	$: actualSecondarySteps = secondaryPattern.length > 0 ? secondaryPattern.length : secondarySteps;
 
 	// Mode helpers
-	$: modeName = rhythmMode === 0 ? 'Euclidean' : rhythmMode === 1 ? 'PerfectBalance' : 'ClassicGroove';
+	$: modeName =
+		rhythmMode === 0 ? 'Euclidean' : rhythmMode === 1 ? 'PerfectBalance' : 'ClassicGroove';
 	$: modeColorClass =
 		rhythmMode === 0
 			? 'border-orange-500/50 bg-orange-500/20 text-orange-400'
@@ -42,7 +43,7 @@
 <div class="rounded-lg border border-neutral-700 bg-neutral-800 p-4 shadow-xl">
 	<!-- Header with current mode -->
 	<div class="mb-3 flex items-center justify-center gap-3">
-		<span class="rounded-full px-2 py-0.5 text-xs font-semibold border {modeColorClass}">
+		<span class="rounded-full border px-2 py-0.5 text-xs font-semibold {modeColorClass}">
 			{modeName}
 		</span>
 		<span class="font-mono text-xs text-neutral-500">
@@ -80,7 +81,8 @@
 	<div class="mt-2 text-center">
 		{#if rhythmMode === 0}
 			<p class="text-[10px] text-neutral-500">
-				{actualPrimarySteps}:{actualSecondarySteps} polyrhythm ({primaryPulses}/{actualPrimarySteps} vs {secondaryPulses}/{actualSecondarySteps})
+				{actualPrimarySteps}:{actualSecondarySteps} polyrhythm ({primaryPulses}/{actualPrimarySteps} vs
+				{secondaryPulses}/{actualSecondarySteps})
 			</p>
 		{:else}
 			<p class="text-[10px] text-neutral-500">

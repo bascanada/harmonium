@@ -187,9 +187,10 @@ impl RecorderBackend {
     }
 
     fn stop_musicxml(&mut self) {
-        if let Some(buf) = self.score_buffer.take()
+        if let Some(mut buf) = self.score_buffer.take()
             && let Ok(mut queue) = self.finished_recordings.lock()
         {
+            buf.finalize();
             let xml = harmonium_core::exporters::score_to_musicxml(buf.get_score());
             queue.push((RecordFormat::MusicXml, xml.into_bytes()));
         }

@@ -29,7 +29,8 @@ import type {
 export function pitchToVexFlow(pitch: Pitch): string {
 	const step = pitch.step.toLowerCase();
 	const alter = pitch.alter ?? 0;
-	const alterStr = alter === 2 ? '##' : alter === 1 ? '#' : alter === -1 ? 'b' : alter === -2 ? 'bb' : '';
+	const alterStr =
+		alter === 2 ? '##' : alter === 1 ? '#' : alter === -1 ? 'b' : alter === -2 ? 'bb' : '';
 	return `${step}${alterStr}/${pitch.octave}`;
 }
 
@@ -43,7 +44,8 @@ export function pitchToVexFlow(pitch: Pitch): string {
  */
 export function pitchToString(pitch: Pitch): string {
 	const alter = pitch.alter ?? 0;
-	const alterStr = alter === 2 ? '##' : alter === 1 ? '#' : alter === -1 ? 'b' : alter === -2 ? 'bb' : '';
+	const alterStr =
+		alter === 2 ? '##' : alter === 1 ? '#' : alter === -1 ? 'b' : alter === -2 ? 'bb' : '';
 	return `${pitch.step}${alterStr}${pitch.octave}`;
 }
 
@@ -126,7 +128,10 @@ export const DEFAULT_STEPS_PER_QUARTER = 4;
  * @param stepInMeasure - Zero-based step index within the measure.
  * @param stepsPerQuarter - Resolution (default: 4 = 16th-note grid).
  */
-export function stepToBeat(stepInMeasure: number, stepsPerQuarter = DEFAULT_STEPS_PER_QUARTER): number {
+export function stepToBeat(
+	stepInMeasure: number,
+	stepsPerQuarter = DEFAULT_STEPS_PER_QUARTER
+): number {
 	return 1 + stepInMeasure / stepsPerQuarter;
 }
 

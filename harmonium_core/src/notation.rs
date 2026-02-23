@@ -19,8 +19,9 @@
 //! (audio)      (visualization)
 //! ```
 
-use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
+
+use serde::{Deserialize, Serialize};
 
 // ═══════════════════════════════════════════════════════════════════
 // NOTE ID GENERATION
@@ -98,11 +99,7 @@ pub struct KeySignature {
 
 impl Default for KeySignature {
     fn default() -> Self {
-        Self {
-            root: "C".to_string(),
-            mode: KeyMode::Major,
-            fifths: 0,
-        }
+        Self { root: "C".to_string(), mode: KeyMode::Major, fifths: 0 }
     }
 }
 
@@ -572,9 +569,9 @@ impl DrumSymbol {
     #[must_use]
     pub const fn from_channel(channel: u8) -> Option<Self> {
         match channel {
-            0 => Some(Self::K),  // Bass/Kick channel
-            2 => Some(Self::S),  // Snare channel
-            3 => Some(Self::H),  // Hat channel
+            0 => Some(Self::K), // Bass/Kick channel
+            2 => Some(Self::S), // Snare channel
+            3 => Some(Self::H), // Hat channel
             _ => None,
         }
     }
@@ -893,7 +890,9 @@ mod tests {
     fn test_duration_to_beats() {
         assert!((Duration::new(DurationBase::Quarter).to_beats() - 1.0).abs() < f32::EPSILON);
         assert!((Duration::new(DurationBase::Half).to_beats() - 2.0).abs() < f32::EPSILON);
-        assert!((Duration::new(DurationBase::Quarter).dotted().to_beats() - 1.5).abs() < f32::EPSILON);
+        assert!(
+            (Duration::new(DurationBase::Quarter).dotted().to_beats() - 1.5).abs() < f32::EPSILON
+        );
     }
 
     #[test]

@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::params::TimeSignature;
-use crate::tuning::TuningParams;
+use crate::{params::TimeSignature, tuning::TuningParams};
 
 // --- RHYTHM MODE (Strategy Pattern) ---
 
@@ -136,7 +135,7 @@ impl Sequencer {
         let mut seq = Self {
             time_signature: time_sig,
             steps_per_quarter,
-            steps: steps_per_measure,  // Deprecated field, kept for compat
+            steps: steps_per_measure, // Deprecated field, kept for compat
             pulses,
             pattern: vec![StepTrigger::default(); steps_per_measure],
             rotation: 0,
@@ -458,12 +457,12 @@ pub fn generate_balanced_layers_with_time_sig(
 
     // LAYER B: SNARE (Counterpoint) - Time-signature-aware patterns
     let (snare_vertices, snare_base_offset) = match time_sig.numerator {
-        3 => (2, steps_per_beat),           // 3/4: snare on beat 2 (1 vertex, offset by 1 beat)
-        4 => (2, steps_per_beat),           // 4/4: snare on beats 2&4 (classic backbeat)
-        5 => (2, steps_per_beat),           // 5/4: snare on beats 2&4
-        6 => (3, steps_per_beat),           // 6/8: snare on beats 2,4,6
-        7 => (3, steps_per_beat * 2),       // 7/8: snare on beats 3,5,7
-        _ => (2, steps_per_beat),           // Default: backbeat pattern
+        3 => (2, steps_per_beat), // 3/4: snare on beat 2 (1 vertex, offset by 1 beat)
+        4 => (2, steps_per_beat), // 4/4: snare on beats 2&4 (classic backbeat)
+        5 => (2, steps_per_beat), // 5/4: snare on beats 2&4
+        6 => (3, steps_per_beat), // 6/8: snare on beats 2,4,6
+        7 => (3, steps_per_beat * 2), // 7/8: snare on beats 3,5,7
+        _ => (2, steps_per_beat), // Default: backbeat pattern
     };
 
     // Apply tension as additional rotation
@@ -476,13 +475,13 @@ pub fn generate_balanced_layers_with_time_sig(
 
     // LAYER C: HI-HAT (Fill) - Density-based, time-signature agnostic
     let hat_vertices = if density < 0.25 {
-        6   // Sparse
+        6 // Sparse
     } else if density < 0.6 {
-        8   // Medium
+        8 // Medium
     } else if density < 0.85 {
-        12  // Dense
+        12 // Dense
     } else {
-        16  // Very dense
+        16 // Very dense
     };
 
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -495,11 +494,7 @@ pub fn generate_balanced_layers_with_time_sig(
     let hat_gon = Polygon::new(hat_vertices, hat_offset, 0.6 * density.max(0.5));
 
     // LAYER D: BASS (Harmonic Foundation)
-    let bass_gon = if density < 0.4 {
-        kick_gon
-    } else {
-        Polygon::new(8, 0, 0.8)
-    };
+    let bass_gon = if density < 0.4 { kick_gon } else { Polygon::new(8, 0, 0.8) };
 
     // LAYER E: LEAD (Melody)
     let lead_vertices = if density < 0.3 { 3 } else { 5 };
@@ -1088,13 +1083,13 @@ mod tests {
         // Create another seq at different positions
         let mut seq2 = seq.clone();
         seq2.current_step = 4;
-        assert_eq!(seq2.current_beat_position(), (2, 0));  // Beat 2
+        assert_eq!(seq2.current_beat_position(), (2, 0)); // Beat 2
 
         seq2.current_step = 8;
-        assert_eq!(seq2.current_beat_position(), (3, 0));  // Beat 3
+        assert_eq!(seq2.current_beat_position(), (3, 0)); // Beat 3
 
         seq2.current_step = 12;
-        assert_eq!(seq2.current_beat_position(), (4, 0));  // Beat 4
+        assert_eq!(seq2.current_beat_position(), (4, 0)); // Beat 4
     }
 
     #[test]
@@ -1127,7 +1122,7 @@ mod tests {
 
         // Should infer 6/8
         assert_eq!(seq.time_signature, TimeSignature::SIX_EIGHT);
-        assert_eq!(seq.steps_per_measure(), 12);  // 6 eighths = 3 quarters
+        assert_eq!(seq.steps_per_measure(), 12); // 6 eighths = 3 quarters
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1136,13 +1131,8 @@ mod tests {
 
     #[test]
     fn test_perfect_balance_3_4() {
-        let pattern = generate_balanced_layers_with_time_sig(
-            TimeSignature::THREE_FOUR,
-            12,
-            0.5,
-            0.3,
-            None,
-        );
+        let pattern =
+            generate_balanced_layers_with_time_sig(TimeSignature::THREE_FOUR, 12, 0.5, 0.3, None);
 
         assert_eq!(pattern.len(), 12);
 
@@ -1153,13 +1143,8 @@ mod tests {
 
     #[test]
     fn test_perfect_balance_4_4() {
-        let pattern = generate_balanced_layers_with_time_sig(
-            TimeSignature::FOUR_FOUR,
-            16,
-            0.5,
-            0.3,
-            None,
-        );
+        let pattern =
+            generate_balanced_layers_with_time_sig(TimeSignature::FOUR_FOUR, 16, 0.5, 0.3, None);
 
         assert_eq!(pattern.len(), 16);
 
@@ -1170,13 +1155,8 @@ mod tests {
 
     #[test]
     fn test_perfect_balance_5_4() {
-        let pattern = generate_balanced_layers_with_time_sig(
-            TimeSignature::FIVE_FOUR,
-            20,
-            0.5,
-            0.3,
-            None,
-        );
+        let pattern =
+            generate_balanced_layers_with_time_sig(TimeSignature::FIVE_FOUR, 20, 0.5, 0.3, None);
 
         assert_eq!(pattern.len(), 20);
 
@@ -1189,7 +1169,7 @@ mod tests {
     fn test_perfect_balance_7_8() {
         let pattern = generate_balanced_layers_with_time_sig(
             TimeSignature::SEVEN_EIGHT,
-            14,  // 7 eighths ≈ 3.5 quarters, with 4 steps per quarter = 14
+            14, // 7 eighths ≈ 3.5 quarters, with 4 steps per quarter = 14
             0.5,
             0.3,
             None,
@@ -1207,7 +1187,7 @@ mod tests {
         let pattern = generate_balanced_layers_with_time_sig(
             TimeSignature::FOUR_FOUR,
             16,
-            0.2,  // Low density
+            0.2, // Low density
             0.3,
             None,
         );
@@ -1222,7 +1202,7 @@ mod tests {
         let pattern = generate_balanced_layers_with_time_sig(
             TimeSignature::FOUR_FOUR,
             16,
-            0.8,  // High density
+            0.8, // High density
             0.3,
             None,
         );
@@ -1238,12 +1218,7 @@ mod tests {
 
     #[test]
     fn test_classic_groove_4_4_works() {
-        let pattern = generate_classic_groove_with_time_sig(
-            TimeSignature::FOUR_FOUR,
-            16,
-            0.5,
-            0.3,
-        );
+        let pattern = generate_classic_groove_with_time_sig(TimeSignature::FOUR_FOUR, 16, 0.5, 0.3);
 
         assert_eq!(pattern.len(), 16);
 
@@ -1258,12 +1233,8 @@ mod tests {
     #[test]
     fn test_classic_groove_non_4_4_fallback() {
         // 3/4 should fallback to PerfectBalance
-        let pattern_3_4 = generate_classic_groove_with_time_sig(
-            TimeSignature::THREE_FOUR,
-            12,
-            0.5,
-            0.3,
-        );
+        let pattern_3_4 =
+            generate_classic_groove_with_time_sig(TimeSignature::THREE_FOUR, 12, 0.5, 0.3);
 
         assert_eq!(pattern_3_4.len(), 12);
         let kick_count = pattern_3_4.iter().filter(|t| t.kick).count();
@@ -1274,12 +1245,8 @@ mod tests {
     #[test]
     fn test_classic_groove_5_4_fallback() {
         // 5/4 should fallback to PerfectBalance
-        let pattern_5_4 = generate_classic_groove_with_time_sig(
-            TimeSignature::FIVE_FOUR,
-            20,
-            0.5,
-            0.3,
-        );
+        let pattern_5_4 =
+            generate_classic_groove_with_time_sig(TimeSignature::FIVE_FOUR, 20, 0.5, 0.3);
 
         assert_eq!(pattern_5_4.len(), 20);
         let kick_count = pattern_5_4.iter().filter(|t| t.kick).count();

@@ -614,8 +614,10 @@ impl Handle {
 
         // Track note durations: map (channel, pitch) -> (start_step, position, velocity)
         // We store the position at NoteOn time so events have correct start positions
-        let mut pending_notes: std::collections::HashMap<(u8, u8), (usize, params::MusicalPosition, u8)> =
-            std::collections::HashMap::new();
+        let mut pending_notes: std::collections::HashMap<
+            (u8, u8),
+            (usize, params::MusicalPosition, u8),
+        > = std::collections::HashMap::new();
 
         for i in 0..steps {
             let (_step_idx, tick_events) = symbolic.tick(1024);
@@ -641,7 +643,9 @@ impl Handle {
                             pending_notes.insert((channel, note), (i, position.clone(), velocity));
                         } else {
                             // Velocity 0 = NoteOff
-                            if let Some((start_step, start_position, start_velocity)) = pending_notes.remove(&(channel, note)) {
+                            if let Some((start_step, start_position, start_velocity)) =
+                                pending_notes.remove(&(channel, note))
+                            {
                                 let duration = i.saturating_sub(start_step).max(1);
                                 events.push(params::VisualizationEventV2 {
                                     note_midi: note,
@@ -654,7 +658,9 @@ impl Handle {
                         }
                     }
                     events::AudioEvent::NoteOff { note, channel, .. } => {
-                        if let Some((start_step, start_position, start_velocity)) = pending_notes.remove(&(channel, note)) {
+                        if let Some((start_step, start_position, start_velocity)) =
+                            pending_notes.remove(&(channel, note))
+                        {
                             let duration = i.saturating_sub(start_step).max(1);
                             events.push(params::VisualizationEventV2 {
                                 note_midi: note,
@@ -678,7 +684,7 @@ impl Handle {
                 instrument: channel,
                 velocity: start_velocity,
                 duration_steps: steps.saturating_sub(start_step).max(4), // Extend to end of lookahead
-                position: start_position, // Use NoteOn position
+                position: start_position,                                // Use NoteOn position
             });
         }
 
@@ -1127,19 +1133,13 @@ impl Handle {
     /// Get current time signature numerator (beats per measure)
     /// Returns 4 by default if lock fails
     pub fn get_time_signature_numerator(&self) -> u8 {
-        self.control_mode
-            .lock()
-            .map(|m| m.direct_params.time_signature.numerator)
-            .unwrap_or(4)
+        self.control_mode.lock().map(|m| m.direct_params.time_signature.numerator).unwrap_or(4)
     }
 
     /// Get current time signature denominator (beat unit: 2, 4, 8, 16)
     /// Returns 4 by default if lock fails
     pub fn get_time_signature_denominator(&self) -> u8 {
-        self.control_mode
-            .lock()
-            .map(|m| m.direct_params.time_signature.denominator)
-            .unwrap_or(4)
+        self.control_mode.lock().map(|m| m.direct_params.time_signature.denominator).unwrap_or(4)
     }
 
     /// Set subdivision resolution (steps per quarter note)
@@ -1161,10 +1161,7 @@ impl Handle {
     /// Get steps per measure (derived from time signature and subdivision)
     /// This is a convenience method that calculates the total steps in a measure
     pub fn get_steps_per_measure(&self) -> usize {
-        self.control_mode
-            .lock()
-            .map(|m| m.direct_params.steps_per_measure())
-            .unwrap_or(16)
+        self.control_mode.lock().map(|m| m.direct_params.steps_per_measure()).unwrap_or(16)
     }
 }
 

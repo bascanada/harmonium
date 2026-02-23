@@ -117,8 +117,7 @@
 				local.secondaryRotation = secondaryRotation;
 			if (local.harmonyValence !== harmonyValence) local.harmonyValence = harmonyValence;
 			if (local.harmonyTension !== harmonyTension) local.harmonyTension = harmonyTension;
-			if (local.melodySmoothness !== melodySmoothness)
-				local.melodySmoothness = melodySmoothness;
+			if (local.melodySmoothness !== melodySmoothness) local.melodySmoothness = melodySmoothness;
 			if (local.voicingDensity !== voicingDensity) local.voicingDensity = voicingDensity;
 		}
 	});

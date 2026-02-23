@@ -189,7 +189,12 @@ impl SymbolicState {
                 (36 + self.last_harmony_state.chord_root_offset) as u8
             };
             let vel = self.musical_params.vel_base_bass + (self.current_state.arousal * 25.0) as u8;
-            events.push(AudioEvent::NoteOn { id: None, note: midi_note, velocity: vel, channel: 0 });
+            events.push(AudioEvent::NoteOn {
+                id: None,
+                note: midi_note,
+                velocity: vel,
+                channel: 0,
+            });
         }
 
         let melody_enabled = self.musical_params.enable_melody;
@@ -271,7 +276,12 @@ impl SymbolicState {
                 vel = (vel as f32 * 1.1).min(127.0) as u8;
             }
 
-            events.push(AudioEvent::NoteOn { id: None, note: snare_note, velocity: vel, channel: 2 });
+            events.push(AudioEvent::NoteOn {
+                id: None,
+                note: snare_note,
+                velocity: vel,
+                channel: 2,
+            });
         }
 
         let play_hat = trigger_primary.hat || trigger_secondary.hat;
@@ -927,7 +937,7 @@ impl HarmoniumEngine {
 
         // === LOGIQUE SÉQUENCEUR (from MusicalParams) ===
         let target_algo = mp.rhythm_mode;
-        
+
         // Handle TimeSignature sync and backwards compatibility for rhythm_steps
         let current_expected_steps = mp.time_signature.steps_per_measure(mp.steps_per_quarter);
         let target_spq = if mp.rhythm_steps != current_expected_steps && mp.rhythm_steps > 0 {
@@ -953,7 +963,8 @@ impl HarmoniumEngine {
             self.symbolic.sequencer_primary.mode = target_algo;
             self.symbolic.sequencer_primary.time_signature = mp.time_signature;
             self.symbolic.sequencer_primary.steps_per_quarter = target_spq;
-            self.symbolic.sequencer_primary.steps = self.symbolic.sequencer_primary.steps_per_measure();
+            self.symbolic.sequencer_primary.steps =
+                self.symbolic.sequencer_primary.steps_per_measure();
             self.symbolic.sequencer_primary.current_step = 0; // Reset step counter
             self.symbolic.sequencer_primary.regenerate_pattern();
         }
@@ -1003,7 +1014,8 @@ impl HarmoniumEngine {
             if secondary_steps != self.symbolic.sequencer_secondary.steps {
                 self.symbolic.sequencer_secondary.steps = secondary_steps;
                 // Hack: force steps_per_measure to match secondary_steps so Euclidean pattern size is correct
-                self.symbolic.sequencer_secondary.time_signature = harmonium_core::params::TimeSignature::new(secondary_steps as u8, 4);
+                self.symbolic.sequencer_secondary.time_signature =
+                    harmonium_core::params::TimeSignature::new(secondary_steps as u8, 4);
                 self.symbolic.sequencer_secondary.steps_per_quarter = 1;
                 self.symbolic.sequencer_secondary.pattern =
                     vec![StepTrigger::default(); secondary_steps];
@@ -1070,10 +1082,11 @@ impl HarmoniumEngine {
                             channel: 0,
                         });
                     }
-                    
+
                     // Schedule NoteOff for THIS note
                     // Duration: half a quarter note (e.g., 2 steps at 16th note resolution)
-                    let duration_steps = (self.symbolic.sequencer_primary.steps_per_quarter / 2).max(1);
+                    let duration_steps =
+                        (self.symbolic.sequencer_primary.steps_per_quarter / 2).max(1);
                     self.pending_noteoffs.push(PendingNoteOff {
                         note,
                         channel: 0,
@@ -1093,7 +1106,8 @@ impl HarmoniumEngine {
                         });
                     }
                     // Schedule NoteOff for THIS note
-                    let duration_steps = (self.symbolic.sequencer_primary.steps_per_quarter / 2).max(1);
+                    let duration_steps =
+                        (self.symbolic.sequencer_primary.steps_per_quarter / 2).max(1);
                     self.pending_noteoffs.push(PendingNoteOff {
                         note,
                         channel: 1,
@@ -1161,7 +1175,9 @@ impl HarmoniumEngine {
     /// # Returns
     /// A `MusicalDNA` struct containing the extracted profile
     #[must_use]
-    pub fn export_dna(truth: &harmonium_core::exporters::RecordingTruth) -> harmonium_core::MusicalDNA {
+    pub fn export_dna(
+        truth: &harmonium_core::exporters::RecordingTruth,
+    ) -> harmonium_core::MusicalDNA {
         harmonium_core::MusicalDNA::extract(truth)
     }
 

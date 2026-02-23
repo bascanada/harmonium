@@ -96,8 +96,8 @@ impl EmotionMapper {
         // RYTHME: Density + Tension → Pattern
         // ═══════════════════════════════════════════════════════════════════
         // Dynamic algorithm choice if in Euclidean (default) but high intensity
-        let resolved_algo = if emotions.algorithm == RhythmMode::Euclidean 
-            && (emotions.density > 0.6 || emotions.tension > 0.7) 
+        let resolved_algo = if emotions.algorithm == RhythmMode::Euclidean
+            && (emotions.density > 0.6 || emotions.tension > 0.7)
         {
             RhythmMode::PerfectBalance
         } else {
@@ -118,11 +118,8 @@ impl EmotionMapper {
         }
 
         // Rotation: tension contrôle le décalage de phase (syncopation)
-        let max_rotation = if resolved_algo == RhythmMode::PerfectBalance {
-            params.rhythm_steps / 2
-        } else {
-            8
-        };
+        let max_rotation =
+            if resolved_algo == RhythmMode::PerfectBalance { params.rhythm_steps / 2 } else { 8 };
         params.rhythm_rotation = (emotions.tension * max_rotation as f32) as usize;
 
         // Séquenceur secondaire (polyrythme 4:3)

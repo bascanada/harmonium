@@ -11,7 +11,7 @@ use std::path::Path;
 
 use harmonium_core::{
     events::AudioEvent,
-    export::{ChordSymbol, write_musicxml_with_chords},
+    exporters::{ChordSymbol, write_musicxml_with_chords},
     harmony::driver::HarmonicDriver,
     params::MusicalParams,
     sequencer::{RhythmMode, Sequencer},
@@ -119,7 +119,10 @@ fn generate_and_export(name: &str, params: &MusicalParams, measures: usize, seed
         if trigger.kick {
             // Release previous bass note
             if let Some(prev_note) = active_bass.take() {
-                events.push((timestamp, AudioEvent::NoteOff { id: None, note: prev_note, channel: 0 }));
+                events.push((
+                    timestamp,
+                    AudioEvent::NoteOff { id: None, note: prev_note, channel: 0 },
+                ));
             }
 
             // Play new bass note (harmonized to current chord root)
@@ -130,14 +133,18 @@ fn generate_and_export(name: &str, params: &MusicalParams, measures: usize, seed
                 36 + current_chord.root
             };
             let velocity = (trigger.velocity * 100.0) as u8;
-            events.push((timestamp, AudioEvent::NoteOn { id: None, note: bass_note, velocity, channel: 0 }));
+            events.push((
+                timestamp,
+                AudioEvent::NoteOn { id: None, note: bass_note, velocity, channel: 0 },
+            ));
             active_bass = Some(bass_note);
         }
 
         // === SNARE (Channel 2) ===
         if trigger.snare {
             let velocity = (trigger.velocity * 90.0) as u8;
-            events.push((timestamp, AudioEvent::NoteOn { id: None, note: 38, velocity, channel: 2 }));
+            events
+                .push((timestamp, AudioEvent::NoteOn { id: None, note: 38, velocity, channel: 2 }));
             // Short duration for drums (half step)
             let off_time = timestamp + 0.5;
             events.push((off_time, AudioEvent::NoteOff { id: None, note: 38, channel: 2 }));
@@ -146,7 +153,8 @@ fn generate_and_export(name: &str, params: &MusicalParams, measures: usize, seed
         // === HI-HAT (Channel 3) ===
         if trigger.hat {
             let velocity = (trigger.velocity * 70.0) as u8;
-            events.push((timestamp, AudioEvent::NoteOn { id: None, note: 42, velocity, channel: 3 }));
+            events
+                .push((timestamp, AudioEvent::NoteOn { id: None, note: 42, velocity, channel: 3 }));
             let off_time = timestamp + 0.25; // Quarter step
             events.push((off_time, AudioEvent::NoteOff { id: None, note: 42, channel: 3 }));
         }
@@ -157,7 +165,10 @@ fn generate_and_export(name: &str, params: &MusicalParams, measures: usize, seed
         if is_melody_step {
             // Release previous lead note
             if let Some(prev_note) = active_lead.take() {
-                events.push((timestamp, AudioEvent::NoteOff { id: None, note: prev_note, channel: 1 }));
+                events.push((
+                    timestamp,
+                    AudioEvent::NoteOff { id: None, note: prev_note, channel: 1 },
+                ));
             }
 
             // Generate melody note from chord tones

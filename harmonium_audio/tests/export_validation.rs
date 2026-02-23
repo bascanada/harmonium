@@ -4,8 +4,8 @@ use harmonium_audio::backend::{
     AudioRenderer, recorder::RecorderBackend, synth_backend::SynthBackend,
 };
 use harmonium_core::{
+    RecordingTruth,
     events::{AudioEvent, RecordFormat},
-    truth::RecordingTruth,
 };
 use roxmltree::Document;
 
@@ -42,7 +42,7 @@ fn test_export_roundtrip_validation() {
     let truth_notes = truth
         .events
         .iter()
-        .filter(|(_, e)| matches!(e, AudioEvent::NoteOn { velocity, .. } if *velocity > 0))
+        .filter(|(_, e)| matches!(e, AudioEvent::NoteOn { velocity, .. } if velocity > &0))
         .count();
 
     assert_eq!(note_elements.len(), truth_notes, "Note count mismatch over 30s export");
@@ -110,21 +110,38 @@ fn run_30s_complex_validation_test(sample_rate: u32) -> Vec<(RecordFormat, Vec<u
         } else if step < 116 {
             // Play a bass note on every 4th step
             if step % 4 == 0 {
-                recorder.handle_event(AudioEvent::NoteOn { id: None, note: 36, velocity: 100, channel: 0 });
-            }
-            if step % 4 == 3 {
-                recorder.handle_event(AudioEvent::NoteOff { id: None, note: 36, channel: 0 });
+                recorder.handle_event(AudioEvent::NoteOn {
+                    id: None,
+                    note: 36,
+                    velocity: 100,
+                    channel: 0,
+                });
             }
 
             // Play a lead chord on every 8th step
             if step % 8 == 0 {
-                recorder.handle_event(AudioEvent::NoteOn { id: None, note: 60, velocity: 80, channel: 1 });
-                recorder.handle_event(AudioEvent::NoteOn { id: None, note: 64, velocity: 80, channel: 1 });
+                recorder.handle_event(AudioEvent::NoteOn {
+                    id: None,
+                    note: 60,
+                    velocity: 80,
+                    channel: 1,
+                });
+                recorder.handle_event(AudioEvent::NoteOn {
+                    id: None,
+                    note: 64,
+                    velocity: 80,
+                    channel: 1,
+                });
             }
-            if step % 8 == 6 {
-                recorder.handle_event(AudioEvent::NoteOff { id: None, note: 60, channel: 1 });
-                recorder.handle_event(AudioEvent::NoteOff { id: None, note: 64, channel: 1 });
-            }
+        }
+
+        // NoteOff logic should run even after step 116 to close notes
+        if step % 4 == 3 {
+            recorder.handle_event(AudioEvent::NoteOff { id: None, note: 36, channel: 0 });
+        }
+        if step % 8 == 6 {
+            recorder.handle_event(AudioEvent::NoteOff { id: None, note: 60, channel: 1 });
+            recorder.handle_event(AudioEvent::NoteOff { id: None, note: 64, channel: 1 });
         }
 
         recorder.process_buffer(&mut buffer, 2);

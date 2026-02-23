@@ -30,7 +30,7 @@
 
 	// Utiliser le pattern externe s'il est fourni, sinon calculer localement
 	$: pattern = externalPattern ?? getPattern(actualSteps, pulses);
-	
+
 	// Note: Le pattern externe est déjà rotaté par le moteur, pas besoin de re-rotater
 	$: rotated = externalPattern
 		? pattern

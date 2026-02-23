@@ -11,18 +11,19 @@ pub mod tuning;
 
 // Re-export common types
 // Re-export exporter types
-pub use exporters::{
-    score_to_musicxml, score_to_musicxml_with_version, write_score_musicxml, ChordSymbol,
-    DNAExtractor, GlobalMetrics, GitVersion, HarmonicFrame, MusicalDNA, PolygonSignature,
-    RecordingTruth, RhythmicDNA, SerializableTRQ,
-};
 pub use events::AudioEvent;
+pub use exporters::{
+    ChordSymbol, DNAExtractor, GitVersion, GlobalMetrics, HarmonicFrame, MusicalDNA,
+    PolygonSignature, RecordingTruth, RhythmicDNA, SerializableTRQ, score_to_musicxml,
+    score_to_musicxml_with_version, to_musicxml_with_chords, write_musicxml_with_chords,
+    write_score_musicxml,
+};
 // Re-export notation types
 pub use notation::{
-    fifths_from_key, midi_to_pitch, next_note_id, steps_to_duration, Articulation, ChordSymbol as ScoreChordSymbol,
-    Clef, DrumSymbol, Duration, DurationBase, Dynamic, HarmoniumScore, KeyMode, KeySignature,
-    Measure, NoteEventType, NoteStep, Part, Pitch, ScaleSuggestion, ScoreNoteEvent, Transposition,
-    TransposeInterval,
+    Articulation, ChordSymbol as ScoreChordSymbol, Clef, DrumSymbol, Duration, DurationBase,
+    Dynamic, HarmoniumScore, KeyMode, KeySignature, Measure, NoteEventType, NoteStep, Part, Pitch,
+    ScaleSuggestion, ScoreNoteEvent, TransposeInterval, Transposition, fifths_from_key,
+    midi_to_pitch, next_note_id, steps_to_duration,
 };
 pub use params::{EngineParams, MusicalParams};
 pub use score_buffer::ScoreBuffer;

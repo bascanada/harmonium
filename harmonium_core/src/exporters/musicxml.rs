@@ -12,13 +12,16 @@
 //! std::fs::write("output.musicxml", xml).unwrap();
 //! ```
 
-use crate::notation::{
-    Clef, DurationBase, HarmoniumScore, NoteEventType, NoteStep, Part, Pitch,
-    ScoreNoteEvent, ChordSymbol as NotationChordSymbol, Duration as NotationDuration,
-};
-use crate::events::AudioEvent;
-use crate::params::MusicalParams;
 use std::collections::HashMap;
+
+use crate::{
+    events::AudioEvent,
+    notation::{
+        ChordSymbol as NotationChordSymbol, Clef, Duration as NotationDuration, DurationBase,
+        HarmoniumScore, NoteEventType, NoteStep, Part, Pitch, ScoreNoteEvent,
+    },
+    params::MusicalParams,
+};
 
 /// Escape special XML characters to produce valid XML output.
 /// Handles: & < > " '
@@ -127,8 +130,6 @@ impl Default for GitVersion {
         Self::detect()
     }
 }
-
-
 
 #[derive(Clone, Debug)]
 pub struct ChordSymbol {
@@ -1250,7 +1251,11 @@ pub fn score_to_musicxml(score: &HarmoniumScore) -> String {
 /// Convert a HarmoniumScore to MusicXML with explicit version info
 #[must_use]
 #[allow(clippy::too_many_lines)]
-pub fn score_to_musicxml_with_version(score: &HarmoniumScore, version: &str, git_sha: &str) -> String {
+pub fn score_to_musicxml_with_version(
+    score: &HarmoniumScore,
+    version: &str,
+    git_sha: &str,
+) -> String {
     let mut xml = String::new();
 
     // Escape version info
@@ -1272,10 +1277,8 @@ pub fn score_to_musicxml_with_version(score: &HarmoniumScore, version: &str, git
         format!("v{version_escaped}")
     };
     let _ = writeln!(xml, "  <work>");
-    let _ = writeln!(
-        xml,
-        "    <work-title>Harmonium {version_display}-{git_sha_escaped}</work-title>"
-    );
+    let _ =
+        writeln!(xml, "    <work-title>Harmonium {version_display}-{git_sha_escaped}</work-title>");
     let _ = writeln!(xml, "  </work>");
 
     // Identification
@@ -1348,11 +1351,8 @@ fn write_score_part(xml: &mut String, score: &HarmoniumScore, part: &Part) {
         if measure_idx == 0 {
             let _ = writeln!(xml, "      <attributes>");
             let _ = writeln!(xml, "        <divisions>{divisions}</divisions>");
-            let _ = writeln!(
-                xml,
-                "        <key><fifths>{}</fifths></key>",
-                score.key_signature.fifths
-            );
+            let _ =
+                writeln!(xml, "        <key><fifths>{}</fifths></key>", score.key_signature.fifths);
             let _ = writeln!(
                 xml,
                 "        <time><beats>{}</beats><beat-type>{}</beat-type></time>",
@@ -1368,7 +1368,8 @@ fn write_score_part(xml: &mut String, score: &HarmoniumScore, part: &Part) {
                     let _ = writeln!(xml, "        <clef><sign>F</sign><line>4</line></clef>");
                 }
                 Clef::Percussion => {
-                    let _ = writeln!(xml, "        <clef><sign>percussion</sign><line>2</line></clef>");
+                    let _ =
+                        writeln!(xml, "        <clef><sign>percussion</sign><line>2</line></clef>");
                 }
             }
             let _ = writeln!(xml, "      </attributes>");
@@ -1410,7 +1411,13 @@ fn write_score_part(xml: &mut String, score: &HarmoniumScore, part: &Part) {
                     }
                     NoteEventType::Note | NoteEventType::Chord => {
                         for (i, pitch) in event.pitches.iter().enumerate() {
-                            write_score_note(xml, pitch, &event.duration, i > 0, event.dynamic.as_ref());
+                            write_score_note(
+                                xml,
+                                pitch,
+                                &event.duration,
+                                i > 0,
+                                event.dynamic.as_ref(),
+                            );
                         }
                     }
                     NoteEventType::Drum => {
@@ -1461,10 +1468,7 @@ fn write_notation_harmony(xml: &mut String, chord: &NotationChordSymbol) {
         let _ = writeln!(xml, "          <root-alter>{root_alter}</root-alter>");
     }
     let _ = writeln!(xml, "        </root>");
-    let _ = writeln!(
-        xml,
-        "        <kind text=\"{root_escaped}{quality_escaped}\">{kind}</kind>"
-    );
+    let _ = writeln!(xml, "        <kind text=\"{root_escaped}{quality_escaped}\">{kind}</kind>");
     let _ = writeln!(xml, "      </harmony>");
 }
 
@@ -1679,16 +1683,13 @@ mod tests {
 
     #[test]
     fn test_score_to_musicxml_with_parts() {
-        use crate::notation::{Measure, KeySignature, KeyMode as NotationKeyMode};
+        use crate::notation::{KeyMode as NotationKeyMode, KeySignature, Measure};
 
         let mut score = HarmoniumScore::default();
         score.tempo = 120.0;
         score.time_signature = (4, 4);
-        score.key_signature = KeySignature {
-            root: "C".to_string(),
-            mode: NotationKeyMode::Major,
-            fifths: 0,
-        };
+        score.key_signature =
+            KeySignature { root: "C".to_string(), mode: NotationKeyMode::Major, fifths: 0 };
         score.parts = vec![
             Part {
                 id: "lead".to_string(),
@@ -1721,14 +1722,11 @@ mod tests {
 
     #[test]
     fn test_score_to_musicxml_with_notes() {
-        use crate::notation::{Measure, KeySignature, KeyMode as NotationKeyMode, Dynamic};
+        use crate::notation::{Dynamic, KeyMode as NotationKeyMode, KeySignature, Measure};
 
         let mut score = HarmoniumScore::default();
-        score.key_signature = KeySignature {
-            root: "C".to_string(),
-            mode: NotationKeyMode::Major,
-            fifths: 0,
-        };
+        score.key_signature =
+            KeySignature { root: "C".to_string(), mode: NotationKeyMode::Major, fifths: 0 };
 
         // Create a measure with a C4 quarter note
         let mut measure = Measure::new(1);
@@ -1760,14 +1758,11 @@ mod tests {
 
     #[test]
     fn test_score_to_musicxml_with_accidentals() {
-        use crate::notation::{Measure, KeySignature, KeyMode as NotationKeyMode};
+        use crate::notation::{KeyMode as NotationKeyMode, KeySignature, Measure};
 
         let mut score = HarmoniumScore::default();
-        score.key_signature = KeySignature {
-            root: "C".to_string(),
-            mode: NotationKeyMode::Major,
-            fifths: 0,
-        };
+        score.key_signature =
+            KeySignature { root: "C".to_string(), mode: NotationKeyMode::Major, fifths: 0 };
 
         // Create a measure with a C#4 quarter note
         let mut measure = Measure::new(1);
@@ -1798,14 +1793,11 @@ mod tests {
 
     #[test]
     fn test_score_to_musicxml_with_chord_symbols() {
-        use crate::notation::{Measure, KeySignature, KeyMode as NotationKeyMode};
+        use crate::notation::{KeyMode as NotationKeyMode, KeySignature, Measure};
 
         let mut score = HarmoniumScore::default();
-        score.key_signature = KeySignature {
-            root: "C".to_string(),
-            mode: NotationKeyMode::Major,
-            fifths: 0,
-        };
+        score.key_signature =
+            KeySignature { root: "C".to_string(), mode: NotationKeyMode::Major, fifths: 0 };
 
         let mut measure = Measure::new(1);
         measure.chords.push(NotationChordSymbol {

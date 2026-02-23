@@ -67,11 +67,11 @@ impl TimeSignature {
         // Convert denominator to quarter-note equivalent
         // denominator=4 (quarter) → 1.0x, denominator=8 (eighth) → 0.5x, denominator=2 (half) → 2.0x
         let quarter_equiv = match self.denominator {
-            2 => self.numerator as usize * 2,      // half notes
-            4 => self.numerator as usize,          // quarter notes
-            8 => (self.numerator as usize + 1) / 2, // eighth notes (round up)
+            2 => self.numerator as usize * 2,        // half notes
+            4 => self.numerator as usize,            // quarter notes
+            8 => (self.numerator as usize + 1) / 2,  // eighth notes (round up)
             16 => (self.numerator as usize + 3) / 4, // sixteenth notes (round up)
-            _ => self.numerator as usize,          // fallback to numerator
+            _ => self.numerator as usize,            // fallback to numerator
         };
         quarter_equiv * steps_per_quarter
     }
@@ -428,11 +428,11 @@ const fn default_true() -> bool {
     true
 }
 const fn default_steps_per_quarter() -> usize {
-    4  // 16th note resolution by default
+    4 // 16th note resolution by default
 }
 
 const fn default_rhythm_steps() -> usize {
-    16  // Deprecated, kept for backward compat
+    16 // Deprecated, kept for backward compat
 }
 const fn default_rhythm_pulses() -> usize {
     4
@@ -500,7 +500,7 @@ impl Default for MusicalParams {
             time_signature: TimeSignature::default(),
             steps_per_quarter: default_steps_per_quarter(),
             rhythm_mode: RhythmMode::Euclidean,
-            rhythm_steps: default_rhythm_steps(),  // Deprecated
+            rhythm_steps: default_rhythm_steps(), // Deprecated
             rhythm_pulses: default_rhythm_pulses(),
             rhythm_rotation: 0,
             rhythm_density: default_density(),
@@ -649,25 +649,25 @@ mod tests {
     fn test_time_signature_steps_calculation() {
         // 4/4 tests
         let ts_4_4 = TimeSignature::FOUR_FOUR;
-        assert_eq!(ts_4_4.steps_per_measure(4), 16);  // 4 beats * 4 sixteenths
+        assert_eq!(ts_4_4.steps_per_measure(4), 16); // 4 beats * 4 sixteenths
         assert_eq!(ts_4_4.steps_per_measure(12), 48); // triplet subdivision
         assert_eq!(ts_4_4.steps_per_measure(24), 96); // 32nd notes
 
         // 3/4 tests
         let ts_3_4 = TimeSignature::THREE_FOUR;
-        assert_eq!(ts_3_4.steps_per_measure(4), 12);  // 3 beats * 4 sixteenths
+        assert_eq!(ts_3_4.steps_per_measure(4), 12); // 3 beats * 4 sixteenths
 
         // 6/8 tests (compound meter)
         let ts_6_8 = TimeSignature::SIX_EIGHT;
-        assert_eq!(ts_6_8.steps_per_measure(4), 12);  // 6 eighths = 3 quarters
+        assert_eq!(ts_6_8.steps_per_measure(4), 12); // 6 eighths = 3 quarters
 
         // 5/4 tests
         let ts_5_4 = TimeSignature::FIVE_FOUR;
-        assert_eq!(ts_5_4.steps_per_measure(4), 20);  // 5 beats * 4 sixteenths
+        assert_eq!(ts_5_4.steps_per_measure(4), 20); // 5 beats * 4 sixteenths
 
         // 7/8 tests
         let ts_7_8 = TimeSignature::SEVEN_EIGHT;
-        assert_eq!(ts_7_8.steps_per_measure(4), 16);  // 7 eighths ≈ 3.5 quarters → 4
+        assert_eq!(ts_7_8.steps_per_measure(4), 16); // 7 eighths ≈ 3.5 quarters → 4
     }
 
     #[test]
@@ -678,13 +678,13 @@ mod tests {
         assert!(TimeSignature::new(6, 8).is_valid());
         assert!(TimeSignature::new(5, 4).is_valid());
         assert!(TimeSignature::new(7, 8).is_valid());
-        assert!(TimeSignature::new(2, 2).is_valid());  // cut time
+        assert!(TimeSignature::new(2, 2).is_valid()); // cut time
         assert!(TimeSignature::new(9, 16).is_valid()); // compound irregular
 
         // Invalid signatures
-        assert!(!TimeSignature::new(0, 4).is_valid());  // zero numerator
-        assert!(!TimeSignature::new(4, 3).is_valid());  // invalid denominator
-        assert!(!TimeSignature::new(4, 7).is_valid());  // invalid denominator
+        assert!(!TimeSignature::new(0, 4).is_valid()); // zero numerator
+        assert!(!TimeSignature::new(4, 3).is_valid()); // invalid denominator
+        assert!(!TimeSignature::new(4, 7).is_valid()); // invalid denominator
     }
 
     #[test]
@@ -737,7 +737,7 @@ mod tests {
 
         // Test with different subdivisions
         params.time_signature = TimeSignature::FOUR_FOUR;
-        params.steps_per_quarter = 12;  // triplets
+        params.steps_per_quarter = 12; // triplets
         assert_eq!(params.steps_per_measure(), 48);
     }
 

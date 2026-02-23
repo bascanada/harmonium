@@ -19,7 +19,12 @@ import { writable, derived } from 'svelte/store';
 import type { Readable } from 'svelte/store';
 import type { HarmoniumScore } from '$lib/types/notation';
 import type { HarmoniumBridge } from '$lib/bridge';
-import { parseScore, getActiveNoteIds, stepToBeat, DEFAULT_STEPS_PER_QUARTER } from '$lib/utils/notation';
+import {
+	parseScore,
+	getActiveNoteIds,
+	stepToBeat,
+	DEFAULT_STEPS_PER_QUARTER
+} from '$lib/utils/notation';
 import { engineState } from '$lib/stores/engine-state';
 
 // ─────────────────────────────────────────────────────────
