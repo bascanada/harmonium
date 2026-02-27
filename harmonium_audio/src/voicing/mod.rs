@@ -27,12 +27,14 @@
 
 mod block_chord;
 mod comping;
+mod monophonic;
 mod shell;
 mod voicer;
 
 // Re-exports publics
 pub use block_chord::BlockChordVoicer;
 pub use comping::CompingPattern;
+pub use monophonic::MonophonicVoicer;
 pub use shell::ShellVoicer;
 pub use voicer::{
     VoicedNote, Voicer, VoicerContext, apply_drop_two, find_scale_notes_below, get_guide_tones,

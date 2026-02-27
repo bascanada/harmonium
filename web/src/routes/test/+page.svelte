@@ -11,7 +11,8 @@
 	import RhythmVisualizer from '$lib/components/visualizations/rhythm/RhythmVisualizer.svelte';
 	import ChordProgression from '$lib/components/visualizations/harmony/ChordProgression.svelte';
 	import MorphVisualization from '$lib/components/visualizations/morph/MorphVisualization.svelte';
-	import MusicSheet from '$lib/components/visualizations/MusicSheet.svelte';
+	import SheetMusic from '$lib/components/visualizations/SheetMusic.svelte';
+	import { engineState } from '$lib/stores/engine-state';
 	import init, { get_available_backends } from 'harmonium';
 
 	let bridge: HarmoniumBridge | null = null;
@@ -49,54 +50,46 @@
 	let isRecordingMidi = false;
 	let isRecordingMusicXml = false;
 
-	// Access WASM handle for recording (bridge doesn't expose recording methods yet)
-	function getHandle() {
-		return bridge && (bridge as any).handle;
-	}
-
+	// Recording functions using bridge API
 	function toggleWavRecording() {
-		const handle = getHandle();
-		if (!handle) return;
+		if (!bridge) return;
 		if (isRecordingWav) {
-			handle.stop_recording_wav();
+			bridge.stopRecordingWav?.();
 			isRecordingWav = false;
 		} else {
-			handle.start_recording_wav();
+			bridge.startRecordingWav?.();
 			isRecordingWav = true;
 		}
 	}
 
 	function toggleMidiRecording() {
-		const handle = getHandle();
-		if (!handle) return;
+		if (!bridge) return;
 		if (isRecordingMidi) {
-			handle.stop_recording_midi();
+			bridge.stopRecordingMidi?.();
 			isRecordingMidi = false;
 		} else {
-			handle.start_recording_midi();
+			bridge.startRecordingMidi?.();
 			isRecordingMidi = true;
 		}
 	}
 
 	function toggleMusicXmlRecording() {
-		const handle = getHandle();
-		if (!handle) return;
+		if (!bridge) return;
 		if (isRecordingMusicXml) {
-			handle.stop_recording_musicxml();
+			bridge.stopRecordingMusicXml?.();
 			isRecordingMusicXml = false;
 		} else {
-			handle.start_recording_musicxml();
+			bridge.startRecordingMusicXml?.();
 			isRecordingMusicXml = true;
 		}
 	}
 
 	function checkRecordings() {
-		const handle = getHandle();
-		if (!handle) return;
+		if (!bridge || !bridge.popFinishedRecording) return;
 
 		// Loop to get all finished recordings
 		while (true) {
-			const recording = handle.pop_finished_recording();
+			const recording = bridge.popFinishedRecording();
 			if (!recording) break;
 
 			const fmt = recording.format;
@@ -106,7 +99,7 @@
 				fmt === 'wav' ? 'audio/wav' : fmt === 'midi' ? 'audio/midi' : 'application/xml';
 			const ext = fmt === 'wav' ? 'wav' : fmt === 'midi' ? 'mid' : 'musicxml';
 
-			const blob = new Blob([data], { type: mimeType });
+			const blob = new Blob([data as any], { type: mimeType });
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement('a');
 			a.href = url;
@@ -148,6 +141,7 @@
 			bridge?.disconnect();
 			bridge = null;
 			isPlaying = false;
+			engineState.set(createEmptyState());
 			return;
 		}
 
@@ -184,23 +178,27 @@
 					lastPrimarySteps = newState.primarySteps;
 					lastRhythmMode = newState.rhythmMode;
 					lastIsEmotionMode = newState.isEmotionMode;
+					// Synchronize totalSteps with currentStep on reset
+					totalSteps = newState.currentStep;
 				}
 
 				// Track continuous step counter
 				const rawStep = newState.currentStep;
 				if (rawStep !== lastEngineStep) {
-					let delta = rawStep - lastEngineStep;
-					if (delta < 0) {
-						delta += newState.primarySteps;
-					}
 					if (lastEngineStep === -1) {
 						totalSteps = rawStep;
 					} else {
-						totalSteps += delta;
+						let delta = rawStep - lastEngineStep;
+						if (delta < 0) {
+							// Wrapped around or engine reset
+							delta = rawStep;
+							totalSteps = rawStep;
+						} else {
+							totalSteps += delta;
+						}
 					}
 					lastEngineStep = rawStep;
 				}
-
 				// Update progression chords
 				if (newState.progressionLength !== progressionChords.length) {
 					progressionChords = Array(newState.progressionLength).fill('?');
@@ -215,6 +213,7 @@
 				}
 
 				state = newState;
+				engineState.set(newState);
 			});
 
 			// Reset counters
@@ -524,7 +523,9 @@
 				<!-- Left: Visualizations -->
 				<div class="flex flex-col gap-6">
 					{#if bridge}
-						<MusicSheet {bridge} steps={32} />
+						{#key bridge}
+							<SheetMusic {bridge} bars={8} />
+						{/key}
 					{/if}
 
 					<RhythmVisualizer

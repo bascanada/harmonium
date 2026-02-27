@@ -167,6 +167,12 @@ export class VstBridge extends BaseBridge {
 		return '{}';
 	}
 
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	getLookaheadScore(_bars: number): string {
+		// HarmoniumScore lookahead not yet implemented for VST
+		return '{}';
+	}
+
 	private handleMessage = (msg: unknown) => {
 		try {
 			// Message is already parsed by nih-plug-webview

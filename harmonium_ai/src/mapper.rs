@@ -95,13 +95,21 @@ impl EmotionMapper {
         // ═══════════════════════════════════════════════════════════════════
         // RYTHME: Density + Tension → Pattern
         // ═══════════════════════════════════════════════════════════════════
-        params.rhythm_mode = emotions.algorithm;
+        // Dynamic algorithm choice if in Euclidean (default) but high intensity
+        let resolved_algo = if emotions.algorithm == RhythmMode::Euclidean
+            && (emotions.density > 0.6 || emotions.tension > 0.7)
+        {
+            RhythmMode::PerfectBalance
+        } else {
+            emotions.algorithm
+        };
+
+        params.rhythm_mode = resolved_algo;
         params.rhythm_density = emotions.density;
         params.rhythm_tension = emotions.tension;
 
         // Pulses primaires: density contrôle la "densité" d'accents
-        // density 0.0 → 1 pulse, density 1.0 → 12 pulses (sur 16 steps)
-        if emotions.algorithm == RhythmMode::Euclidean {
+        if resolved_algo == RhythmMode::Euclidean {
             params.rhythm_steps = 16;
             params.rhythm_pulses = ((emotions.density * 11.0) as usize + 1).min(16);
         } else {
@@ -110,11 +118,8 @@ impl EmotionMapper {
         }
 
         // Rotation: tension contrôle le décalage de phase (syncopation)
-        let max_rotation = if emotions.algorithm == RhythmMode::PerfectBalance {
-            params.rhythm_steps / 2
-        } else {
-            8
-        };
+        let max_rotation =
+            if resolved_algo == RhythmMode::PerfectBalance { params.rhythm_steps / 2 } else { 8 };
         params.rhythm_rotation = (emotions.tension * max_rotation as f32) as usize;
 
         // Séquenceur secondaire (polyrythme 4:3)

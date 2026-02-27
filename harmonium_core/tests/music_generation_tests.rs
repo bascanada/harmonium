@@ -11,9 +11,11 @@ use std::path::Path;
 
 use harmonium_core::{
     events::AudioEvent,
-    export::{ChordSymbol, write_musicxml_with_chords},
+    exporters::score_to_musicxml,
     harmony::driver::HarmonicDriver,
+    notation::{ChordSymbol, HarmoniumScore},
     params::MusicalParams,
+    score_buffer::ScoreBuffer,
     sequencer::{RhythmMode, Sequencer},
 };
 
@@ -56,6 +58,13 @@ fn setup_output_dir() {
     std::fs::create_dir_all(OUTPUT_DIR).expect("Failed to create output directory");
 }
 
+// Temporary struct for tracking chord symbols during generation
+struct TestChord {
+    step: usize,
+    root: u8,
+    suffix: String,
+}
+
 /// Generate music and export to `MusicXML`
 fn generate_and_export(name: &str, params: &MusicalParams, measures: usize, seed: u64) {
     setup_output_dir();
@@ -81,7 +90,7 @@ fn generate_and_export(name: &str, params: &MusicalParams, measures: usize, seed
 
     // Collect events and chord symbols
     let mut events: Vec<(f64, AudioEvent)> = Vec::new(); // Changed to f64 for step-based timestamps
-    let mut chord_symbols: Vec<ChordSymbol> = Vec::new();
+    let mut chord_symbols: Vec<TestChord> = Vec::new();
     let mut current_chord = driver.current_chord().clone();
     let mut steps_in_chord = 0;
     let steps_per_chord = params.harmony_measures_per_chord * steps_per_measure;
@@ -104,11 +113,11 @@ fn generate_and_export(name: &str, params: &MusicalParams, measures: usize, seed
             steps_in_chord = 0;
 
             // Record chord change
-            chord_symbols.push(ChordSymbol::new(
+            chord_symbols.push(TestChord {
                 step,
-                current_chord.root,
-                current_chord.chord_type.suffix(),
-            ));
+                root: current_chord.root,
+                suffix: current_chord.chord_type.suffix().to_string(),
+            });
         }
         steps_in_chord += 1;
 
@@ -119,7 +128,10 @@ fn generate_and_export(name: &str, params: &MusicalParams, measures: usize, seed
         if trigger.kick {
             // Release previous bass note
             if let Some(prev_note) = active_bass.take() {
-                events.push((timestamp, AudioEvent::NoteOff { note: prev_note, channel: 0 }));
+                events.push((
+                    timestamp,
+                    AudioEvent::NoteOff { id: None, note: prev_note, channel: 0 },
+                ));
             }
 
             // Play new bass note (harmonized to current chord root)
@@ -130,25 +142,30 @@ fn generate_and_export(name: &str, params: &MusicalParams, measures: usize, seed
                 36 + current_chord.root
             };
             let velocity = (trigger.velocity * 100.0) as u8;
-            events.push((timestamp, AudioEvent::NoteOn { note: bass_note, velocity, channel: 0 }));
+            events.push((
+                timestamp,
+                AudioEvent::NoteOn { id: None, note: bass_note, velocity, channel: 0 },
+            ));
             active_bass = Some(bass_note);
         }
 
         // === SNARE (Channel 2) ===
         if trigger.snare {
             let velocity = (trigger.velocity * 90.0) as u8;
-            events.push((timestamp, AudioEvent::NoteOn { note: 38, velocity, channel: 2 }));
+            events
+                .push((timestamp, AudioEvent::NoteOn { id: None, note: 38, velocity, channel: 2 }));
             // Short duration for drums (half step)
             let off_time = timestamp + 0.5;
-            events.push((off_time, AudioEvent::NoteOff { note: 38, channel: 2 }));
+            events.push((off_time, AudioEvent::NoteOff { id: None, note: 38, channel: 2 }));
         }
 
         // === HI-HAT (Channel 3) ===
         if trigger.hat {
             let velocity = (trigger.velocity * 70.0) as u8;
-            events.push((timestamp, AudioEvent::NoteOn { note: 42, velocity, channel: 3 }));
+            events
+                .push((timestamp, AudioEvent::NoteOn { id: None, note: 42, velocity, channel: 3 }));
             let off_time = timestamp + 0.25; // Quarter step
-            events.push((off_time, AudioEvent::NoteOff { note: 42, channel: 3 }));
+            events.push((off_time, AudioEvent::NoteOff { id: None, note: 42, channel: 3 }));
         }
 
         // === LEAD/MELODY (Channel 1) ===
@@ -157,7 +174,10 @@ fn generate_and_export(name: &str, params: &MusicalParams, measures: usize, seed
         if is_melody_step {
             // Release previous lead note
             if let Some(prev_note) = active_lead.take() {
-                events.push((timestamp, AudioEvent::NoteOff { note: prev_note, channel: 1 }));
+                events.push((
+                    timestamp,
+                    AudioEvent::NoteOff { id: None, note: prev_note, channel: 1 },
+                ));
             }
 
             // Generate melody note from chord tones
@@ -170,7 +190,7 @@ fn generate_and_export(name: &str, params: &MusicalParams, measures: usize, seed
 
             events.push((
                 timestamp,
-                AudioEvent::NoteOn { note: melody_note, velocity: 80, channel: 1 },
+                AudioEvent::NoteOn { id: None, note: melody_note, velocity: 80, channel: 1 },
             ));
             active_lead = Some(melody_note);
         }
@@ -179,18 +199,88 @@ fn generate_and_export(name: &str, params: &MusicalParams, measures: usize, seed
     // Final NoteOffs
     let end_time = total_steps as f64;
     if let Some(note) = active_bass {
-        events.push((end_time, AudioEvent::NoteOff { note, channel: 0 }));
+        events.push((end_time, AudioEvent::NoteOff { id: None, note, channel: 0 }));
     }
     if let Some(note) = active_lead {
-        events.push((end_time, AudioEvent::NoteOff { note, channel: 1 }));
+        events.push((end_time, AudioEvent::NoteOff { id: None, note, channel: 1 }));
     }
 
     // Sort events by timestamp
     events.sort_by(|(t1, _), (t2, _)| t1.partial_cmp(t2).unwrap());
 
-    // Export to MusicXML with chord symbols
+    // Create ScoreBuffer for the new export format
+    let is_minor = false; // Default to major for these tests
+    let mut score_buffer = ScoreBuffer::new(
+        params.bpm,
+        (params.time_signature.numerator, params.time_signature.denominator),
+        params.key_root,
+        is_minor,
+        params.steps_per_quarter,
+    );
+
+    // Process events through ScoreBuffer step by step
+    let mut current_step = 0;
+    let mut step_events: Vec<AudioEvent> = Vec::new();
+
+    for (timestamp, event) in &events {
+        let event_step = (*timestamp as usize) / (SAMPLES_PER_STEP / 4); // Convert to step index
+
+        // Process all events at current step
+        while current_step < event_step {
+            if !step_events.is_empty() {
+                score_buffer.process_audio_events(&mut step_events, 4);
+                step_events.clear();
+            }
+            score_buffer.advance_step();
+            current_step += 1;
+        }
+
+        // Add event to current step
+        step_events.push(event.clone());
+    }
+
+    // Process remaining events
+    if !step_events.is_empty() {
+        score_buffer.process_audio_events(&mut step_events, 4);
+    }
+
+    // Add chord symbols to score
+    // Note: ChordSymbol uses step positions, convert them appropriately
+    for chord_sym in &chord_symbols {
+        // Convert pitch class (u8) to note name (String)
+        let root_name = match chord_sym.root % 12 {
+            0 => "C",
+            1 => "C#",
+            2 => "D",
+            3 => "Eb",
+            4 => "E",
+            5 => "F",
+            6 => "F#",
+            7 => "G",
+            8 => "Ab",
+            9 => "A",
+            10 => "Bb",
+            11 => "B",
+            _ => "C", // Fallback
+        }.to_string();
+
+        score_buffer.add_chord(
+            root_name,
+            chord_sym.suffix.clone(),
+            4.0, // duration in beats (1 measure in 4/4)
+        );
+    }
+
+    // Finalize the score
+    score_buffer.finalize();
+
+    // Export using new API
+    let score: HarmoniumScore = score_buffer.clone_score();
+    let musicxml = score_to_musicxml(&score);
+
+    // Write to file
     let path = Path::new(OUTPUT_DIR).join(format!("{name}.musicxml"));
-    write_musicxml_with_chords(&events, &chord_symbols, params, SAMPLES_PER_STEP, &path)
+    std::fs::write(&path, musicxml)
         .unwrap_or_else(|_| panic!("Failed to write {name}"));
 
     println!(

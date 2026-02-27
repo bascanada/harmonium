@@ -95,7 +95,7 @@ impl Default for VstMidiBackend {
 impl AudioRenderer for VstMidiBackend {
     fn handle_event(&mut self, event: AudioEvent) {
         match event {
-            AudioEvent::NoteOn { note, velocity, channel } => {
+            AudioEvent::NoteOn { note, velocity, channel, .. } => {
                 self.midi_events.push_back(VstMidiEvent {
                     sample_offset: self.current_sample,
                     channel,
@@ -104,7 +104,7 @@ impl AudioRenderer for VstMidiBackend {
                     is_note_on: true,
                 });
             }
-            AudioEvent::NoteOff { note, channel } => {
+            AudioEvent::NoteOff { note, channel, .. } => {
                 self.midi_events.push_back(VstMidiEvent {
                     sample_offset: self.current_sample,
                     channel,

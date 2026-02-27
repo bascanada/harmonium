@@ -6,13 +6,14 @@ use triple_buffer::Input;
 use wasm_bindgen::prelude::*;
 
 pub mod engine;
+pub mod score;
 
 // Re-exports from workspace crates
 #[cfg(feature = "ai")]
 pub use harmonium_ai::ai;
 pub use harmonium_ai::mapper;
 pub use harmonium_audio::{backend, realtime, synthesis, voice_manager, voicing};
-pub use harmonium_core::{events, fractal, harmony, log, params, sequencer, truth};
+pub use harmonium_core::{events, exporters, fractal, harmony, log, params, sequencer, tuning};
 
 // Real-time safety: Global allocator that panics on allocations in audio thread (debug builds only)
 // Uses fully qualified path to avoid local mod ambiguity
@@ -84,12 +85,30 @@ impl RecordedData {
 pub type FontQueue = Arc<Mutex<Vec<(u32, Vec<u8>)>>>;
 pub type FinishedRecordings = Arc<Mutex<Vec<(events::RecordFormat, Vec<u8>)>>>;
 
+#[cfg(feature = "standalone")]
+struct SendStream(cpal::Stream);
+
+#[cfg(feature = "standalone")]
+#[allow(unsafe_code)]
+unsafe impl Send for SendStream {}
+#[cfg(feature = "standalone")]
+#[allow(unsafe_code)]
+unsafe impl Sync for SendStream {}
+
+#[cfg(feature = "standalone")]
+impl std::ops::Deref for SendStream {
+    type Target = cpal::Stream;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 // Handle and WASM bindings only available with standalone feature (cpal)
 #[cfg(feature = "standalone")]
 #[cfg_attr(feature = "wasm", wasm_bindgen)]
 pub struct Handle {
     #[allow(dead_code)]
-    stream: cpal::Stream,
+    stream: SendStream,
     /// Phase 3: Lock-free triple buffer for UI→Audio parameter updates
     target_params_input: Input<engine::EngineParams>,
     /// Phase 3: Local cache to avoid read-modify-write races
@@ -131,11 +150,11 @@ impl Handle {
     }
 
     pub fn get_pulses(&self) -> usize {
-        self.pulses
+        self.cached_harmony_state.lock().map(|s| s.primary_pulses).unwrap_or(self.pulses)
     }
 
     pub fn get_steps(&self) -> usize {
-        self.steps
+        self.cached_harmony_state.lock().map(|s| s.primary_steps).unwrap_or(self.steps)
     }
 
     // Phase 2: Helper to update cached harmony state from consumer
@@ -202,13 +221,16 @@ impl Handle {
         self.target_params_input.write(self.cached_params.clone());
     }
 
-    /// Obtenir l'algorithme rythmique actuel (0 = Euclidean, 1 = PerfectBalance, 2 = ClassicGroove)
-    pub fn get_algorithm(&mut self) -> u8 {
-        match self.target_params_input.input_buffer_mut().algorithm {
-            RhythmMode::Euclidean => 0,
-            RhythmMode::PerfectBalance => 1,
-            RhythmMode::ClassicGroove => 2,
-        }
+    /// Obtenir l'algorithme rythmique actuel depuis l'état du moteur (0 = Euclidean, 1 = PerfectBalance, 2 = ClassicGroove)
+    pub fn get_algorithm(&self) -> u8 {
+        self.cached_harmony_state
+            .lock()
+            .map(|s| match s.rhythm_mode {
+                RhythmMode::Euclidean => 0,
+                RhythmMode::PerfectBalance => 1,
+                RhythmMode::ClassicGroove => 2,
+            })
+            .unwrap_or(0)
     }
 
     /// Définir le mode d'harmonie (0 = Basic, 1 = Driver)
@@ -572,8 +594,189 @@ impl Handle {
             }
         }
 
-        let truth = truth::RecordingTruth::new(events, symbolic.musical_params.clone(), 44100);
+        let truth = exporters::RecordingTruth::new(events, symbolic.musical_params.clone(), 44100);
         serde_json::to_string(&truth).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    /// Get look-ahead events with structured musical positions (bar/beat/step).
+    /// Returns a JSON string of Vec<VisualizationEventV2> with MusicalPosition data.
+    /// This version is designed for sight reading and sheet music rendering.
+    pub fn get_lookahead_truth_v2(&self, steps: usize) -> String {
+        let mut symbolic = if let Ok(mut rx) = self.symbolic_state_rx.lock() {
+            rx.update();
+            rx.read().clone()
+        } else {
+            return "[]".to_string();
+        };
+
+        let mut events = Vec::new();
+        let steps_per_measure = symbolic.musical_params.steps_per_measure();
+
+        // Track note durations: map (channel, pitch) -> (start_step, position, velocity)
+        // We store the position at NoteOn time so events have correct start positions
+        let mut pending_notes: std::collections::HashMap<
+            (u8, u8),
+            (usize, params::MusicalPosition, u8),
+        > = std::collections::HashMap::new();
+
+        for i in 0..steps {
+            let (_step_idx, tick_events) = symbolic.tick(1024);
+
+            // Calculate musical position from primary sequencer state
+            let current_step = symbolic.sequencer_primary.current_step;
+            let current_measure = symbolic.sequencer_primary.current_measure;
+            let (beat, step_in_beat) = symbolic.sequencer_primary.current_beat_position();
+            let total_step = (current_measure.saturating_sub(1)) * steps_per_measure + current_step;
+
+            let position = params::MusicalPosition {
+                measure: current_measure,
+                beat,
+                step_in_beat,
+                total_step,
+            };
+
+            for event in tick_events {
+                match event {
+                    events::AudioEvent::NoteOn { note, velocity, channel, .. } => {
+                        if velocity > 0 {
+                            // Start tracking this note with its position and velocity
+                            pending_notes.insert((channel, note), (i, position.clone(), velocity));
+                        } else {
+                            // Velocity 0 = NoteOff
+                            if let Some((start_step, start_position, start_velocity)) =
+                                pending_notes.remove(&(channel, note))
+                            {
+                                let duration = i.saturating_sub(start_step).max(1);
+                                events.push(params::VisualizationEventV2 {
+                                    note_midi: note,
+                                    instrument: channel,
+                                    velocity: start_velocity,
+                                    duration_steps: duration,
+                                    position: start_position, // Use NoteOn position
+                                });
+                            }
+                        }
+                    }
+                    events::AudioEvent::NoteOff { note, channel, .. } => {
+                        if let Some((start_step, start_position, start_velocity)) =
+                            pending_notes.remove(&(channel, note))
+                        {
+                            let duration = i.saturating_sub(start_step).max(1);
+                            events.push(params::VisualizationEventV2 {
+                                note_midi: note,
+                                instrument: channel,
+                                velocity: start_velocity,
+                                duration_steps: duration,
+                                position: start_position, // Use NoteOn position
+                            });
+                        }
+                    }
+                    _ => continue,
+                }
+            }
+        }
+
+        // Handle pending notes (no NoteOff received within lookahead)
+        // Use the stored NoteOn position, and extend duration to end of lookahead
+        for ((channel, pitch), (start_step, start_position, start_velocity)) in pending_notes {
+            events.push(params::VisualizationEventV2 {
+                note_midi: pitch,
+                instrument: channel,
+                velocity: start_velocity,
+                duration_steps: steps.saturating_sub(start_step).max(4), // Extend to end of lookahead
+                position: start_position,                                // Use NoteOn position
+            });
+        }
+
+        serde_json::to_string(&events).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    /// Get look-ahead score in HarmoniumScore format for VexFlow visualization.
+    /// Returns a JSON string of HarmoniumScore with purely musical notation.
+    ///
+    /// This method generates a synchronized score where each ScoreNoteEvent
+    /// has an ID that matches the corresponding AudioEvent, enabling
+    /// real-time playback highlighting.
+    pub fn get_lookahead_score(&self, bars: usize) -> String {
+        let mut symbolic = if let Ok(mut rx) = self.symbolic_state_rx.lock() {
+            rx.update();
+            rx.read().clone()
+        } else {
+            return "{}".to_string();
+        };
+
+        // Extract tempo and key from symbolic state
+        let tempo = symbolic.musical_params.bpm;
+        let time_sig = (
+            symbolic.musical_params.time_signature.numerator,
+            symbolic.musical_params.time_signature.denominator,
+        );
+        let key_root = symbolic.last_harmony_state.chord_root_offset as u8;
+        let is_minor = symbolic.last_harmony_state.chord_is_minor;
+
+        // Create score buffer
+        let mut score_buffer = score::ScoreBuffer::new(
+            tempo,
+            time_sig,
+            key_root,
+            is_minor,
+            symbolic.musical_params.steps_per_quarter,
+        );
+
+        // Calculate steps per bar
+        let steps_per_bar = symbolic.musical_params.steps_per_measure();
+        let total_steps = bars * steps_per_bar;
+
+        // Generate events for the requested number of bars
+        for _ in 0..total_steps {
+            let (_step_idx, mut tick_events) = symbolic.tick(1024);
+
+            // Process audio events and generate synchronized score events
+            let _ = score_buffer.process_audio_events(&mut tick_events, 2);
+
+            // Advance score buffer position
+            score_buffer.advance_step();
+        }
+
+        // Return score as JSON
+        score_buffer.to_json()
+    }
+
+    /// Get the current score with detailed pretty-printed JSON format.
+    /// Useful for debugging and display.
+    pub fn get_lookahead_score_pretty(&self, bars: usize) -> String {
+        let mut symbolic = if let Ok(mut rx) = self.symbolic_state_rx.lock() {
+            rx.update();
+            rx.read().clone()
+        } else {
+            return "{}".to_string();
+        };
+
+        let tempo = symbolic.musical_params.bpm;
+        let time_sig = (
+            symbolic.musical_params.time_signature.numerator,
+            symbolic.musical_params.time_signature.denominator,
+        );
+        let key_root = symbolic.last_harmony_state.chord_root_offset as u8;
+        let is_minor = symbolic.last_harmony_state.chord_is_minor;
+
+        let mut score_buffer = score::ScoreBuffer::new(
+            tempo,
+            time_sig,
+            key_root,
+            is_minor,
+            symbolic.musical_params.steps_per_quarter,
+        );
+        let steps_per_bar = symbolic.musical_params.steps_per_measure();
+        let total_steps = bars * steps_per_bar;
+
+        for _ in 0..total_steps {
+            let (_step_idx, mut tick_events) = symbolic.tick(1024);
+            let _ = score_buffer.process_audio_events(&mut tick_events, 2);
+            score_buffer.advance_step();
+        }
+
+        score_buffer.to_json_pretty()
     }
 
     /// Récupère le dernier enregistrement terminé (WAV, MIDI, or MusicXML)
@@ -924,6 +1127,54 @@ impl Handle {
     pub fn get_direct_voicing_tension(&self) -> f32 {
         self.control_mode.lock().map(|m| m.direct_params.voicing_tension).unwrap_or(0.3)
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // TIME SIGNATURE CONTROL (Phase 4)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Set time signature (numerator/denominator format)
+    /// Examples: (4, 4) = 4/4, (3, 4) = 3/4, (5, 4) = 5/4, (7, 8) = 7/8
+    /// Only works in direct mode - does not affect emotion mode
+    pub fn set_time_signature(&mut self, numerator: u8, denominator: u8) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            mode.direct_params.time_signature = params::TimeSignature::new(numerator, denominator);
+        }
+        self.target_params_input.write(self.cached_params.clone());
+    }
+
+    /// Get current time signature numerator (beats per measure)
+    /// Returns 4 by default if lock fails
+    pub fn get_time_signature_numerator(&self) -> u8 {
+        self.control_mode.lock().map(|m| m.direct_params.time_signature.numerator).unwrap_or(4)
+    }
+
+    /// Get current time signature denominator (beat unit: 2, 4, 8, 16)
+    /// Returns 4 by default if lock fails
+    pub fn get_time_signature_denominator(&self) -> u8 {
+        self.control_mode.lock().map(|m| m.direct_params.time_signature.denominator).unwrap_or(4)
+    }
+
+    /// Set subdivision resolution (steps per quarter note)
+    /// Common values: 4 = sixteenth notes, 12 = triplet sixteenths, 24 = thirty-seconds
+    /// Only works in direct mode
+    pub fn set_subdivision(&mut self, steps_per_quarter: usize) {
+        if let Ok(mut mode) = self.control_mode.lock() {
+            mode.direct_params.steps_per_quarter = steps_per_quarter.clamp(1, 96);
+        }
+        self.target_params_input.write(self.cached_params.clone());
+    }
+
+    /// Get current subdivision resolution (steps per quarter note)
+    /// Returns 4 by default if lock fails
+    pub fn get_subdivision(&self) -> usize {
+        self.control_mode.lock().map(|m| m.direct_params.steps_per_quarter).unwrap_or(4)
+    }
+
+    /// Get steps per measure (derived from time signature and subdivision)
+    /// This is a convenience method that calculates the total steps in a measure
+    pub fn get_steps_per_measure(&self) -> usize {
+        self.control_mode.lock().map(|m| m.direct_params.steps_per_measure()).unwrap_or(16)
+    }
 }
 
 #[cfg(all(feature = "standalone", feature = "wasm"))]
@@ -980,7 +1231,7 @@ pub fn start_with_backend(sf2_bytes: Option<Box<[u8]>>, backend: &str) -> Result
     let cached_params = engine::EngineParams::default();
 
     Ok(Handle {
-        stream,
+        stream: SendStream(stream),
         target_params_input,
         cached_params,
         control_mode: control_mode_clone,
@@ -1006,4 +1257,93 @@ pub fn get_available_backends() -> Vec<JsValue> {
     #[cfg(feature = "odin2")]
     backends.push(JsValue::from_str("odin2"));
     backends
+}
+
+/// Start Harmonium natively (no WASM bindings)
+#[cfg(feature = "standalone")]
+pub fn start_native(sf2_bytes: Option<Box<[u8]>>) -> Result<Handle, String> {
+    // Default to FundSP backend for now
+    start_native_with_backend(sf2_bytes, audio::AudioBackendType::FundSP)
+}
+
+/// Start Harmonium natively with a specific audio backend
+#[cfg(feature = "standalone")]
+pub fn start_native_with_backend(
+    sf2_bytes: Option<Box<[u8]>>,
+    backend_type: audio::AudioBackendType,
+) -> Result<Handle, String> {
+    start_native_impl(sf2_bytes, backend_type, false)
+}
+
+/// Start Harmonium natively in paused state (for sight reading / score apps)
+/// The audio stream won't play until resume() is called.
+/// This ensures the engine stays at bar 1 until explicitly started.
+#[cfg(feature = "standalone")]
+pub fn start_native_paused(
+    sf2_bytes: Option<Box<[u8]>>,
+    backend_type: audio::AudioBackendType,
+) -> Result<Handle, String> {
+    start_native_impl(sf2_bytes, backend_type, true)
+}
+
+#[cfg(feature = "standalone")]
+fn start_native_impl(
+    sf2_bytes: Option<Box<[u8]>>,
+    backend_type: audio::AudioBackendType,
+    start_paused: bool,
+) -> Result<Handle, String> {
+    // Phase 3: Create triple buffer for lock-free UI→Audio parameter updates
+    let (target_params_input, target_params_output) =
+        triple_buffer::triple_buffer(&engine::EngineParams::default());
+    let control_mode = Arc::new(Mutex::new(params::ControlMode::default()));
+
+    let control_mode_clone = control_mode.clone();
+
+    let (
+        stream,
+        config,
+        harmony_state_rx,
+        event_queue_rx,
+        font_queue,
+        finished_recordings,
+        symbolic_state_rx,
+    ) = if start_paused {
+        audio::create_stream_paused(
+            target_params_output,
+            control_mode,
+            sf2_bytes.as_deref(),
+            backend_type,
+        )?
+    } else {
+        audio::create_stream(
+            target_params_output,
+            control_mode,
+            sf2_bytes.as_deref(),
+            backend_type,
+        )?
+    };
+
+    // Phase 2: Create cached harmony state
+    let cached_harmony_state = Arc::new(Mutex::new(engine::HarmonyState::default()));
+
+    // Phase 3: Initialize cached_params from the initial params written to triple buffer
+    let cached_params = engine::EngineParams::default();
+
+    Ok(Handle {
+        stream: SendStream(stream),
+        target_params_input,
+        cached_params,
+        control_mode: control_mode_clone,
+        harmony_state_rx,
+        event_queue_rx,
+        cached_harmony_state,
+        font_queue,
+        finished_recordings,
+        symbolic_state_rx: Arc::new(Mutex::new(symbolic_state_rx)),
+        bpm: config.bpm,
+        key: config.key,
+        scale: config.scale,
+        pulses: config.pulses,
+        steps: config.steps,
+    })
 }

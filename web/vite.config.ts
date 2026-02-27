@@ -12,5 +12,17 @@ export default defineConfig({
 	},
 	worker: {
 		format: 'es'
+	},
+	build: {
+		rollupOptions: {
+			// Suppress eval warning from wasm-bindgen generated code (harmonium.js)
+			// This is expected behavior from wasm-bindgen and cannot be avoided
+			onwarn(warning, warn) {
+				if (warning.code === 'EVAL' && warning.id?.includes('harmonium.js')) {
+					return;
+				}
+				warn(warning);
+			}
+		}
 	}
 });

@@ -1,28 +1,47 @@
 pub mod events;
-pub mod export;
+pub mod exporters;
 pub mod fractal;
 pub mod harmony;
 pub mod log;
+pub mod notation;
 pub mod params;
+pub mod score_buffer;
 pub mod sequencer;
-pub mod truth;
+pub mod tuning;
 
 // Re-export common types
+// Re-export exporter types
 pub use events::AudioEvent;
-pub use export::{
-    ChordSymbol, GitVersion, to_musicxml, to_musicxml_with_chords, write_musicxml,
-    write_musicxml_with_chords,
+pub use exporters::{
+    DNAExtractor, GitVersion, GlobalMetrics, HarmonicFrame, MusicalDNA,
+    PolygonSignature, RecordingTruth, RhythmicDNA, SerializableTRQ,
+    score_to_musicxml, score_to_musicxml_with_version, write_score_musicxml,
+};
+// Re-export notation types
+pub use notation::{
+    Articulation, ChordSymbol as ScoreChordSymbol, Clef, DrumSymbol, Duration, DurationBase,
+    Dynamic, HarmoniumScore, KeyMode, KeySignature, Measure, NoteEventType, NoteStep, Part, Pitch,
+    ScaleSuggestion, ScoreNoteEvent, TransposeInterval, Transposition, fifths_from_key,
+    midi_to_pitch, next_note_id, steps_to_duration,
 };
 pub use params::{EngineParams, MusicalParams};
+pub use score_buffer::ScoreBuffer;
 pub use sequencer::Sequencer;
+// Re-export tuning types
+pub use tuning::{TuningError, TuningParams};
 
 // Define MusicKernel (skeleton for now, as requested in plan)
 use crate::events::AudioEvent as CoreAudioEvent;
-use crate::{params::MusicalParams as CoreMusicalParams, sequencer::Sequencer as CoreSequencer};
+use crate::{
+    params::MusicalParams as CoreMusicalParams, sequencer::Sequencer as CoreSequencer,
+    tuning::TuningParams as CoreTuningParams,
+};
 
 pub struct MusicKernel {
     pub sequencer: CoreSequencer,
     pub params: CoreMusicalParams,
+    /// Tuning parameters for algorithm optimization (foundation for DNA-based tuning)
+    pub tuning: CoreTuningParams,
     pub accumulator: f64,
     // Track active notes to send NoteOffs: (channel, note, duration_remaining)
     pub active_notes: Vec<(u8, u8, f64)>,
@@ -31,7 +50,17 @@ pub struct MusicKernel {
 impl MusicKernel {
     #[must_use]
     pub fn new(sequencer: CoreSequencer, params: CoreMusicalParams) -> Self {
-        Self { sequencer, params, accumulator: 0.0, active_notes: Vec::with_capacity(16) }
+        Self::with_tuning(sequencer, params, CoreTuningParams::default())
+    }
+
+    /// Create a MusicKernel with custom tuning parameters
+    #[must_use]
+    pub fn with_tuning(
+        sequencer: CoreSequencer,
+        params: CoreMusicalParams,
+        tuning: CoreTuningParams,
+    ) -> Self {
+        Self { sequencer, params, tuning, accumulator: 0.0, active_notes: Vec::with_capacity(16) }
     }
 
     pub fn update(&mut self, dt: f64) -> Vec<CoreAudioEvent> {
@@ -43,7 +72,7 @@ impl MusicKernel {
         for (channel, note, rem_time) in self.active_notes.drain(..) {
             let new_rem = rem_time - dt;
             if new_rem <= 0.0 {
-                events.push(CoreAudioEvent::NoteOff { channel, note });
+                events.push(CoreAudioEvent::NoteOff { id: None, channel, note });
             } else {
                 kept_notes.push((channel, note, new_rem));
             }
@@ -92,8 +121,8 @@ impl MusicKernel {
             if trigger.kick {
                 // Kick on Channel 0
                 // Kill previous note (monophonic kick)
-                events.push(CoreAudioEvent::NoteOff { channel: 0, note: 36 });
-                events.push(CoreAudioEvent::NoteOn { channel: 0, note: 36, velocity });
+                events.push(CoreAudioEvent::NoteOff { id: None, channel: 0, note: 36 });
+                events.push(CoreAudioEvent::NoteOn { id: None, channel: 0, note: 36, velocity });
                 // Schedule Off
                 self.active_notes.push((0, 36, note_duration));
             }
@@ -102,8 +131,8 @@ impl MusicKernel {
                 // TODO: Future refactoring - unify kick/bass or separate into dedicated percussion channel
                 // Simple Octave pattern: Root (C2) or Octave (C3)
                 let note = if self.sequencer.current_step.is_multiple_of(8) { 36 } else { 48 };
-                events.push(CoreAudioEvent::NoteOff { channel: 0, note });
-                events.push(CoreAudioEvent::NoteOn { channel: 0, note, velocity });
+                events.push(CoreAudioEvent::NoteOff { id: None, channel: 0, note });
+                events.push(CoreAudioEvent::NoteOn { id: None, channel: 0, note, velocity });
                 self.active_notes.push((0, note, note_duration * 1.5));
             }
             // TODO: Future refactoring - unify lead triggering logic across MusicKernel and HarmoniumEngine
@@ -116,20 +145,20 @@ impl MusicKernel {
                 let note_idx = (self.sequencer.current_step / 2) % chord_tones.len();
                 let note = chord_tones[note_idx];
 
-                events.push(CoreAudioEvent::NoteOff { channel: 1, note });
-                events.push(CoreAudioEvent::NoteOn { channel: 1, note, velocity });
+                events.push(CoreAudioEvent::NoteOff { id: None, channel: 1, note });
+                events.push(CoreAudioEvent::NoteOn { id: None, channel: 1, note, velocity });
                 self.active_notes.push((1, note, note_duration));
             }
             if trigger.snare {
                 // Snare on Channel 2 (per Odin backend mapping)
-                events.push(CoreAudioEvent::NoteOff { channel: 2, note: 38 });
-                events.push(CoreAudioEvent::NoteOn { channel: 2, note: 38, velocity });
+                events.push(CoreAudioEvent::NoteOff { id: None, channel: 2, note: 38 });
+                events.push(CoreAudioEvent::NoteOn { id: None, channel: 2, note: 38, velocity });
                 self.active_notes.push((2, 38, note_duration));
             }
             if trigger.hat {
                 // Hat on Channel 3
-                events.push(CoreAudioEvent::NoteOff { channel: 3, note: 42 });
-                events.push(CoreAudioEvent::NoteOn { channel: 3, note: 42, velocity });
+                events.push(CoreAudioEvent::NoteOff { id: None, channel: 3, note: 42 });
+                events.push(CoreAudioEvent::NoteOn { id: None, channel: 3, note: 42, velocity });
                 self.active_notes.push((3, 42, note_duration * 0.5)); // shorter hats
             }
         }

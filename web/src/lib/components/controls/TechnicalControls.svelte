@@ -8,7 +8,7 @@
 	// Svelte 5 Props Destructuring
 	let {
 		bridge,
-		state,
+		state: engineState,
 		isAudioMode = true,
 		audioBackend = 'odin2' as 'fundsp' | 'odin2',
 		enableRhythm = true,
@@ -69,54 +69,56 @@
 	}>();
 
 	// Svelte 5 State - Local state for controls (decoupled during active editing)
+	// Initialize with literal defaults; $effect below syncs from props when not editing
 	let local = $state({
-		enableRhythm,
-		enableHarmony,
-		enableMelody,
-		enableVoicing,
-		fixedKick,
-		bpm,
-		rhythmMode,
-		rhythmSteps,
-		rhythmPulses,
-		rhythmRotation,
-		rhythmDensity,
-		rhythmTension,
-		secondarySteps,
-		secondaryPulses,
-		secondaryRotation,
-		harmonyValence,
-		harmonyTension,
-		melodySmoothness,
-		voicingDensity
+		enableRhythm: true,
+		enableHarmony: true,
+		enableMelody: true,
+		enableVoicing: false,
+		fixedKick: false,
+		bpm: 120,
+		rhythmMode: 0,
+		rhythmSteps: 16,
+		rhythmPulses: 4,
+		rhythmRotation: 0,
+		rhythmDensity: 0.5,
+		rhythmTension: 0.3,
+		secondarySteps: 12,
+		secondaryPulses: 3,
+		secondaryRotation: 0,
+		harmonyValence: 0.3,
+		harmonyTension: 0.3,
+		melodySmoothness: 0.7,
+		voicingDensity: 0.5
 	});
 
 	let isEditing = $state(false);
 
 	// Svelte 5 Effect - Sync props to local ONLY when not editing
+	// Update individual properties instead of replacing the whole object to avoid infinite loops
 	$effect(() => {
 		if (!isEditing) {
-			local = {
-				enableRhythm,
-				enableHarmony,
-				enableMelody,
-				enableVoicing,
-				fixedKick,
-				bpm,
-				rhythmMode,
-				rhythmSteps,
-				rhythmPulses,
-				rhythmRotation,
-				rhythmDensity,
-				rhythmTension,
-				secondarySteps,
-				secondaryPulses,
-				secondaryRotation,
-				harmonyValence,
-				harmonyTension,
-				melodySmoothness,
-				voicingDensity
-			};
+			// Only update properties that have actually changed
+			if (local.enableRhythm !== enableRhythm) local.enableRhythm = enableRhythm;
+			if (local.enableHarmony !== enableHarmony) local.enableHarmony = enableHarmony;
+			if (local.enableMelody !== enableMelody) local.enableMelody = enableMelody;
+			if (local.enableVoicing !== enableVoicing) local.enableVoicing = enableVoicing;
+			if (local.fixedKick !== fixedKick) local.fixedKick = fixedKick;
+			if (local.bpm !== bpm) local.bpm = bpm;
+			if (local.rhythmMode !== rhythmMode) local.rhythmMode = rhythmMode;
+			if (local.rhythmSteps !== rhythmSteps) local.rhythmSteps = rhythmSteps;
+			if (local.rhythmPulses !== rhythmPulses) local.rhythmPulses = rhythmPulses;
+			if (local.rhythmRotation !== rhythmRotation) local.rhythmRotation = rhythmRotation;
+			if (local.rhythmDensity !== rhythmDensity) local.rhythmDensity = rhythmDensity;
+			if (local.rhythmTension !== rhythmTension) local.rhythmTension = rhythmTension;
+			if (local.secondarySteps !== secondarySteps) local.secondarySteps = secondarySteps;
+			if (local.secondaryPulses !== secondaryPulses) local.secondaryPulses = secondaryPulses;
+			if (local.secondaryRotation !== secondaryRotation)
+				local.secondaryRotation = secondaryRotation;
+			if (local.harmonyValence !== harmonyValence) local.harmonyValence = harmonyValence;
+			if (local.harmonyTension !== harmonyTension) local.harmonyTension = harmonyTension;
+			if (local.melodySmoothness !== melodySmoothness) local.melodySmoothness = melodySmoothness;
+			if (local.voicingDensity !== voicingDensity) local.voicingDensity = voicingDensity;
 		}
 	});
 
@@ -263,7 +265,7 @@
 	{#if local.enableHarmony}
 		<HarmonyControls
 			{bridge}
-			{state}
+			state={engineState}
 			harmonyValence={local.harmonyValence}
 			harmonyTension={local.harmonyTension}
 		/>

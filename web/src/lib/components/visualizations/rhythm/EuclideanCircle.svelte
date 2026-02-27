@@ -9,6 +9,9 @@
 	// Pattern optionnel fourni par le moteur (prioritaire sur le calcul local)
 	export let externalPattern: boolean[] | null = null;
 
+	// Use the pattern's true length if provided by the engine
+	$: actualSteps = externalPattern ? externalPattern.length : steps;
+
 	// Fonction utilitaire pour générer le pattern de Bjorklund (Euclidien)
 	// Utilisé seulement si externalPattern n'est pas fourni
 	function getPattern(steps: number, pulses: number): boolean[] {
@@ -26,20 +29,21 @@
 	}
 
 	// Utiliser le pattern externe s'il est fourni, sinon calculer localement
-	$: pattern = externalPattern ?? getPattern(steps, pulses);
+	$: pattern = externalPattern ?? getPattern(actualSteps, pulses);
+
 	// Note: Le pattern externe est déjà rotaté par le moteur, pas besoin de re-rotater
 	$: rotated = externalPattern
 		? pattern
-		: [...pattern.slice(steps - rotation), ...pattern.slice(0, steps - rotation)];
+		: [...pattern.slice(actualSteps - rotation), ...pattern.slice(0, actualSteps - rotation)];
 
-	$: points = Array.from({ length: steps }).map((_, i) => {
-		const angle = (i * 2 * Math.PI) / steps - Math.PI / 2;
+	$: points = Array.from({ length: actualSteps }).map((_, i) => {
+		const angle = (i * 2 * Math.PI) / actualSteps - Math.PI / 2;
 		const r = 45;
 		return {
 			x: 50 + r * Math.cos(angle),
 			y: 50 + r * Math.sin(angle),
 			active: rotated[i],
-			isCurrent: currentStep % steps === i
+			isCurrent: currentStep % actualSteps === i
 		};
 	});
 
@@ -86,8 +90,8 @@
 			<line
 				x1="50"
 				y1="50"
-				x2={points[currentStep % steps].x}
-				y2={points[currentStep % steps].y}
+				x2={points[currentStep % actualSteps].x}
+				y2={points[currentStep % actualSteps].y}
 				stroke="white"
 				stroke-width="1"
 				stroke-dasharray="2,2"

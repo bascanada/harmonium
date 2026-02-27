@@ -17,10 +17,19 @@ use harmonium_core::{
     },
     log,
     sequencer::{RhythmMode, Sequencer, StepTrigger},
+    tuning::TuningParams,
 };
 use rand::Rng;
 use rust_music_theory::{note::PitchSymbol, scale::ScaleType};
 use triple_buffer::Output;
+
+/// Tracks a pending NoteOff event that should be sent after a delay
+#[derive(Clone, Debug)]
+struct PendingNoteOff {
+    note: u8,
+    channel: u8,
+    steps_remaining: usize,
+}
 
 /// Symbolic snapshot of the engine state for look-ahead simulation
 pub struct SymbolicState {
@@ -135,25 +144,27 @@ impl SymbolicState {
         }
 
         self.last_harmony_state.current_step = step_idx;
+        self.last_harmony_state.rhythm_mode = self.sequencer_primary.mode;
+        self.last_harmony_state.primary_steps = self.sequencer_primary.steps;
+        self.last_harmony_state.primary_pulses = self.sequencer_primary.pulses;
+        self.last_harmony_state.primary_rotation = self.sequencer_primary.rotation;
+        self.last_harmony_state.secondary_steps = self.sequencer_secondary.steps;
+        self.last_harmony_state.secondary_pulses = self.sequencer_secondary.pulses;
+        self.last_harmony_state.secondary_rotation = self.sequencer_secondary.rotation;
+
+        let primary_len = self.sequencer_primary.pattern.len();
+        for i in 0..192 {
+            self.last_harmony_state.primary_pattern[i] =
+                i < primary_len && self.sequencer_primary.pattern[i].is_any();
+        }
+
+        let secondary_len = self.sequencer_secondary.pattern.len();
+        for i in 0..192 {
+            self.last_harmony_state.secondary_pattern[i] =
+                i < secondary_len && self.sequencer_secondary.pattern[i].is_any();
+        }
 
         if step_idx == 0 {
-            self.last_harmony_state.primary_steps = self.sequencer_primary.steps;
-            self.last_harmony_state.primary_pulses = self.sequencer_primary.pulses;
-            self.last_harmony_state.primary_rotation = self.sequencer_primary.rotation;
-            let primary_len = self.sequencer_primary.pattern.len();
-            for i in 0..192 {
-                self.last_harmony_state.primary_pattern[i] =
-                    i < primary_len && self.sequencer_primary.pattern[i].is_any();
-            }
-
-            self.last_harmony_state.secondary_steps = self.sequencer_secondary.steps;
-            self.last_harmony_state.secondary_pulses = self.sequencer_secondary.pulses;
-            self.last_harmony_state.secondary_rotation = self.sequencer_secondary.rotation;
-            let secondary_len = self.sequencer_secondary.pattern.len();
-            for i in 0..192 {
-                self.last_harmony_state.secondary_pattern[i] =
-                    i < secondary_len && self.sequencer_secondary.pattern[i].is_any();
-            }
             self.last_harmony_state.harmony_mode = self.harmony_mode;
         }
 
@@ -178,7 +189,12 @@ impl SymbolicState {
                 (36 + self.last_harmony_state.chord_root_offset) as u8
             };
             let vel = self.musical_params.vel_base_bass + (self.current_state.arousal * 25.0) as u8;
-            events.push(AudioEvent::NoteOn { note: midi_note, velocity: vel, channel: 0 });
+            events.push(AudioEvent::NoteOn {
+                id: None,
+                note: midi_note,
+                velocity: vel,
+                channel: 0,
+            });
         }
 
         let melody_enabled = self.musical_params.enable_melody;
@@ -219,6 +235,7 @@ impl SymbolicState {
                 let voiced_notes = self.voicer.process_note(melody_midi, base_vel, &ctx);
                 for vn in voiced_notes {
                     events.push(AudioEvent::NoteOn {
+                        id: None,
                         note: vn.midi,
                         velocity: vn.velocity,
                         channel: 1,
@@ -227,6 +244,7 @@ impl SymbolicState {
             } else {
                 let solo_vel = (base_vel as f32 * 0.7) as u8;
                 events.push(AudioEvent::NoteOn {
+                    id: None,
                     note: melody_midi,
                     velocity: solo_vel,
                     channel: 1,
@@ -258,7 +276,12 @@ impl SymbolicState {
                 vel = (vel as f32 * 1.1).min(127.0) as u8;
             }
 
-            events.push(AudioEvent::NoteOn { note: snare_note, velocity: vel, channel: 2 });
+            events.push(AudioEvent::NoteOn {
+                id: None,
+                note: snare_note,
+                velocity: vel,
+                channel: 2,
+            });
         }
 
         let play_hat = trigger_primary.hat || trigger_secondary.hat;
@@ -282,7 +305,7 @@ impl SymbolicState {
                 hat_note = 44;
             }
 
-            events.push(AudioEvent::NoteOn { note: hat_note, velocity: vel, channel: 3 });
+            events.push(AudioEvent::NoteOn { id: None, note: hat_note, velocity: vel, channel: 3 });
         }
 
         (step_idx, events)
@@ -312,8 +335,9 @@ pub struct HarmoniumEngine {
     _last_valence_choice: f32, // Hystérésis: valence qui a déclenché le dernier choix
     _last_tension_choice: f32, // Hystérésis: tension qui a déclenché le dernier choix
 
-    _active_lead_notes: Vec<u8>, // Notes actuellement jouées sur le channel Lead
+    active_lead_note: Option<u8>, // Note actuellement jouée sur le channel Lead
     active_bass_note: Option<u8>, // Note de basse actuellement jouée
+    pending_noteoffs: Vec<PendingNoteOff>, // Scheduled NoteOff events with delay
 
     // === NOUVELLE ARCHITECTURE: Params Musicaux Découplés ===
     /// Mapper émotions → params musicaux
@@ -332,6 +356,9 @@ pub struct HarmoniumEngine {
 
     // Phase 2.5: Pre-allocated buffer for event generation (no Vec::new() in audio thread)
     events_buffer: Vec<AudioEvent>,
+
+    // Phase 3: Tuning parameters for algorithmic tuning (LLM iteration loop)
+    tuning: Option<TuningParams>,
 }
 
 impl HarmoniumEngine {
@@ -383,7 +410,8 @@ impl HarmoniumEngine {
         let sequencer_secondary = Sequencer::new_with_rotation(12, secondary_pulses, bpm, 0);
 
         let harmony = HarmonyNavigator::new(random_key, random_scale, 4);
-        let samples_per_step = (sample_rate * 60.0 / (bpm as f64) / 4.0) as usize;
+        let steps_per_beat = sequencer_primary.steps_per_quarter.max(1) as f64;
+        let samples_per_step = (sample_rate * 60.0 / (bpm as f64) / steps_per_beat) as usize;
 
         // Initialize renderer timing
         renderer.handle_event(AudioEvent::TimingUpdate { samples_per_step });
@@ -454,8 +482,9 @@ impl HarmoniumEngine {
             last_rotation: 0,
             _last_valence_choice: initial_params.valence,
             _last_tension_choice: initial_params.tension,
-            _active_lead_notes: Vec::with_capacity(8),
+            active_lead_note: None,
             active_bass_note: None,
+            pending_noteoffs: Vec::with_capacity(4),
             emotion_mapper,
             control_mode,
             is_recording_wav: false,
@@ -464,10 +493,153 @@ impl HarmoniumEngine {
             is_recording_truth: false,
             last_muted_channels: vec![false; 16],
             events_buffer: Vec::with_capacity(8),
+            tuning: None,
         };
 
         // Return engine and consumers (Phase 2: lock-free queues)
         (engine, harmony_state_rx, event_queue_rx)
+    }
+
+    /// Create engine with custom tuning parameters (Phase 3: LLM tuning loop)
+    ///
+    /// This constructor uses `TuningParams` to configure algorithm subsystems
+    /// instead of hardcoded defaults, enabling iterative parameter optimization.
+    pub fn with_tuning(
+        sample_rate: f64,
+        mut target_params: Output<EngineParams>,
+        control_mode: Arc<Mutex<ControlMode>>,
+        mut renderer: Box<dyn AudioRenderer>,
+        tuning: TuningParams,
+    ) -> (Self, rtrb::Consumer<HarmonyState>, rtrb::Consumer<VisualizationEvent>) {
+        let mut rng = rand::thread_rng();
+        let initial_params = target_params.read().clone();
+        let font_queue = Arc::new(Mutex::new(Vec::new()));
+        let bpm = initial_params.compute_bpm();
+        let steps = 16;
+        let initial_pulses = std::cmp::min((initial_params.density * 11.0) as usize + 1, 16);
+        let keys = [
+            PitchSymbol::C,
+            PitchSymbol::D,
+            PitchSymbol::E,
+            PitchSymbol::F,
+            PitchSymbol::G,
+            PitchSymbol::A,
+            PitchSymbol::B,
+        ];
+        let scales = [ScaleType::PentatonicMinor, ScaleType::PentatonicMajor];
+        let random_key = keys[rng.gen_range(0..keys.len())];
+        let random_scale = scales[rng.gen_range(0..scales.len())];
+
+        let config = SessionConfig {
+            bpm,
+            key: format!("{}", random_key),
+            scale: format!("{:?}", random_scale),
+            pulses: initial_pulses,
+            steps,
+        };
+
+        log::info(&format!("Session (tuned): {} {} | BPM: {:.1}", config.key, config.scale, bpm));
+
+        // Phase 2: Create lock-free SPSC queues for Audio→UI communication
+        let (harmony_state_tx, harmony_state_rx) = rtrb::RingBuffer::new(256);
+        let (event_queue_tx, event_queue_rx) = rtrb::RingBuffer::new(4096);
+        let last_harmony_state = HarmonyState::default();
+
+        // === Sequencers with TuningParams ===
+        let sequencer_primary =
+            Sequencer::from_tuning(steps, initial_pulses, bpm, RhythmMode::Euclidean, &tuning);
+        let secondary_pulses = std::cmp::min((initial_params.density * 8.0) as usize + 1, 12);
+        let sequencer_secondary =
+            Sequencer::from_tuning(12, secondary_pulses, bpm, RhythmMode::Euclidean, &tuning);
+
+        let harmony = HarmonyNavigator::new(random_key, random_scale, 4);
+        let steps_per_beat = sequencer_primary.steps_per_quarter.max(1) as f64;
+        let samples_per_step = (sample_rate * 60.0 / (bpm as f64) / steps_per_beat) as usize;
+
+        // Initialize renderer timing
+        renderer.handle_event(AudioEvent::TimingUpdate { samples_per_step });
+
+        // Progression initiale
+        let current_progression =
+            Progression::get_palette(initial_params.valence, initial_params.tension);
+
+        // === HarmonicDriver with TuningParams ===
+        let harmony_mode = initial_params.harmony_mode;
+        let key_pc = match random_key {
+            PitchSymbol::C => 0,
+            PitchSymbol::D => 2,
+            PitchSymbol::E => 4,
+            PitchSymbol::F => 5,
+            PitchSymbol::G => 7,
+            PitchSymbol::A => 9,
+            PitchSymbol::B => 11,
+            _ => 0,
+        };
+        let harmonic_driver = Some(HarmonicDriver::from_tuning(key_pc, &tuning));
+
+        // Créer le mapper et les params musicaux initiaux
+        let emotion_mapper = EmotionMapper::new();
+        let musical_params = emotion_mapper.map(&initial_params);
+
+        // Initialize session key/scale in control_mode for UI
+        if let Ok(mut mode) = control_mode.lock() {
+            mode.session_key = config.key.clone();
+            mode.session_scale = config.scale.clone();
+        }
+
+        let symbolic = SymbolicState {
+            sequencer_primary,
+            sequencer_secondary,
+            harmony,
+            harmonic_driver,
+            harmony_mode,
+            current_progression,
+            progression_index: 0,
+            measure_counter: 0,
+            musical_params,
+            current_chord_type: ChordType::Major,
+            voicer: Box::new(BlockChordVoicer::new(4)),
+            lcc: LydianChromaticConcept::new(),
+            last_harmony_state,
+            current_state: CurrentState::default(),
+        };
+
+        let engine = Self {
+            config,
+            target_params,
+            harmony_state_tx,
+            event_queue_tx,
+            font_queue,
+            symbolic,
+            renderer,
+            sample_rate,
+            sample_counter: 0,
+            samples_per_step,
+            last_pulse_count: initial_pulses,
+            last_rotation: 0,
+            _last_valence_choice: initial_params.valence,
+            _last_tension_choice: initial_params.tension,
+            active_lead_note: None,
+            active_bass_note: None,
+            pending_noteoffs: Vec::with_capacity(4),
+            emotion_mapper,
+            control_mode,
+            is_recording_wav: false,
+            is_recording_midi: false,
+            is_recording_musicxml: false,
+            is_recording_truth: false,
+            last_muted_channels: vec![false; 16],
+            events_buffer: Vec::with_capacity(8),
+            tuning: Some(tuning),
+        };
+
+        (engine, harmony_state_rx, event_queue_rx)
+    }
+
+    /// Returns the tuning parameters if available
+    #[must_use]
+    pub const fn tuning(&self) -> Option<&TuningParams> {
+        self.tuning.as_ref()
     }
 
     /// Change le voicer dynamiquement
@@ -744,7 +916,7 @@ impl HarmoniumEngine {
         // === SKIP RHYTHM IF DISABLED ===
         if !mp.enable_rhythm {
             // Timing only (pour garder le moteur synchronisé)
-            let steps_per_beat = (self.symbolic.sequencer_primary.steps / 4) as f64;
+            let steps_per_beat = self.symbolic.sequencer_primary.steps_per_quarter.max(1) as f64;
             let new_samples_per_step = (self.sample_rate * 60.0
                 / (self.symbolic.current_state.bpm as f64)
                 / steps_per_beat) as usize;
@@ -765,16 +937,36 @@ impl HarmoniumEngine {
 
         // === LOGIQUE SÉQUENCEUR (from MusicalParams) ===
         let target_algo = mp.rhythm_mode;
+
+        // Handle TimeSignature sync and backwards compatibility for rhythm_steps
+        let current_expected_steps = mp.time_signature.steps_per_measure(mp.steps_per_quarter);
+        let target_spq = if mp.rhythm_steps != current_expected_steps && mp.rhythm_steps > 0 {
+            // Fallback for UI still sending rhythm_steps directly (e.g. 48, 96 for PerfectBalance)
+            let ts = mp.time_signature;
+            let quarter_equiv = match ts.denominator {
+                2 => ts.numerator as usize * 2,
+                4 => ts.numerator as usize,
+                8 => (ts.numerator as usize + 1) / 2,
+                16 => (ts.numerator as usize + 3) / 4,
+                _ => ts.numerator as usize,
+            };
+            (mp.rhythm_steps / quarter_equiv).max(1)
+        } else {
+            mp.steps_per_quarter.max(1)
+        };
+
         let mode_changed = self.symbolic.sequencer_primary.mode != target_algo;
+        let ts_changed = self.symbolic.sequencer_primary.time_signature != mp.time_signature;
+        let spq_changed = self.symbolic.sequencer_primary.steps_per_quarter != target_spq;
 
-        if mode_changed {
+        if mode_changed || ts_changed || spq_changed {
             self.symbolic.sequencer_primary.mode = target_algo;
-            self.symbolic.sequencer_primary.upgrade_to_steps(mp.rhythm_steps);
-        }
-
-        // Update steps if changed while playing
-        if self.symbolic.sequencer_primary.steps != mp.rhythm_steps {
-            self.symbolic.sequencer_primary.upgrade_to_steps(mp.rhythm_steps);
+            self.symbolic.sequencer_primary.time_signature = mp.time_signature;
+            self.symbolic.sequencer_primary.steps_per_quarter = target_spq;
+            self.symbolic.sequencer_primary.steps =
+                self.symbolic.sequencer_primary.steps_per_measure();
+            self.symbolic.sequencer_primary.current_step = 0; // Reset step counter
+            self.symbolic.sequencer_primary.regenerate_pattern();
         }
 
         // Rotation (from MusicalParams - même valeur dans les deux modes)
@@ -821,6 +1013,10 @@ impl HarmoniumEngine {
         if secondary_changed {
             if secondary_steps != self.symbolic.sequencer_secondary.steps {
                 self.symbolic.sequencer_secondary.steps = secondary_steps;
+                // Hack: force steps_per_measure to match secondary_steps so Euclidean pattern size is correct
+                self.symbolic.sequencer_secondary.time_signature =
+                    harmonium_core::params::TimeSignature::new(secondary_steps as u8, 4);
+                self.symbolic.sequencer_secondary.steps_per_quarter = 1;
                 self.symbolic.sequencer_secondary.pattern =
                     vec![StepTrigger::default(); secondary_steps];
             }
@@ -830,7 +1026,7 @@ impl HarmoniumEngine {
         }
 
         // Timing
-        let steps_per_beat = (self.symbolic.sequencer_primary.steps / 4) as f64;
+        let steps_per_beat = self.symbolic.sequencer_primary.steps_per_quarter.max(1) as f64;
         let new_samples_per_step = (self.sample_rate * 60.0
             / (self.symbolic.current_state.bpm as f64)
             / steps_per_beat) as usize;
@@ -854,11 +1050,21 @@ impl HarmoniumEngine {
         // Handle physical side effects (audio engine only)
         self.events_buffer.clear();
 
-        // Stop previous bass note (Staccato / Note Switching) to prevent infinite sustain
-        if let Some(old_note) = self.active_bass_note {
-            self.renderer.handle_event(AudioEvent::NoteOff { note: old_note, channel: 0 });
-            self.active_bass_note = None;
-        }
+        // Process pending NoteOff events (delayed note release)
+        // Decrement counters and send NoteOff when timer expires
+        self.pending_noteoffs.retain_mut(|pending| {
+            pending.steps_remaining = pending.steps_remaining.saturating_sub(1);
+            if pending.steps_remaining == 0 {
+                self.renderer.handle_event(AudioEvent::NoteOff {
+                    id: None,
+                    note: pending.note,
+                    channel: pending.channel,
+                });
+                false // Remove from queue
+            } else {
+                true // Keep in queue
+            }
+        });
 
         for event in events {
             self.renderer.handle_event(event.clone());
@@ -866,9 +1072,48 @@ impl HarmoniumEngine {
 
             // Phase 2: Send NoteOn events to UI via lock-free queue
             if let AudioEvent::NoteOn { note, channel, .. } = event {
-                // Track active bass note for NoteOff next tick
+                // Track active bass note and schedule NoteOff for current note
                 if channel == 0 {
+                    // Stop previous bass note immediately (monophonic behavior)
+                    if let Some(old_note) = self.active_bass_note {
+                        self.renderer.handle_event(AudioEvent::NoteOff {
+                            id: None,
+                            note: old_note,
+                            channel: 0,
+                        });
+                    }
+
+                    // Schedule NoteOff for THIS note
+                    // Duration: half a quarter note (e.g., 2 steps at 16th note resolution)
+                    let duration_steps =
+                        (self.symbolic.sequencer_primary.steps_per_quarter / 2).max(1);
+                    self.pending_noteoffs.push(PendingNoteOff {
+                        note,
+                        channel: 0,
+                        steps_remaining: duration_steps,
+                    });
                     self.active_bass_note = Some(note);
+                }
+
+                // Track active lead note and schedule NoteOff for current note
+                if channel == 1 {
+                    // Schedule NoteOff for previous lead note immediately (no overlap)
+                    if let Some(old_note) = self.active_lead_note {
+                        self.renderer.handle_event(AudioEvent::NoteOff {
+                            id: None,
+                            note: old_note,
+                            channel: 1,
+                        });
+                    }
+                    // Schedule NoteOff for THIS note
+                    let duration_steps =
+                        (self.symbolic.sequencer_primary.steps_per_quarter / 2).max(1);
+                    self.pending_noteoffs.push(PendingNoteOff {
+                        note,
+                        channel: 1,
+                        steps_remaining: duration_steps,
+                    });
+                    self.active_lead_note = Some(note);
                 }
 
                 let vis_event = VisualizationEvent {
@@ -913,5 +1158,39 @@ impl HarmoniumEngine {
         };
 
         format!("{}{}", roman, quality_symbol)
+    }
+
+    // =========================================================================
+    // DNA EXPORT
+    // =========================================================================
+
+    /// Export Musical DNA from a RecordingTruth
+    ///
+    /// This method extracts the complete Musical DNA profile from recorded
+    /// events, including harmonic and rhythmic characteristics.
+    ///
+    /// # Arguments
+    /// * `truth` - The RecordingTruth containing events and parameters
+    ///
+    /// # Returns
+    /// A `MusicalDNA` struct containing the extracted profile
+    #[must_use]
+    pub fn export_dna(
+        truth: &harmonium_core::exporters::RecordingTruth,
+    ) -> harmonium_core::MusicalDNA {
+        harmonium_core::MusicalDNA::extract(truth)
+    }
+
+    /// Export Musical DNA to JSON string
+    ///
+    /// Convenience method that extracts DNA and serializes to JSON.
+    ///
+    /// # Errors
+    /// Returns error if JSON serialization fails
+    pub fn export_dna_json(
+        truth: &harmonium_core::exporters::RecordingTruth,
+    ) -> Result<String, serde_json::Error> {
+        let dna = Self::export_dna(truth);
+        dna.to_json()
     }
 }

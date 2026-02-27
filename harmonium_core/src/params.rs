@@ -15,6 +15,111 @@ use serde::{Deserialize, Serialize};
 
 use crate::{harmony::HarmonyMode, sequencer::RhythmMode};
 
+// ═══════════════════════════════════════════════════════════════════
+// TIME SIGNATURE
+// ═══════════════════════════════════════════════════════════════════
+
+/// Time signature (N/D format) - e.g., 4/4, 3/4, 5/4, 7/8
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TimeSignature {
+    /// Numerator (beats per measure)
+    pub numerator: u8,
+    /// Denominator (beat unit: 2=half, 4=quarter, 8=eighth, 16=sixteenth)
+    pub denominator: u8,
+}
+
+impl TimeSignature {
+    /// Create a new time signature
+    #[must_use]
+    pub const fn new(numerator: u8, denominator: u8) -> Self {
+        Self { numerator, denominator }
+    }
+
+    // Common time signatures
+    pub const FOUR_FOUR: Self = Self::new(4, 4);
+    pub const THREE_FOUR: Self = Self::new(3, 4);
+    pub const SIX_EIGHT: Self = Self::new(6, 8);
+    pub const FIVE_FOUR: Self = Self::new(5, 4);
+    pub const SEVEN_EIGHT: Self = Self::new(7, 8);
+
+    /// Calculate steps per measure given a subdivision
+    ///
+    /// # Arguments
+    /// * `steps_per_quarter` - Steps per quarter note (e.g., 4, 12, 24, 48)
+    ///
+    /// # Returns
+    /// Total steps per measure
+    ///
+    /// # Examples
+    /// ```
+    /// # use harmonium_core::params::TimeSignature;
+    /// // 4/4 with 16th note resolution (4 subdivisions per quarter)
+    /// assert_eq!(TimeSignature::FOUR_FOUR.steps_per_measure(4), 16);
+    ///
+    /// // 3/4 with 16th note resolution
+    /// assert_eq!(TimeSignature::THREE_FOUR.steps_per_measure(4), 12);
+    ///
+    /// // 5/4 with 16th note resolution
+    /// assert_eq!(TimeSignature::FIVE_FOUR.steps_per_measure(4), 20);
+    /// ```
+    #[must_use]
+    pub const fn steps_per_measure(&self, steps_per_quarter: usize) -> usize {
+        // Convert denominator to quarter-note equivalent
+        // denominator=4 (quarter) → 1.0x, denominator=8 (eighth) → 0.5x, denominator=2 (half) → 2.0x
+        let quarter_equiv = match self.denominator {
+            2 => self.numerator as usize * 2,        // half notes
+            4 => self.numerator as usize,            // quarter notes
+            8 => (self.numerator as usize + 1) / 2,  // eighth notes (round up)
+            16 => (self.numerator as usize + 3) / 4, // sixteenth notes (round up)
+            _ => self.numerator as usize,            // fallback to numerator
+        };
+        quarter_equiv * steps_per_quarter
+    }
+
+    /// Validate the time signature
+    #[must_use]
+    pub const fn is_valid(&self) -> bool {
+        self.numerator > 0
+            && (self.denominator == 2
+                || self.denominator == 4
+                || self.denominator == 8
+                || self.denominator == 16)
+    }
+}
+
+impl Default for TimeSignature {
+    fn default() -> Self {
+        Self::FOUR_FOUR
+    }
+}
+
+impl std::fmt::Display for TimeSignature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.numerator, self.denominator)
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MUSICAL POSITION (for visualization)
+// ═══════════════════════════════════════════════════════════════════
+
+/// Musical position within a performance
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct MusicalPosition {
+    /// Measure number (1-indexed)
+    pub measure: usize,
+    /// Beat within measure (1-indexed)
+    pub beat: usize,
+    /// Step within beat (0-indexed)
+    pub step_in_beat: usize,
+    /// Total step count from start (for absolute positioning)
+    pub total_step: usize,
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CONTROL MODE & PARAMS
+// ═══════════════════════════════════════════════════════════════════
+
 /// État du mode de contrôle (émotion vs direct)
 /// Partagé entre VST et standalone builds
 #[derive(Clone, Debug)]
@@ -147,13 +252,24 @@ pub struct MusicalParams {
     pub enable_voicing: bool,
 
     // ═══════════════════════════════════════════════════════════════════
-    // RYTHME
+    // TIME & RYTHME
     // ═══════════════════════════════════════════════════════════════════
+    /// Time signature (replaces inference from rhythm_steps)
+    #[serde(default)]
+    pub time_signature: TimeSignature,
+
+    /// Steps per quarter note (subdivision resolution)
+    /// 4 = sixteenth notes, 12 = triplet sixteenths, 24 = thirty-seconds, etc.
+    /// This is DECOUPLED from time signature
+    #[serde(default = "default_steps_per_quarter")]
+    pub steps_per_quarter: usize,
+
     /// Mode rythmique (Euclidean classique ou `PerfectBalance` polyrythmique)
     #[serde(default)]
     pub rhythm_mode: RhythmMode,
 
-    /// Nombre de steps (16 pour Euclidean, 48/96/192 pour `PerfectBalance`)
+    /// DEPRECATED: Nombre de steps (maintenant calculé depuis time_signature)
+    /// Use steps_per_measure() method instead
     #[serde(default = "default_rhythm_steps")]
     pub rhythm_steps: usize,
 
@@ -311,8 +427,12 @@ const fn default_master_volume() -> f32 {
 const fn default_true() -> bool {
     true
 }
+const fn default_steps_per_quarter() -> usize {
+    4 // 16th note resolution by default
+}
+
 const fn default_rhythm_steps() -> usize {
-    16
+    16 // Deprecated, kept for backward compat
 }
 const fn default_rhythm_pulses() -> usize {
     4
@@ -376,9 +496,11 @@ impl Default for MusicalParams {
             enable_melody: true,
             enable_voicing: false,
 
-            // Rythme
+            // Time & Rythme
+            time_signature: TimeSignature::default(),
+            steps_per_quarter: default_steps_per_quarter(),
             rhythm_mode: RhythmMode::Euclidean,
-            rhythm_steps: default_rhythm_steps(),
+            rhythm_steps: default_rhythm_steps(), // Deprecated
             rhythm_pulses: default_rhythm_pulses(),
             rhythm_rotation: 0,
             rhythm_density: default_density(),
@@ -424,6 +546,21 @@ impl Default for MusicalParams {
 }
 
 impl MusicalParams {
+    /// Calculate total steps per measure (derived property)
+    /// This replaces the old rhythm_steps direct access
+    #[must_use]
+    pub fn steps_per_measure(&self) -> usize {
+        self.time_signature.steps_per_measure(self.steps_per_quarter)
+    }
+
+    /// Backward compatibility: rhythm_steps getter
+    /// DEPRECATED: Use steps_per_measure() instead
+    #[deprecated(since = "0.2.0", note = "Use steps_per_measure() instead")]
+    #[must_use]
+    pub fn rhythm_steps(&self) -> usize {
+        self.steps_per_measure()
+    }
+
     /// Créer des paramètres pour un test/debug avec rythme désactivé
     #[must_use]
     pub fn melody_only() -> Self {
@@ -503,6 +640,119 @@ mod tests {
         assert!((params.bpm - 140.0).abs() < f32::EPSILON);
         assert_eq!(params.harmony_mode, HarmonyMode::Basic);
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // TIME SIGNATURE TESTS
+    // ═══════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_time_signature_steps_calculation() {
+        // 4/4 tests
+        let ts_4_4 = TimeSignature::FOUR_FOUR;
+        assert_eq!(ts_4_4.steps_per_measure(4), 16); // 4 beats * 4 sixteenths
+        assert_eq!(ts_4_4.steps_per_measure(12), 48); // triplet subdivision
+        assert_eq!(ts_4_4.steps_per_measure(24), 96); // 32nd notes
+
+        // 3/4 tests
+        let ts_3_4 = TimeSignature::THREE_FOUR;
+        assert_eq!(ts_3_4.steps_per_measure(4), 12); // 3 beats * 4 sixteenths
+
+        // 6/8 tests (compound meter)
+        let ts_6_8 = TimeSignature::SIX_EIGHT;
+        assert_eq!(ts_6_8.steps_per_measure(4), 12); // 6 eighths = 3 quarters
+
+        // 5/4 tests
+        let ts_5_4 = TimeSignature::FIVE_FOUR;
+        assert_eq!(ts_5_4.steps_per_measure(4), 20); // 5 beats * 4 sixteenths
+
+        // 7/8 tests
+        let ts_7_8 = TimeSignature::SEVEN_EIGHT;
+        assert_eq!(ts_7_8.steps_per_measure(4), 16); // 7 eighths ≈ 3.5 quarters → 4
+    }
+
+    #[test]
+    fn test_time_signature_validation() {
+        // Valid signatures
+        assert!(TimeSignature::new(4, 4).is_valid());
+        assert!(TimeSignature::new(3, 4).is_valid());
+        assert!(TimeSignature::new(6, 8).is_valid());
+        assert!(TimeSignature::new(5, 4).is_valid());
+        assert!(TimeSignature::new(7, 8).is_valid());
+        assert!(TimeSignature::new(2, 2).is_valid()); // cut time
+        assert!(TimeSignature::new(9, 16).is_valid()); // compound irregular
+
+        // Invalid signatures
+        assert!(!TimeSignature::new(0, 4).is_valid()); // zero numerator
+        assert!(!TimeSignature::new(4, 3).is_valid()); // invalid denominator
+        assert!(!TimeSignature::new(4, 7).is_valid()); // invalid denominator
+    }
+
+    #[test]
+    fn test_time_signature_display() {
+        assert_eq!(format!("{}", TimeSignature::FOUR_FOUR), "4/4");
+        assert_eq!(format!("{}", TimeSignature::THREE_FOUR), "3/4");
+        assert_eq!(format!("{}", TimeSignature::FIVE_FOUR), "5/4");
+        assert_eq!(format!("{}", TimeSignature::SIX_EIGHT), "6/8");
+    }
+
+    #[test]
+    fn test_time_signature_default() {
+        let ts = TimeSignature::default();
+        assert_eq!(ts, TimeSignature::FOUR_FOUR);
+        assert_eq!(ts.numerator, 4);
+        assert_eq!(ts.denominator, 4);
+    }
+
+    #[test]
+    fn test_time_signature_equality() {
+        let ts1 = TimeSignature::new(4, 4);
+        let ts2 = TimeSignature::FOUR_FOUR;
+        assert_eq!(ts1, ts2);
+
+        let ts3 = TimeSignature::new(3, 4);
+        assert_ne!(ts1, ts3);
+    }
+
+    #[test]
+    fn test_backward_compatible_rhythm_steps() {
+        let mut params = MusicalParams::default();
+        params.time_signature = TimeSignature::FOUR_FOUR;
+        params.steps_per_quarter = 4;
+
+        // New method: steps_per_measure()
+        assert_eq!(params.steps_per_measure(), 16);
+
+        // Legacy method should still work (though deprecated)
+        #[allow(deprecated)]
+        {
+            assert_eq!(params.rhythm_steps(), 16);
+        }
+
+        // Test with different time signatures
+        params.time_signature = TimeSignature::THREE_FOUR;
+        assert_eq!(params.steps_per_measure(), 12);
+
+        params.time_signature = TimeSignature::FIVE_FOUR;
+        assert_eq!(params.steps_per_measure(), 20);
+
+        // Test with different subdivisions
+        params.time_signature = TimeSignature::FOUR_FOUR;
+        params.steps_per_quarter = 12; // triplets
+        assert_eq!(params.steps_per_measure(), 48);
+    }
+
+    #[test]
+    fn test_musical_params_with_time_signature() {
+        let params = MusicalParams::default();
+
+        // Verify defaults
+        assert_eq!(params.time_signature, TimeSignature::FOUR_FOUR);
+        assert_eq!(params.steps_per_quarter, 4);
+        assert_eq!(params.steps_per_measure(), 16);
+
+        // Verify rhythm_steps field is also set correctly for backward compat
+        assert_eq!(params.rhythm_steps, 16);
+    }
 }
 
 // =========================================================================================
@@ -517,6 +767,17 @@ pub struct VisualizationEvent {
     pub duration_samples: usize,
 }
 
+/// Enhanced visualization event with musical position structure
+/// Used by get_lookahead_truth_v2 for sight reading and structured notation
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VisualizationEventV2 {
+    pub note_midi: u8,
+    pub instrument: u8, // 0=Bass, 1=Lead, 2=Snare, 3=Hat
+    pub velocity: u8,
+    pub duration_steps: usize,
+    pub position: MusicalPosition,
+}
+
 #[derive(Clone, Debug)]
 pub struct HarmonyState {
     pub current_chord_index: usize,
@@ -529,6 +790,7 @@ pub struct HarmonyState {
     pub progression_name: ArrayString<64>,
     pub progression_length: usize,
     pub harmony_mode: HarmonyMode,
+    pub rhythm_mode: RhythmMode,
     pub primary_steps: usize,
     pub primary_pulses: usize,
     pub secondary_steps: usize,
@@ -552,6 +814,7 @@ impl Default for HarmonyState {
             progression_name: ArrayString::from("Folk Peaceful (I-IV-I-V)").unwrap_or_default(),
             progression_length: 4,
             harmony_mode: HarmonyMode::Driver,
+            rhythm_mode: RhythmMode::Euclidean,
             primary_steps: 16,
             primary_pulses: 4,
             secondary_steps: 12,

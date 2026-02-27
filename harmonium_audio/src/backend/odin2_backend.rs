@@ -410,14 +410,14 @@ impl Odin2Backend {
 impl AudioRenderer for Odin2Backend {
     fn handle_event(&mut self, event: AudioEvent) {
         match event {
-            AudioEvent::NoteOn { note, velocity, channel } => {
+            AudioEvent::NoteOn { note, velocity, channel, .. } => {
                 let inst = InstrumentType::from_channel(channel);
                 if let Some(engine) = &mut self.engines[inst.index()] {
                     engine.note_on(note, velocity);
                 }
             }
 
-            AudioEvent::NoteOff { note, channel } => {
+            AudioEvent::NoteOff { note, channel, .. } => {
                 let inst = InstrumentType::from_channel(channel);
                 if let Some(engine) = &mut self.engines[inst.index()] {
                     engine.note_off(note);

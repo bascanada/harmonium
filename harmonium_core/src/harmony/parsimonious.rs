@@ -15,6 +15,7 @@ use super::{
     chord::{Chord, ChordType, PitchClass},
     lydian_chromatic::LydianChromaticConcept,
 };
+use crate::tuning::TuningParams;
 
 /// Mouvement maximum de voix en demi-tons pour le mouvement parsimonieux
 pub const MAX_SEMITONE_MOVEMENT: u8 = 2;
@@ -23,7 +24,7 @@ pub const MAX_SEMITONE_MOVEMENT: u8 = 2;
 ///
 /// Inspiré du modèle circumplex de Russell, le TRQ quantifie
 /// la "direction émotionnelle" d'une transition harmonique.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TRQ {
     /// Composante de tension (0.0 - 1.0): dissonance, instabilité
     pub tension: f32,
@@ -161,6 +162,20 @@ impl ParsimoniousDriver {
     pub const fn with_trq_threshold(mut self, threshold: f32) -> Self {
         self.trq_threshold = threshold;
         self
+    }
+
+    /// Create a ParsimoniousDriver from TuningParams
+    ///
+    /// This constructor uses the centralized tuning configuration instead of
+    /// hardcoded defaults, enabling the LLM tuning loop to adjust these values.
+    #[must_use]
+    pub fn from_tuning(lcc: Arc<LydianChromaticConcept>, tuning: &TuningParams) -> Self {
+        Self {
+            lcc,
+            max_movement: tuning.max_semitone_movement.min(3),
+            allow_cardinality_morph: tuning.cardinality_morph_enabled,
+            trq_threshold: tuning.trq_threshold,
+        }
     }
 
     /// Trouve tous les accords voisins valides dans la distance de voice-leading spécifiée
