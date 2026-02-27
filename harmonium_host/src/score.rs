@@ -50,9 +50,15 @@ pub struct ScoreGenerator {
 impl ScoreGenerator {
     /// Create a new score generator
     #[must_use]
-    pub fn new(tempo: f32, time_signature: (u8, u8), key_root: u8, is_minor: bool) -> Self {
+    pub fn new(
+        tempo: f32,
+        time_signature: (u8, u8),
+        key_root: u8,
+        is_minor: bool,
+        steps_per_quarter: usize,
+    ) -> Self {
         Self {
-            buffer: ScoreBuffer::new(tempo, time_signature, key_root, is_minor),
+            buffer: ScoreBuffer::new(tempo, time_signature, key_root, is_minor, steps_per_quarter),
             default_duration_steps: 2, // Default to 1/8 note (2 steps at 16th resolution)
         }
     }
@@ -94,7 +100,7 @@ mod tests {
 
     #[test]
     fn test_score_buffer_creation() {
-        let buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
+        let buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
         let score = buffer.get_score();
         assert_eq!(score.tempo, 120.0);
         assert_eq!(score.time_signature, (4, 4));
@@ -104,7 +110,7 @@ mod tests {
 
     #[test]
     fn test_audio_score_sync() {
-        let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
+        let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
 
         // Create audio events
         let mut events = vec![
@@ -141,7 +147,7 @@ mod tests {
 
     #[test]
     fn test_measure_finalization() {
-        let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
+        let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
 
         // Advance through a full measure (16 steps for 4/4 time)
         for _ in 0..16 {
@@ -155,7 +161,7 @@ mod tests {
 
     #[test]
     fn test_score_json_output() {
-        let buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
+        let buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
         let json = buffer.to_json();
 
         assert!(json.contains("\"version\":\"1.0\""));

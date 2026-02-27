@@ -11,7 +11,8 @@
 	import RhythmVisualizer from '$lib/components/visualizations/rhythm/RhythmVisualizer.svelte';
 	import ChordProgression from '$lib/components/visualizations/harmony/ChordProgression.svelte';
 	import MorphVisualization from '$lib/components/visualizations/morph/MorphVisualization.svelte';
-	import MusicSheet from '$lib/components/visualizations/MusicSheet.svelte';
+	import SheetMusic from '$lib/components/visualizations/SheetMusic.svelte';
+	import { engineState } from '$lib/stores/engine-state';
 	import init, { get_available_backends } from 'harmonium';
 
 	let bridge: HarmoniumBridge | null = null;
@@ -140,6 +141,7 @@
 			bridge?.disconnect();
 			bridge = null;
 			isPlaying = false;
+			engineState.set(createEmptyState());
 			return;
 		}
 
@@ -211,6 +213,7 @@
 				}
 
 				state = newState;
+				engineState.set(newState);
 			});
 
 			// Reset counters
@@ -520,7 +523,9 @@
 				<!-- Left: Visualizations -->
 				<div class="flex flex-col gap-6">
 					{#if bridge}
-						<MusicSheet {bridge} steps={32} />
+						{#key bridge}
+							<SheetMusic {bridge} bars={8} />
+						{/key}
 					{/if}
 
 					<RhythmVisualizer

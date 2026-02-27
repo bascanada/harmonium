@@ -20,7 +20,7 @@ use harmonium_core::{
 #[test]
 fn test_audio_score_id_synchronization_single_note() {
     // Note: Don't reset the global counter in parallel tests
-    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
+    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
 
     let mut events = vec![AudioEvent::NoteOn {
         id: None,
@@ -50,7 +50,7 @@ fn test_audio_score_id_synchronization_single_note() {
 #[test]
 fn test_audio_score_id_synchronization_multiple_notes() {
     // Note: Don't reset the global counter in parallel tests
-    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
+    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
 
     let mut events = vec![
         AudioEvent::NoteOn {
@@ -101,7 +101,7 @@ fn test_audio_score_id_synchronization_multiple_notes() {
 fn test_audio_score_id_uniqueness_across_measures() {
     // Note: We don't reset the counter because tests run in parallel.
     // We just verify that all IDs returned in THIS test are unique.
-    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
+    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
     let mut all_ids = HashSet::new();
     let mut event_count = 0;
 
@@ -137,7 +137,7 @@ fn test_audio_score_id_uniqueness_across_measures() {
 #[test]
 fn test_noteoff_events_ignored() {
     // Note: Don't reset the global counter in parallel tests
-    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
+    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
 
     let mut events = vec![
         AudioEvent::NoteOn { id: None, note: 60, velocity: 100, channel: 1 },
@@ -156,7 +156,7 @@ fn test_noteoff_events_ignored() {
 
 #[test]
 fn test_score_format_basic_structure() {
-    let buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
+    let buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
     let json = buffer.to_json();
 
     // Parse JSON back to validate structure
@@ -178,7 +178,7 @@ fn test_score_format_basic_structure() {
 #[test]
 fn test_score_key_signatures() {
     // Test C major (0 fifths)
-    let buffer_c = ScoreBuffer::new(120.0, (4, 4), 0, false);
+    let buffer_c = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
     let json_c = buffer_c.to_json();
     let score_c: HarmoniumScore = serde_json::from_str(&json_c).unwrap();
     assert_eq!(score_c.key_signature.root, "C");
@@ -186,21 +186,21 @@ fn test_score_key_signatures() {
     assert_eq!(score_c.key_signature.fifths, 0);
 
     // Test G major (1 sharp)
-    let buffer_g = ScoreBuffer::new(120.0, (4, 4), 7, false); // G = pitch class 7
+    let buffer_g = ScoreBuffer::new(120.0, (4, 4), 7, false, 4); // G = pitch class 7
     let json_g = buffer_g.to_json();
     let score_g: HarmoniumScore = serde_json::from_str(&json_g).unwrap();
     assert_eq!(score_g.key_signature.root, "G");
     assert_eq!(score_g.key_signature.fifths, 1);
 
     // Test F major (1 flat)
-    let buffer_f = ScoreBuffer::new(120.0, (4, 4), 5, false); // F = pitch class 5
+    let buffer_f = ScoreBuffer::new(120.0, (4, 4), 5, false, 4); // F = pitch class 5
     let json_f = buffer_f.to_json();
     let score_f: HarmoniumScore = serde_json::from_str(&json_f).unwrap();
     assert_eq!(score_f.key_signature.root, "F");
     assert_eq!(score_f.key_signature.fifths, -1);
 
     // Test A minor (relative to C, same fifths)
-    let buffer_am = ScoreBuffer::new(120.0, (4, 4), 9, true); // A = pitch class 9
+    let buffer_am = ScoreBuffer::new(120.0, (4, 4), 9, true, 4); // A = pitch class 9
     let json_am = buffer_am.to_json();
     let score_am: HarmoniumScore = serde_json::from_str(&json_am).unwrap();
     assert_eq!(score_am.key_signature.root, "A");
@@ -211,19 +211,19 @@ fn test_score_key_signatures() {
 #[test]
 fn test_score_time_signatures() {
     // Test 4/4
-    let buffer_44 = ScoreBuffer::new(120.0, (4, 4), 0, false);
+    let buffer_44 = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
     let json_44 = buffer_44.to_json();
     let score_44: HarmoniumScore = serde_json::from_str(&json_44).unwrap();
     assert_eq!(score_44.time_signature, (4, 4));
 
     // Test 3/4
-    let buffer_34 = ScoreBuffer::new(120.0, (3, 4), 0, false);
+    let buffer_34 = ScoreBuffer::new(120.0, (3, 4), 0, false, 4);
     let json_34 = buffer_34.to_json();
     let score_34: HarmoniumScore = serde_json::from_str(&json_34).unwrap();
     assert_eq!(score_34.time_signature, (3, 4));
 
     // Test 6/8
-    let buffer_68 = ScoreBuffer::new(120.0, (6, 8), 0, false);
+    let buffer_68 = ScoreBuffer::new(120.0, (6, 8), 0, false, 4);
     let json_68 = buffer_68.to_json();
     let score_68: HarmoniumScore = serde_json::from_str(&json_68).unwrap();
     assert_eq!(score_68.time_signature, (6, 8));
@@ -236,7 +236,7 @@ fn test_score_time_signatures() {
 #[test]
 fn test_score_json_roundtrip() {
     // Note: Don't reset the global counter in parallel tests
-    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
+    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
 
     // Add some events
     for step in 0..8 {
@@ -272,7 +272,7 @@ fn test_score_json_roundtrip() {
 
 #[test]
 fn test_score_json_pretty_format() {
-    let buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
+    let buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
     let json = buffer.to_json_pretty();
 
     // Pretty format should have newlines and indentation
@@ -290,7 +290,7 @@ fn test_score_json_pretty_format() {
 #[test]
 fn test_pitch_conversion_in_score() {
     // Note: Don't reset the global counter in parallel tests
-    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false); // C major
+    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4); // C major
 
     let mut events = vec![
         AudioEvent::NoteOn {
@@ -327,7 +327,7 @@ fn test_pitch_conversion_in_score() {
 #[test]
 fn test_duration_assignment_in_score() {
     // Note: Don't reset the global counter in parallel tests
-    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
+    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
 
     let mut events = vec![AudioEvent::NoteOn { id: None, note: 60, velocity: 100, channel: 1 }];
 
@@ -346,7 +346,7 @@ fn test_duration_assignment_in_score() {
 
 #[test]
 fn test_measure_counting() {
-    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
+    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
 
     assert_eq!(buffer.current_measure(), 1, "Should start at measure 1");
     assert_eq!(buffer.completed_measures(), 0, "No completed measures initially");
@@ -375,7 +375,7 @@ fn test_measure_counting() {
 #[test]
 fn test_channel_to_part_mapping() {
     // Note: Don't reset the global counter in parallel tests
-    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
+    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
 
     let mut events = vec![
         AudioEvent::NoteOn {
@@ -421,7 +421,7 @@ fn test_channel_to_part_mapping() {
 
 #[test]
 fn test_empty_events_handled() {
-    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
+    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
 
     let mut events: Vec<AudioEvent> = vec![];
     let score_events = buffer.process_audio_events(&mut events, 4);
@@ -431,7 +431,7 @@ fn test_empty_events_handled() {
 
 #[test]
 fn test_control_change_events_ignored() {
-    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
+    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
 
     let mut events = vec![AudioEvent::ControlChange { ctrl: 1, value: 64, channel: 1 }];
 
@@ -443,7 +443,7 @@ fn test_control_change_events_ignored() {
 #[test]
 fn test_various_velocities_to_dynamics() {
     // Note: Don't reset the global counter in parallel tests
-    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
+    let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
 
     let velocities = [20, 40, 64, 80, 100, 127];
     let mut events: Vec<AudioEvent> = velocities

@@ -23,3 +23,4 @@ pkg/
 
 .venv-omr
 temp_omr
+.aider*

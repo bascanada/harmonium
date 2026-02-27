@@ -23,6 +23,7 @@ import {
 	parseScore,
 	getActiveNoteIds,
 	stepToBeat,
+	scoreMeasureCount,
 	DEFAULT_STEPS_PER_QUARTER
 } from '$lib/utils/notation';
 import { engineState } from '$lib/stores/engine-state';
@@ -64,11 +65,18 @@ export const playingNoteIds: Readable<Set<number>> = derived(
 		if (!$score) return new Set<number>();
 
 		// currentStep is the 0-based step within the current measure.
-		// primarySteps is the total steps per measure (determines the sequencer pattern length).
 		const stepInMeasure = $state.currentStep;
 		const beat = stepToBeat(stepInMeasure, DEFAULT_STEPS_PER_QUARTER);
 
-		return getActiveNoteIds($score, $state.currentMeasure, beat);
+		// Normalize the engine's ever-increasing measure counter into the score's
+		// range (1..totalMeasures) so highlighting loops correctly after the first cycle.
+		const totalMeasures = scoreMeasureCount($score);
+		const normalizedMeasure =
+			totalMeasures > 0
+				? (($state.currentMeasure - 1) % totalMeasures) + 1
+				: $state.currentMeasure;
+
+		return getActiveNoteIds($score, normalizedMeasure, beat);
 	}
 );
 

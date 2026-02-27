@@ -715,7 +715,13 @@ impl Handle {
         let is_minor = symbolic.last_harmony_state.chord_is_minor;
 
         // Create score buffer
-        let mut score_buffer = score::ScoreBuffer::new(tempo, time_sig, key_root, is_minor);
+        let mut score_buffer = score::ScoreBuffer::new(
+            tempo,
+            time_sig,
+            key_root,
+            is_minor,
+            symbolic.musical_params.steps_per_quarter,
+        );
 
         // Calculate steps per bar
         let steps_per_bar = symbolic.musical_params.steps_per_measure();
@@ -754,7 +760,13 @@ impl Handle {
         let key_root = symbolic.last_harmony_state.chord_root_offset as u8;
         let is_minor = symbolic.last_harmony_state.chord_is_minor;
 
-        let mut score_buffer = score::ScoreBuffer::new(tempo, time_sig, key_root, is_minor);
+        let mut score_buffer = score::ScoreBuffer::new(
+            tempo,
+            time_sig,
+            key_root,
+            is_minor,
+            symbolic.musical_params.steps_per_quarter,
+        );
         let steps_per_bar = symbolic.musical_params.steps_per_measure();
         let total_steps = bars * steps_per_bar;
 

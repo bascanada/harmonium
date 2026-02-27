@@ -7,6 +7,24 @@
 //! - Transposing instrument support
 //! - Audio/Score synchronization via shared note IDs
 //!
+//! # VexFlow Integration Overview
+//! The `HarmoniumScore` format is designed to be easily consumed by VexFlow in a
+//! TypeScript frontend. All musical data is represented in a way that maps
+//! directly to VexFlow's API:
+//! - `Pitch` provides `to_vexflow()` to generate key strings (e.g., `"c/4"`)
+//! - `Duration` provides `to_vexflow()` to generate duration strings (e.g., `"qd"`)
+//! - Each `ScoreNoteEvent` has a unique `u64` ID shared with its corresponding `AudioEvent`
+//!
+//! # Format Guarantees
+//! 1. All pitch octaves are in the range 0-9.
+//! 2. All beat positions are 1-indexed (1.0 = first beat of measure).
+//! 3. All durations are positive and map to standard musical notation.
+//!
+//! # Query Protocol
+//! The frontend queries the score via `getLookaheadScore(bars)` which returns
+//! `HarmoniumScore` serialized as JSON. Note IDs are used to highlight notes
+//! in real-time as they are played.
+//!
 //! # Architecture
 //! ```text
 //! MusicKernel.tick()

@@ -38,13 +38,18 @@ pub struct ScoreBuffer {
 impl ScoreBuffer {
     /// Create a new score buffer with initial configuration
     #[must_use]
-    pub fn new(tempo: f32, time_signature: (u8, u8), key_root: u8, is_minor: bool) -> Self {
+    pub fn new(
+        tempo: f32,
+        time_signature: (u8, u8),
+        key_root: u8,
+        is_minor: bool,
+        steps_per_quarter: usize,
+    ) -> Self {
         let key_signature = KeySignature::from_pitch_class(key_root, is_minor);
         let key_fifths = key_signature.fifths;
 
-        // Calculate steps per measure (assuming 4 steps per beat/quarter)
+        // Calculate steps per measure (based on time signature and provided subdivision)
         let beats_per_measure = time_signature.0 as f32;
-        let steps_per_quarter = 4; // 16th note resolution
         let steps_per_measure = (beats_per_measure * steps_per_quarter as f32) as usize;
 
         let mut score = HarmoniumScore::default();
@@ -175,6 +180,12 @@ impl ScoreBuffer {
         if has_events || self.step_in_measure > 0 {
             self.finalize_measure();
         }
+
+        // Validate the final score in debug builds
+        #[cfg(debug_assertions)]
+        if let Err(e) = self.validate_score() {
+            eprintln!("Score validation failed: {}", e);
+        }
     }
 
     /// Get the current score
@@ -296,7 +307,64 @@ impl ScoreBuffer {
     /// Get total number of completed measures
     #[must_use]
     pub fn completed_measures(&self) -> usize {
-        if self.score.parts.is_empty() { 0 } else { self.score.parts[0].measures.len() }
+        if self.score.parts.is_empty() {
+            0
+        } else {
+            self.score.parts[0].measures.len()
+        }
+    }
+
+    /// Validate a single score event
+    fn validate_event(&self, event: &ScoreNoteEvent, beats_per_measure: f32) -> Result<(), String> {
+        // 1. Beat position (1-indexed, e.g. 1.0 to 5.0 for 4/4)
+        if event.beat < 1.0 || event.beat > beats_per_measure + 1.0 {
+            return Err(format!(
+                "Invalid beat position: {} (measure limit: {})",
+                event.beat, beats_per_measure
+            ));
+        }
+
+        // 2. Duration
+        if event.duration.to_beats() <= 0.0 {
+            return Err(format!("Invalid duration: {:?}", event.duration));
+        }
+
+        // 3. Pitches (for non-drum/rest events)
+        if event.event_type == NoteEventType::Note || event.event_type == NoteEventType::Chord {
+            if event.pitches.is_empty() {
+                return Err("Note/Chord event has no pitches".to_string());
+            }
+            for pitch in &event.pitches {
+                if pitch.octave > 9 {
+                    return Err(format!("Invalid octave: {}", pitch.octave));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Validate the entire score (debug builds only)
+    #[cfg(debug_assertions)]
+    pub fn validate_score(&self) -> Result<(), String> {
+        let beats_per_measure = self.score.time_signature.0 as f32;
+
+        for part in &self.score.parts {
+            let mut seen_ids = std::collections::HashSet::new();
+
+            for measure in &part.measures {
+                for event in &measure.events {
+                    // Check ID uniqueness within part
+                    if !seen_ids.insert(event.id) {
+                        return Err(format!("Duplicate note ID {} in part {}", event.id, part.id));
+                    }
+
+                    self.validate_event(event, beats_per_measure)?;
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -306,7 +374,7 @@ mod tests {
 
     #[test]
     fn test_score_buffer_creation() {
-        let buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
+        let buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
         assert_eq!(buffer.score.tempo, 120.0);
         assert_eq!(buffer.score.time_signature, (4, 4));
         assert_eq!(buffer.score.key_signature.root, "C");
@@ -315,7 +383,7 @@ mod tests {
 
     #[test]
     fn test_measure_finalization() {
-        let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
+        let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
 
         // Advance through a full measure (16 steps for 4/4 time)
         for _ in 0..16 {
@@ -329,7 +397,7 @@ mod tests {
 
     #[test]
     fn test_score_json_output() {
-        let buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
+        let buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
         let json = buffer.to_json();
 
         assert!(json.contains("\"version\":\"1.0\""));
@@ -341,7 +409,7 @@ mod tests {
 
     #[test]
     fn test_audio_event_processing() {
-        let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false);
+        let mut buffer = ScoreBuffer::new(120.0, (4, 4), 0, false, 4);
 
         let mut events = vec![AudioEvent::NoteOn { id: None, note: 60, velocity: 100, channel: 1 }];
 

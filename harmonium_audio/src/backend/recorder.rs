@@ -182,7 +182,8 @@ impl RecorderBackend {
         let time_sig = (p.time_signature.numerator, p.time_signature.denominator);
         // Derive minor from harmony_valence: negative valence = minor tendency
         let is_minor = p.harmony_valence < 0.0;
-        self.score_buffer = Some(ScoreBuffer::new(p.bpm, time_sig, p.key_root, is_minor));
+        self.score_buffer =
+            Some(ScoreBuffer::new(p.bpm, time_sig, p.key_root, is_minor, p.steps_per_quarter));
         self.score_steps_fractional = 0.0;
     }
 

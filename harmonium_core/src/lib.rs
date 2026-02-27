@@ -13,10 +13,9 @@ pub mod tuning;
 // Re-export exporter types
 pub use events::AudioEvent;
 pub use exporters::{
-    ChordSymbol, DNAExtractor, GitVersion, GlobalMetrics, HarmonicFrame, MusicalDNA,
-    PolygonSignature, RecordingTruth, RhythmicDNA, SerializableTRQ, score_to_musicxml,
-    score_to_musicxml_with_version, to_musicxml_with_chords, write_musicxml_with_chords,
-    write_score_musicxml,
+    DNAExtractor, GitVersion, GlobalMetrics, HarmonicFrame, MusicalDNA,
+    PolygonSignature, RecordingTruth, RhythmicDNA, SerializableTRQ,
+    score_to_musicxml, score_to_musicxml_with_version, write_score_musicxml,
 };
 // Re-export notation types
 pub use notation::{
