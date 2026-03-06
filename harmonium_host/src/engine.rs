@@ -47,6 +47,8 @@ pub struct HarmoniumEngine {
     last_rotation: usize, // Pour détecter les changements de rotation
     // === PROGRESSION HARMONIQUE ADAPTATIVE ===
     conductor: harmonium_core::params::Conductor,
+    // NEW: Pending time signature change (queued for next barline)
+    pending_time_signature_change: Option<harmonium_core::params::TimeSignature>,
     current_progression: Vec<ChordStep>, // Progression chargée (dépend de valence/tension)
     progression_index: usize, // Position dans la progression actuelle
     last_valence_choice: f32, // Hystérésis: valence qui a déclenché le dernier choix
@@ -189,6 +191,7 @@ impl HarmoniumEngine {
             last_pulse_count: initial_pulses,
             last_rotation: 0,
             conductor: harmonium_core::params::Conductor::default(),
+            pending_time_signature_change: None,
             current_progression,
             progression_index: 0,
             last_valence_choice: initial_params.valence,
@@ -514,11 +517,17 @@ impl HarmoniumEngine {
             }
         }
 
-        // Update time signature if changed
+        // Queue time signature change for next barline (don't apply immediately)
         if self.sequencer_primary.time_signature != mp.time_signature {
-            self.sequencer_primary.time_signature = mp.time_signature;
-            let new_steps = mp.time_signature.steps_per_bar(self.sequencer_primary.ticks_per_beat);
-            self.sequencer_primary.upgrade_to_steps(new_steps);
+            log::info(&format!(
+                "⏱️  Time Signature change queued: {}/{} → {}/{} (will apply at next barline)",
+                self.sequencer_primary.time_signature.numerator,
+                self.sequencer_primary.time_signature.denominator,
+                mp.time_signature.numerator,
+                mp.time_signature.denominator
+            ));
+            self.pending_time_signature_change = Some(mp.time_signature);
+            // Change will be applied on next barline in tick()
         }
 
         // Update steps if changed while playing (manual override or mode change)
@@ -549,14 +558,14 @@ impl HarmoniumEngine {
             self.sequencer_primary.tension = mp.rhythm_tension;
             self.sequencer_primary.density = mp.rhythm_density;
             self.sequencer_primary.pulses = target_pulses;
-            // Use prepare_next_bar for smooth transition instead of immediate overwrite
-            self.sequencer_primary.prepare_next_bar();
+            // Pattern preparation now happens only on barlines in tick()
+            // New parameters will take effect at next barline
             self.last_pulse_count = target_pulses;
         }
 
         if target_rotation != self.last_rotation {
             self.sequencer_primary.rotation = target_rotation;
-            self.sequencer_primary.prepare_next_bar();
+            // Pattern preparation now happens only on barlines in tick()
             self.last_rotation = target_rotation;
         }
 
@@ -576,7 +585,8 @@ impl HarmoniumEngine {
             }
             self.sequencer_secondary.pulses = secondary_pulses;
             self.sequencer_secondary.rotation = secondary_rotation;
-            self.sequencer_secondary.regenerate_pattern();
+            // Pattern preparation now happens only on barlines in tick()
+            // New parameters will take effect at next barline
         }
 
         // Timing
@@ -609,6 +619,72 @@ impl HarmoniumEngine {
 
         // Advance conductor
         let bar_crossed = self.conductor.tick();
+
+        // === BARLINE-BASED BUFFER SWAP (Phase 1) ===
+        if bar_crossed {
+            // Log barline crossing
+            log::info(&format!(
+                "♩ Bar {} | Beat {}/{} | Time Signature: {}/{}",
+                self.conductor.current_bar,
+                self.conductor.current_beat,
+                self.conductor.time_signature.numerator,
+                self.conductor.time_signature.numerator,
+                self.conductor.time_signature.denominator
+            ));
+
+            // Apply pending time signature change
+            if let Some(new_ts) = self.pending_time_signature_change.take() {
+                log::info(&format!(
+                    "⚡ Time Signature Change: {}/{} → {}/{} (queued mid-bar, applied at barline)",
+                    self.conductor.time_signature.numerator,
+                    self.conductor.time_signature.denominator,
+                    new_ts.numerator,
+                    new_ts.denominator
+                ));
+
+                self.conductor.time_signature = new_ts;
+                let new_steps = new_ts.steps_per_bar(self.sequencer_primary.ticks_per_beat);
+
+                self.sequencer_primary.time_signature = new_ts;
+                self.sequencer_primary.steps = new_steps;
+                self.sequencer_secondary.time_signature = new_ts;
+                // Patterns will regenerate with new meter on next prepare_next_bar()
+
+                log::info(&format!(
+                    "   → New bar length: {} steps | Primary: {} | Secondary: {}",
+                    new_steps,
+                    self.sequencer_primary.steps,
+                    self.sequencer_secondary.steps
+                ));
+            }
+
+            // Swap both sequencer buffers
+            let mut swapped_primary = false;
+            let mut swapped_secondary = false;
+
+            if let Some(next) = self.sequencer_primary.next_pattern.take() {
+                self.sequencer_primary.pattern = next;
+                self.sequencer_primary.steps = self.sequencer_primary.pattern.len();
+                swapped_primary = true;
+            }
+            if let Some(next) = self.sequencer_secondary.next_pattern.take() {
+                self.sequencer_secondary.pattern = next;
+                self.sequencer_secondary.steps = self.sequencer_secondary.pattern.len();
+                swapped_secondary = true;
+            }
+
+            if swapped_primary || swapped_secondary {
+                log::info(&format!(
+                    "   → Pattern buffers swapped | Primary: {} | Secondary: {}",
+                    if swapped_primary { "✓ swapped" } else { "- unchanged" },
+                    if swapped_secondary { "✓ swapped" } else { "- unchanged" }
+                ));
+            }
+
+            // Prepare next bars immediately for both sequencers
+            self.sequencer_primary.prepare_next_bar();
+            self.sequencer_secondary.prepare_next_bar();
+        }
 
         // === HARMONY & PROGRESSION ===
         // Skip harmony updates if disabled

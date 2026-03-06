@@ -14,7 +14,7 @@ pub enum RhythmMode {
 
 /// Événement déclenché à chaque step du séquenceur
 /// Indique quelles voix doivent jouer
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct StepTrigger {
     pub kick: bool,    // Fondation (Square/Octagon)
     pub snare: bool,   // Tension (Triangle/Backbeat)
