@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::params::TimeSignature;
+
 // --- RHYTHM MODE (Strategy Pattern) ---
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -17,8 +19,8 @@ pub struct StepTrigger {
     pub kick: bool,    // Fondation (Square/Octagon)
     pub snare: bool,   // Tension (Triangle/Backbeat)
     pub hat: bool,     // Remplissage (Euclidean Fills)
-    pub bass: bool,    // NEW: Harmonie Basse (Channel 0)
-    pub lead: bool,    // NEW: Mélodie (Channel 1)
+    pub bass: bool,    // Harmonie Basse (Channel 0)
+    pub lead: bool,    // Mélodie (Channel 1)
     pub velocity: f32, // Dynamique générale (0.0 à 1.0)
 }
 
@@ -89,9 +91,12 @@ impl Polygon {
 // --- SEQUENCER STRUCT ---
 
 pub struct Sequencer {
+    pub time_signature: TimeSignature,
+    pub ticks_per_beat: usize,
     pub steps: usize,
     pub pulses: usize,
-    pub pattern: Vec<StepTrigger>, // Remplacement de Vec<bool>
+    pub pattern: Vec<StepTrigger>, // Currently playing buffer
+    pub next_pattern: Option<Vec<StepTrigger>>, // Prepared buffer for next bar
     pub rotation: usize,
     pub current_step: usize,
     pub bpm: f32,
@@ -99,6 +104,13 @@ pub struct Sequencer {
     pub mode: RhythmMode,
     pub tension: f32,
     pub density: f32,
+}
+
+/// Résultat d'un tick du séquenceur
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TickResult {
+    pub trigger: StepTrigger,
+    pub bar_crossed: bool,
 }
 
 impl Sequencer {
@@ -110,9 +122,12 @@ impl Sequencer {
     #[must_use]
     pub fn new_with_mode(steps: usize, pulses: usize, bpm: f32, mode: RhythmMode) -> Self {
         let mut seq = Self {
+            time_signature: TimeSignature::default(),
+            ticks_per_beat: 4,
             steps,
             pulses,
             pattern: vec![StepTrigger::default(); steps],
+            next_pattern: None,
             rotation: 0,
             current_step: 0,
             bpm,
@@ -158,11 +173,11 @@ impl Sequencer {
             }
             RhythmMode::PerfectBalance => {
                 // Mode XronoMorph : Polygones réguliers superposés
-                generate_balanced_layers_48(self.steps, self.density, self.tension)
+                generate_balanced_layers(self.steps, self.density, self.tension)
             }
             RhythmMode::ClassicGroove => {
                 // Mode groove réaliste : Patterns de batterie avec ghost notes
-                generate_classic_groove(self.steps, self.density, self.tension)
+                generate_classic_groove(self.steps, self.density, self.tension, self.time_signature)
             }
         };
 
@@ -176,6 +191,43 @@ impl Sequencer {
         }
 
         self.pattern = raw;
+    }
+
+    /// Prepare the next bar in the look-ahead buffer.
+    pub fn prepare_next_bar(&mut self) {
+        let mut raw = match self.mode {
+            RhythmMode::Euclidean => {
+                let bools = generate_euclidean_bools(self.steps, self.pulses);
+                bools
+                    .into_iter()
+                    .map(|b| StepTrigger {
+                        kick: b,
+                        snare: false,
+                        hat: b,
+                        bass: b,
+                        lead: false,
+                        velocity: if b { 1.0 } else { 0.0 },
+                    })
+                    .collect()
+            }
+            RhythmMode::PerfectBalance => {
+                generate_balanced_layers(self.steps, self.density, self.tension)
+            }
+            RhythmMode::ClassicGroove => {
+                generate_classic_groove(self.steps, self.density, self.tension, self.time_signature)
+            }
+        };
+
+        // Apply rotation
+        let raw_len = raw.len();
+        if self.rotation > 0 && raw_len > 0 {
+            let safe_rotation = self.rotation % raw_len;
+            if safe_rotation > 0 {
+                raw.rotate_left(raw_len - safe_rotation);
+            }
+        }
+
+        self.next_pattern = Some(raw);
     }
 
     /// Upgrade to a specific number of steps (48, 96, etc.)
@@ -195,17 +247,30 @@ impl Sequencer {
         self.upgrade_to_steps(48);
     }
 
-    pub fn tick(&mut self) -> StepTrigger {
+    pub fn tick(&mut self) -> TickResult {
         if self.pattern.is_empty() {
-            return StepTrigger::default();
+            return TickResult::default();
         }
         // Safety: clamp current_step to pattern bounds (can become invalid if steps changed)
         if self.current_step >= self.pattern.len() {
             self.current_step = 0;
         }
         let trigger = self.pattern[self.current_step];
-        self.current_step = (self.current_step + 1) % self.pattern.len();
-        trigger
+        self.current_step += 1;
+
+        let mut bar_crossed = false;
+        if self.current_step >= self.pattern.len() {
+            self.current_step = 0;
+            bar_crossed = true;
+
+            // Look-Ahead Buffer Swap
+            if let Some(next) = self.next_pattern.take() {
+                self.pattern = next;
+                self.steps = self.pattern.len();
+            }
+        }
+
+        TickResult { trigger, bar_crossed }
     }
 }
 
@@ -257,7 +322,7 @@ pub fn generate_euclidean_bools(steps: usize, pulses: usize) -> Vec<bool> {
 /// Generates a pattern based on the superposition of regular polygons.
 /// Respects the Perfect Balance theorem (sum of vectors is zero).
 #[must_use]
-pub fn generate_balanced_layers_48(steps: usize, density: f32, tension: f32) -> Vec<StepTrigger> {
+pub fn generate_balanced_layers(steps: usize, density: f32, tension: f32) -> Vec<StepTrigger> {
     let mut triggers = vec![StepTrigger::default(); steps];
 
     // --- 1. LAYER CONFIGURATION ---
@@ -372,11 +437,17 @@ pub fn generate_balanced_layers_48(steps: usize, density: f32, tension: f32) -> 
 /// Uses density for kick complexity and tension for ghost notes/syncopation.
 #[allow(clippy::too_many_lines)]
 #[must_use]
-pub fn generate_classic_groove(steps: usize, density: f32, tension: f32) -> Vec<StepTrigger> {
+pub fn generate_classic_groove(
+    steps: usize,
+    density: f32,
+    tension: f32,
+    ts: TimeSignature,
+) -> Vec<StepTrigger> {
     let mut pattern = vec![StepTrigger::default(); steps];
 
     // === SUBDIVISIONS ===
-    let beat = steps / 4; // Noire (12 pour 48, 24 pour 96)
+    let beats_in_bar = ts.numerator;
+    let beat = steps / beats_in_bar; // Ticks par temps
     let eighth = beat / 2; // Croche
     let sixteenth = beat / 4; // Double-croche
 
@@ -389,86 +460,97 @@ pub fn generate_classic_groove(steps: usize, density: f32, tension: f32) -> Vec<
             pattern[0].velocity = 1.0;
         }
         d if d < 0.4 => {
-            // Half-time avec 3: Kick sur 1 et 3
-            for &pos in &[0, 2 * beat] {
-                pattern[pos].kick = true;
-                pattern[pos].velocity = 1.0;
+            // Half-time avec accent secondaire
+            // En 4/4: 1 et 3
+            // En 3/4: 1
+            if beats_in_bar >= 4 {
+                for &pos in &[0, 2 * beat] {
+                    pattern[pos].kick = true;
+                    pattern[pos].velocity = 1.0;
+                }
+            } else {
+                pattern[0].kick = true;
+                pattern[0].velocity = 1.0;
             }
         }
         d if d < 0.6 => {
-            // Four-on-the-floor classique
-            for i in 0..4 {
+            // Straight beats (Pulse on every beat)
+            for i in 0..beats_in_bar {
                 pattern[i * beat].kick = true;
                 pattern[i * beat].velocity = if i == 0 { 1.0 } else { 0.85 };
             }
         }
         d if d < 0.8 => {
-            // Groove avec anticipation: 1, 2-and, 3, 4
+            // Groove avec anticipation
             pattern[0].kick = true;
             pattern[0].velocity = 1.0;
-            pattern[beat + eighth].kick = true; // "2-and" (anticipation du 3)
-            pattern[beat + eighth].velocity = 0.7;
-            pattern[2 * beat].kick = true;
-            pattern[2 * beat].velocity = 0.9;
-            pattern[3 * beat].kick = true;
-            pattern[3 * beat].velocity = 0.8;
+            if beats_in_bar >= 4 {
+                pattern[beat + eighth].kick = true; // "2-and" (anticipation du 3)
+                pattern[beat + eighth].velocity = 0.7;
+                pattern[2 * beat].kick = true;
+                pattern[2 * beat].velocity = 0.9;
+                pattern[3 * beat].kick = true;
+                pattern[3 * beat].velocity = 0.8;
+            } else if beats_in_bar == 3 {
+                pattern[beat + eighth].kick = true;
+                pattern[beat + eighth].velocity = 0.7;
+                pattern[2 * beat].kick = true;
+                pattern[2 * beat].velocity = 0.9;
+            }
         }
         _ => {
-            // Breakbeat style: 1, 2-and, 3-e, 4
+            // Breakbeat style
             pattern[0].kick = true;
             pattern[0].velocity = 1.0;
-            pattern[beat + eighth].kick = true;
-            pattern[beat + eighth].velocity = 0.75;
-            if sixteenth > 0 {
-                pattern[2 * beat + sixteenth].kick = true; // "3-e"
-                pattern[2 * beat + sixteenth].velocity = 0.7;
+            if beats_in_bar >= 4 {
+                pattern[beat + eighth].kick = true;
+                pattern[beat + eighth].velocity = 0.75;
+                if sixteenth > 0 {
+                    pattern[2 * beat + sixteenth].kick = true; // "3-e"
+                    pattern[2 * beat + sixteenth].velocity = 0.7;
+                }
+                pattern[3 * beat].kick = true;
+                pattern[3 * beat].velocity = 0.85;
+            } else {
+                for i in 0..beats_in_bar {
+                    pattern[i * beat].kick = true;
+                    pattern[i * beat].velocity = 0.9;
+                }
             }
-            pattern[3 * beat].kick = true;
-            pattern[3 * beat].velocity = 0.85;
         }
     }
 
     // === SNARE PATTERNS ===
-    // Toujours backbeat (2 et 4), avec ghost notes selon tension
+    // Backbeat
 
-    // Snares principales sur 2 et 4
-    pattern[beat].snare = true;
-    pattern[beat].velocity = 1.0;
-    pattern[3 * beat].snare = true;
-    pattern[3 * beat].velocity = 1.0;
+    if beats_in_bar == 4 {
+        // Standard 4/4 backbeat on 2 and 4
+        pattern[beat].snare = true;
+        pattern[beat].velocity = 1.0;
+        pattern[3 * beat].snare = true;
+        pattern[3 * beat].velocity = 1.0;
+    } else if beats_in_bar == 3 {
+        // 3/4 backbeat on 2 or 3 (using 3 here as requested)
+        pattern[2 * beat].snare = true;
+        pattern[2 * beat].velocity = 1.0;
+    } else if beats_in_bar == 2 {
+        pattern[beat].snare = true;
+        pattern[beat].velocity = 1.0;
+    } else {
+        // Odd meters: snare on last beat or something sensible
+        let pos = (beats_in_bar - 1) * beat;
+        pattern[pos].snare = true;
+        pattern[pos].velocity = 1.0;
+    }
 
     // Ghost notes selon tension
     if tension > 0.3 && sixteenth > 0 {
-        // Ghost note avant le 2 (pickup)
-        let ghost_pos = beat - sixteenth;
+        // Ghost note avant le premier backbeat
+        let first_backbeat = if beats_in_bar == 3 { 2 * beat } else { beat };
+        let ghost_pos = first_backbeat - sixteenth;
         if ghost_pos < steps {
             pattern[ghost_pos].snare = true;
             pattern[ghost_pos].velocity = 0.25;
-        }
-    }
-
-    if tension > 0.5 && sixteenth > 0 {
-        // Ghost note après le 2
-        let ghost_pos = beat + sixteenth;
-        pattern[ghost_pos].snare = true;
-        pattern[ghost_pos].velocity = 0.3;
-
-        // Ghost note avant le 4
-        let ghost_pos2 = 3 * beat - sixteenth;
-        if ghost_pos2 < steps {
-            pattern[ghost_pos2].snare = true;
-            pattern[ghost_pos2].velocity = 0.25;
-        }
-    }
-
-    if tension > 0.7 && sixteenth > 0 {
-        // Pattern de roulement: ghost notes sur les "e" et "a"
-        // Sur le temps 3 pour créer du mouvement
-        pattern[2 * beat + sixteenth].snare = true;
-        pattern[2 * beat + sixteenth].velocity = 0.2;
-        if sixteenth * 3 < beat {
-            pattern[2 * beat + sixteenth * 3].snare = true;
-            pattern[2 * beat + sixteenth * 3].velocity = 0.25;
         }
     }
 
@@ -477,7 +559,7 @@ pub fn generate_classic_groove(steps: usize, density: f32, tension: f32) -> Vec<
 
     if density < 0.3 {
         // Sparse: juste les off-beats (croches "and")
-        for i in 0..4 {
+        for i in 0..beats_in_bar {
             let pos = i * beat + eighth;
             if pos < steps && !pattern[pos].kick && !pattern[pos].snare {
                 pattern[pos].hat = true;
@@ -486,7 +568,7 @@ pub fn generate_classic_groove(steps: usize, density: f32, tension: f32) -> Vec<
         }
     } else if density < 0.6 {
         // Standard: croches régulières
-        for i in 0..8 {
+        for i in 0..(beats_in_bar * 2) {
             let pos = i * eighth;
             if pos < steps {
                 let on_beat = i % 2 == 0;
@@ -501,7 +583,7 @@ pub fn generate_classic_groove(steps: usize, density: f32, tension: f32) -> Vec<
     } else {
         // Dense: doubles-croches avec accents
         if sixteenth > 0 {
-            for i in 0..16 {
+            for i in 0..(beats_in_bar * 4) {
                 let pos = i * sixteenth;
                 if pos >= steps {
                     break;
@@ -528,32 +610,18 @@ pub fn generate_classic_groove(steps: usize, density: f32, tension: f32) -> Vec<
         }
     }
 
-    // Open hi-hat sur certaines positions selon tension
-    if tension > 0.6 {
-        // Accent fort sur le "and" du 4 pour transition
-        let open_pos = 3 * beat + eighth;
-        if open_pos < steps {
-            pattern[open_pos].hat = true;
-            pattern[open_pos].velocity = 0.8;
-        }
-    }
-
     // === BASS PATTERNS ===
-    // Suivre le kick avec léger décalage ou remplissage
     for i in 0..steps {
         if pattern[i].kick {
             pattern[i].bass = true;
         } else if tension > 0.4 && i >= sixteenth && pattern[i - sixteenth].kick {
-            // Syncopated bass after kick if high tension
             pattern[i].bass = true;
         }
     }
 
     // === LEAD PATTERNS ===
-    // Mélodie simple sur division principale
     let melody_interval = if density < 0.4 { beat } else { eighth };
     for i in (0..steps).step_by(melody_interval) {
-        // Lead on 1, 2-and, etc depending on tension
         let jitter = if tension > 0.5 && sixteenth > 0 { sixteenth } else { 0 };
         let final_pos = (i + jitter) % steps;
         pattern[final_pos].lead = true;

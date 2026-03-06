@@ -31,9 +31,11 @@
 			class="rounded-full px-2 py-0.5 text-xs font-semibold
       {rhythmMode === 0
 				? 'border border-orange-500/50 bg-orange-500/20 text-orange-400'
-				: 'border border-purple-500/50 bg-purple-500/20 text-purple-400'}"
+				: rhythmMode === 1
+					? 'border border-purple-500/50 bg-purple-500/20 text-purple-400'
+					: 'border border-teal-500/50 bg-teal-500/20 text-teal-400'}"
 		>
-			{rhythmMode === 0 ? 'Euclidean' : 'PerfectBalance'}
+			{rhythmMode === 0 ? 'Euclidean' : rhythmMode === 1 ? 'PerfectBalance' : 'ClassicGroove'}
 		</span>
 		<span class="font-mono text-xs text-neutral-500">
 			{primarySteps} steps
@@ -46,7 +48,7 @@
 			pulses={primaryPulses}
 			rotation={primaryRotation}
 			externalPattern={primaryPattern.length > 0 ? primaryPattern : null}
-			color={rhythmMode === 0 ? '#ff3e00' : '#a855f7'}
+			color={rhythmMode === 0 ? '#ff3e00' : rhythmMode === 1 ? '#a855f7' : '#14b8a6'}
 			label={rhythmMode === 0 ? 'PRIMARY' : 'GROOVE'}
 			{currentStep}
 			radius={rhythmMode === 0 ? 80 : 100}

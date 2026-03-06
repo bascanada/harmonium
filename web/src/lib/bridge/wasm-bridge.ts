@@ -167,7 +167,7 @@ export class WasmBridge extends BaseBridge {
 
 		// Pattern handling
 		const rawPrimary = h.get_primary_pattern(); // Int32Array (0 or 1)
-		updateArray('primaryPattern', Array.from(rawPrimary));
+		updateArray('primaryPattern', Array.from(rawPrimary).map(x => x !== 0));
 
 		// Rhythm state - Secondary
 		update('secondarySteps', h.get_secondary_steps());
@@ -175,7 +175,7 @@ export class WasmBridge extends BaseBridge {
 		update('secondaryRotation', h.get_secondary_rotation());
 
 		const rawSecondary = h.get_secondary_pattern();
-		updateArray('secondaryPattern', Array.from(rawSecondary));
+		updateArray('secondaryPattern', Array.from(rawSecondary).map(x => x !== 0));
 
 		// Control mode
 		update('isEmotionMode', this._isEmotionMode);
@@ -261,5 +261,7 @@ export class WasmBridge extends BaseBridge {
 		this.currentState.secondarySteps = secondarySteps;
 		this.currentState.secondaryPulses = secondaryPulses;
 		this.currentState.secondaryRotation = secondaryRotation;
+		
+		this.notifySubscribers();
 	}
 }

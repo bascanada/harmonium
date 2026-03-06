@@ -15,6 +15,37 @@ use serde::{Deserialize, Serialize};
 
 use crate::{harmony::HarmonyMode, sequencer::RhythmMode};
 
+/// Signature rythmique (numérateur/dénominateur)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TimeSignature {
+    pub numerator: usize,
+    pub denominator: usize,
+}
+
+impl Default for TimeSignature {
+    fn default() -> Self {
+        Self { numerator: 4, denominator: 4 }
+    }
+}
+
+impl TimeSignature {
+    #[must_use]
+    pub const fn new(numerator: usize, denominator: usize) -> Self {
+        Self { numerator, denominator }
+    }
+
+    /// Calcule le nombre de steps par mesure selon une résolution (ticks par noire).
+    /// Une résolution standard est de 4 ticks par noire (doubles croches).
+    #[must_use]
+    pub const fn steps_per_bar(&self, ticks_per_beat: usize) -> usize {
+        // numerator * (ticks_per_beat * 4 / denominator)
+        // Pour 4/4, 4 * (4 * 4 / 4) = 16 steps.
+        // Pour 3/4, 3 * (4 * 4 / 4) = 12 steps.
+        // Pour 7/8, 7 * (4 * 4 / 8) = 14 steps.
+        (self.numerator * ticks_per_beat * 4) / self.denominator
+    }
+}
+
 /// État du mode de contrôle (émotion vs direct)
 /// Partagé entre VST et standalone builds
 #[derive(Clone, Debug)]
@@ -53,6 +84,10 @@ pub struct ControlMode {
     pub current_step: u32,
     /// Current measure number
     pub current_measure: u32,
+    /// Current time signature
+    pub time_signature: TimeSignature,
+    /// Total number of bars in the current sequence/song
+    pub total_bars: usize,
     /// Primary pattern (for visualization)
     pub primary_pattern: Vec<bool>,
     /// Secondary pattern (for visualization)
@@ -87,6 +122,8 @@ impl Default for ControlMode {
             // Live state
             current_step: 0,
             current_measure: 1,
+            time_signature: TimeSignature::default(),
+            total_bars: 4,
             primary_pattern: vec![],
             secondary_pattern: vec![],
             current_chord: "I".to_string(),
@@ -121,6 +158,10 @@ pub struct MusicalParams {
     // ═══════════════════════════════════════════════════════════════════
     /// BPM direct (pas calculé depuis arousal)
     pub bpm: f32,
+
+    /// Time Signature (numerator/denominator)
+    #[serde(default)]
+    pub time_signature: TimeSignature,
 
     /// Volume master (0.0 - 1.0)
     #[serde(default = "default_master_volume")]
@@ -364,6 +405,7 @@ impl Default for MusicalParams {
         Self {
             // Global
             bpm: 120.0,
+            time_signature: TimeSignature::default(),
             master_volume: default_master_volume(),
 
             // Modules
@@ -509,6 +551,7 @@ pub struct VisualizationEvent {
     pub note_midi: u8,
     pub instrument: u8, // 0=Bass, 1=Lead, 2=Snare, 3=Hat
     pub step: usize,
+    pub bar: usize,
     pub duration_samples: usize,
 }
 
@@ -662,6 +705,56 @@ pub struct CurrentState {
     pub smoothness: f32,
     pub valence: f32,
     pub arousal: f32,
+}
+
+/// Musical Conductor - Tracks the absolute musical time.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Conductor {
+    pub current_bar: usize,
+    pub current_beat: usize,
+    pub current_tick: usize,
+    pub time_signature: TimeSignature,
+    pub ticks_per_beat: usize,
+}
+
+impl Default for Conductor {
+    fn default() -> Self {
+        Self {
+            current_bar: 1,
+            current_beat: 1,
+            current_tick: 0,
+            time_signature: TimeSignature::default(),
+            ticks_per_beat: 4, // 16th notes resolution
+        }
+    }
+}
+
+impl Conductor {
+    /// Advance the conductor by one tick.
+    /// Returns true if a barline was crossed.
+    pub fn tick(&mut self) -> bool {
+        let mut bar_crossed = false;
+        self.current_tick += 1;
+
+        if self.current_tick >= self.ticks_per_beat {
+            self.current_tick = 0;
+            self.current_beat += 1;
+
+            if self.current_beat > self.time_signature.numerator {
+                self.current_beat = 1;
+                self.current_bar += 1;
+                bar_crossed = true;
+            }
+        }
+        bar_crossed
+    }
+
+    /// Reset the conductor to the beginning.
+    pub fn reset(&mut self) {
+        self.current_bar = 1;
+        self.current_beat = 1;
+        self.current_tick = 0;
+    }
 }
 
 impl EngineParams {
