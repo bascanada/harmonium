@@ -46,6 +46,34 @@ impl TimeSignature {
     }
 }
 
+/// Tension state from TRQ (Tension-Rhythmic-Quality) Matrix
+/// Maps emotional input (arousal, valence, tension) to coherent
+/// harmonic and rhythmic tension combinations.
+///
+/// The four states represent different combinations of harmonic tension
+/// (LCC level) and rhythmic oddity:
+/// - **Stability**: Low LCC (1-3), Low Oddity (4-5) — Calm, consonant, predictable
+/// - **HarmonicSuspense**: High LCC (4-7), Low Oddity (4-5) — Dissonant harmony, stable rhythm
+/// - **RhythmicDrive**: Low LCC (1-3), High Oddity (6-7+) — Consonant harmony, syncopated rhythm
+/// - **PeakClimax**: High LCC (4-7), High Oddity (6-7+) — Maximum tension on both dimensions
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TensionState {
+    /// Low harmonic tension, low rhythmic oddity (calm, stable)
+    Stability,
+    /// High harmonic tension, low rhythmic oddity (suspenseful, dissonant)
+    HarmonicSuspense,
+    /// Low harmonic tension, high rhythmic oddity (driving, syncopated)
+    RhythmicDrive,
+    /// High harmonic tension, high rhythmic oddity (peak climax, chaotic)
+    PeakClimax,
+}
+
+impl Default for TensionState {
+    fn default() -> Self {
+        Self::Stability
+    }
+}
+
 /// État du mode de contrôle (émotion vs direct)
 /// Partagé entre VST et standalone builds
 #[derive(Clone, Debug)]
