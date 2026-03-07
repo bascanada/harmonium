@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use arrayvec::ArrayString;
-use harmonium_ai::mapper::EmotionMapper;
+use harmonium_ai::mapper::{EmotionMapper, UnifiedTensionSystem};
 use harmonium_audio::{
     backend::AudioRenderer,
     voicing::{BlockChordVoicer, Voicer, VoicerContext},
@@ -70,6 +70,8 @@ pub struct HarmoniumEngine {
     emotion_mapper: EmotionMapper,
     /// Paramètres musicaux calculés (ou définis directement)
     musical_params: MusicalParams,
+    /// Unified tension system coupling harmonic and rhythmic tension
+    unified_tension: UnifiedTensionSystem,
     /// État partagé pour le mode de contrôle (émotion vs direct)
     control_mode: Arc<Mutex<ControlMode>>,
 
@@ -167,6 +169,10 @@ impl HarmoniumEngine {
         let emotion_mapper = EmotionMapper::new();
         let musical_params = emotion_mapper.map(&initial_params);
 
+        // Initialize unified tension system
+        let mut unified_tension = UnifiedTensionSystem::new();
+        unified_tension.update(initial_params.arousal, initial_params.valence, initial_params.tension);
+
         // Initialize session key/scale in control_mode for UI
         if let Ok(mut mode) = control_mode.lock() {
             mode.session_key = config.key.clone();
@@ -208,6 +214,7 @@ impl HarmoniumEngine {
             // Nouvelle architecture
             emotion_mapper,
             musical_params,
+            unified_tension,
             control_mode,
             is_recording_wav: false,
             is_recording_midi: false,
@@ -328,6 +335,15 @@ impl HarmoniumEngine {
             self.musical_params.enable_melody = guard.enable_melody;
             self.musical_params.enable_voicing = guard.enable_voicing;
         }
+
+        // === UPDATE UNIFIED TENSION SYSTEM ===
+        // Recalculate TRQ state based on current emotional parameters
+        let arousal_from_bpm = (self.musical_params.bpm - 70.0) / 110.0;
+        self.unified_tension.update(
+            arousal_from_bpm,
+            self.musical_params.harmony_valence,
+            self.musical_params.harmony_tension,
+        );
 
         let mp = &self.musical_params; // Raccourci pour la lisibilité
 
@@ -558,6 +574,8 @@ impl HarmoniumEngine {
             self.sequencer_primary.tension = mp.rhythm_tension;
             self.sequencer_primary.density = mp.rhythm_density;
             self.sequencer_primary.pulses = target_pulses;
+            // Pass target oddity from unified tension system
+            self.sequencer_primary.target_oddity = Some(self.unified_tension.calculate_target_oddity());
             // Pattern preparation now happens only on barlines in tick()
             // New parameters will take effect at next barline
             self.last_pulse_count = target_pulses;
@@ -585,6 +603,8 @@ impl HarmoniumEngine {
             }
             self.sequencer_secondary.pulses = secondary_pulses;
             self.sequencer_secondary.rotation = secondary_rotation;
+            // Pass target oddity from unified tension system
+            self.sequencer_secondary.target_oddity = Some(self.unified_tension.calculate_target_oddity());
             // Pattern preparation now happens only on barlines in tick()
             // New parameters will take effect at next barline
         }
@@ -916,7 +936,10 @@ impl HarmoniumEngine {
                 (chord_root_offset as u8) % 12,
                 self.current_chord_type,
             );
-            let lcc_level = self.lcc.level_for_tension(self.current_state.tension);
+            // Use LCC level from unified tension system (couples harmonic and rhythmic tension)
+            let lcc_level_num = self.unified_tension.calculate_lcc_level() as u8;
+            let lcc_level = harmonium_core::harmony::lydian_chromatic::LccLevel::from_u8(lcc_level_num)
+                .unwrap_or(harmonium_core::harmony::lydian_chromatic::LccLevel::Lydian);
             let parent = self.lcc.parent_lydian(&chord);
             let lcc_scale = self.lcc.get_scale(parent, lcc_level);
 
