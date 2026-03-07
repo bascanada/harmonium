@@ -113,7 +113,8 @@ fn generate_and_export(name: &str, params: &MusicalParams, measures: usize, seed
         steps_in_chord += 1;
 
         // === RHYTHM: Get triggers from sequencer ===
-        let trigger = sequencer.tick();
+        let tick_result = sequencer.tick();
+        let trigger = tick_result.trigger;
 
         // === BASS (Channel 0) ===
         if trigger.kick {
@@ -475,6 +476,46 @@ fn test_scenario_jazz_swing() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ODD METER TESTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+#[ignore]
+fn test_odd_meter_3_4() {
+    let mut params = MusicalParams::default();
+    params.time_signature = harmonium_core::params::TimeSignature::new(3, 4);
+    params.rhythm_mode = RhythmMode::ClassicGroove;
+    params.rhythm_steps = 12; // 3 beats * 4 ticks
+    params.rhythm_density = 0.5;
+
+    generate_and_export("odd_meter_3_4", &params, 4, 42);
+}
+
+#[test]
+#[ignore]
+fn test_odd_meter_5_4() {
+    let mut params = MusicalParams::default();
+    params.time_signature = harmonium_core::params::TimeSignature::new(5, 4);
+    params.rhythm_mode = RhythmMode::ClassicGroove;
+    params.rhythm_steps = 20; // 5 beats * 4 ticks
+    params.rhythm_density = 0.6;
+
+    generate_and_export("odd_meter_5_4", &params, 4, 42);
+}
+
+#[test]
+#[ignore]
+fn test_odd_meter_7_8() {
+    let mut params = MusicalParams::default();
+    params.time_signature = harmonium_core::params::TimeSignature::new(7, 8);
+    params.rhythm_mode = RhythmMode::ClassicGroove;
+    params.rhythm_steps = 14; // 7 * (4*4/8) = 14 ticks
+    params.rhythm_density = 0.7;
+
+    generate_and_export("odd_meter_7_8", &params, 4, 42);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // GENERATE ALL
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -515,6 +556,11 @@ fn generate_all_music_tests() {
     test_scenario_energetic_dance();
     test_scenario_dark_tense();
     test_scenario_jazz_swing();
+
+    // Odd meters
+    test_odd_meter_3_4();
+    test_odd_meter_5_4();
+    test_odd_meter_7_8();
 
     println!("\n========================================");
     println!("Done! Open files in MuseScore to review.");

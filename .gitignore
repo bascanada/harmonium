@@ -17,3 +17,6 @@ pkg/
 *.mid*
 
 .obsidian
+
+*.wav
+output.json

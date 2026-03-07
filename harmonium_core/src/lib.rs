@@ -79,7 +79,8 @@ impl MusicKernel {
             self.accumulator -= step_duration;
 
             // 3. Tick
-            let trigger = self.sequencer.tick();
+            let tick_result = self.sequencer.tick();
+            let trigger = tick_result.trigger;
 
             // 4. Generate Events
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]

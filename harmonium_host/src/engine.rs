@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use arrayvec::ArrayString;
-use harmonium_ai::mapper::EmotionMapper;
+use harmonium_ai::mapper::{EmotionMapper, UnifiedTensionSystem};
 use harmonium_audio::{
     backend::AudioRenderer,
     voicing::{BlockChordVoicer, Voicer, VoicerContext},
@@ -46,7 +46,9 @@ pub struct HarmoniumEngine {
     last_pulse_count: usize,
     last_rotation: usize, // Pour détecter les changements de rotation
     // === PROGRESSION HARMONIQUE ADAPTATIVE ===
-    measure_counter: usize, // Compte les mesures (16 steps = 1 mesure)
+    conductor: harmonium_core::params::Conductor,
+    // NEW: Pending time signature change (queued for next barline)
+    pending_time_signature_change: Option<harmonium_core::params::TimeSignature>,
     current_progression: Vec<ChordStep>, // Progression chargée (dépend de valence/tension)
     progression_index: usize, // Position dans la progression actuelle
     last_valence_choice: f32, // Hystérésis: valence qui a déclenché le dernier choix
@@ -68,6 +70,8 @@ pub struct HarmoniumEngine {
     emotion_mapper: EmotionMapper,
     /// Paramètres musicaux calculés (ou définis directement)
     musical_params: MusicalParams,
+    /// Unified tension system coupling harmonic and rhythmic tension
+    unified_tension: UnifiedTensionSystem,
     /// État partagé pour le mode de contrôle (émotion vs direct)
     control_mode: Arc<Mutex<ControlMode>>,
 
@@ -165,6 +169,10 @@ impl HarmoniumEngine {
         let emotion_mapper = EmotionMapper::new();
         let musical_params = emotion_mapper.map(&initial_params);
 
+        // Initialize unified tension system
+        let mut unified_tension = UnifiedTensionSystem::new();
+        unified_tension.update(initial_params.arousal, initial_params.valence, initial_params.tension);
+
         // Initialize session key/scale in control_mode for UI
         if let Ok(mut mode) = control_mode.lock() {
             mode.session_key = config.key.clone();
@@ -188,7 +196,8 @@ impl HarmoniumEngine {
             samples_per_step,
             last_pulse_count: initial_pulses,
             last_rotation: 0,
-            measure_counter: 0,
+            conductor: harmonium_core::params::Conductor::default(),
+            pending_time_signature_change: None,
             current_progression,
             progression_index: 0,
             last_valence_choice: initial_params.valence,
@@ -205,6 +214,7 @@ impl HarmoniumEngine {
             // Nouvelle architecture
             emotion_mapper,
             musical_params,
+            unified_tension,
             control_mode,
             is_recording_wav: false,
             is_recording_midi: false,
@@ -325,6 +335,15 @@ impl HarmoniumEngine {
             self.musical_params.enable_melody = guard.enable_melody;
             self.musical_params.enable_voicing = guard.enable_voicing;
         }
+
+        // === UPDATE UNIFIED TENSION SYSTEM ===
+        // Recalculate TRQ state based on current emotional parameters
+        let arousal_from_bpm = (self.musical_params.bpm - 70.0) / 110.0;
+        self.unified_tension.update(
+            arousal_from_bpm,
+            self.musical_params.harmony_valence,
+            self.musical_params.harmony_tension,
+        );
 
         let mp = &self.musical_params; // Raccourci pour la lisibilité
 
@@ -514,8 +533,21 @@ impl HarmoniumEngine {
             }
         }
 
-        // Update steps if changed while playing
-        if self.sequencer_primary.steps != mp.rhythm_steps {
+        // Queue time signature change for next barline (don't apply immediately)
+        if self.sequencer_primary.time_signature != mp.time_signature {
+            log::info(&format!(
+                "⏱️  Time Signature change queued: {}/{} → {}/{} (will apply at next barline)",
+                self.sequencer_primary.time_signature.numerator,
+                self.sequencer_primary.time_signature.denominator,
+                mp.time_signature.numerator,
+                mp.time_signature.denominator
+            ));
+            self.pending_time_signature_change = Some(mp.time_signature);
+            // Change will be applied on next barline in tick()
+        }
+
+        // Update steps if changed while playing (manual override or mode change)
+        if self.sequencer_primary.steps != mp.rhythm_steps && mp.rhythm_steps > 0 {
             self.sequencer_primary.upgrade_to_steps(mp.rhythm_steps);
         }
 
@@ -542,12 +574,16 @@ impl HarmoniumEngine {
             self.sequencer_primary.tension = mp.rhythm_tension;
             self.sequencer_primary.density = mp.rhythm_density;
             self.sequencer_primary.pulses = target_pulses;
-            self.sequencer_primary.regenerate_pattern();
+            // Pass target oddity from unified tension system
+            self.sequencer_primary.target_oddity = Some(self.unified_tension.calculate_target_oddity());
+            // Pattern preparation now happens only on barlines in tick()
+            // New parameters will take effect at next barline
             self.last_pulse_count = target_pulses;
         }
 
         if target_rotation != self.last_rotation {
-            self.sequencer_primary.set_rotation(target_rotation);
+            self.sequencer_primary.rotation = target_rotation;
+            // Pattern preparation now happens only on barlines in tick()
             self.last_rotation = target_rotation;
         }
 
@@ -567,7 +603,10 @@ impl HarmoniumEngine {
             }
             self.sequencer_secondary.pulses = secondary_pulses;
             self.sequencer_secondary.rotation = secondary_rotation;
-            self.sequencer_secondary.regenerate_pattern();
+            // Pass target oddity from unified tension system
+            self.sequencer_secondary.target_oddity = Some(self.unified_tension.calculate_target_oddity());
+            // Pattern preparation now happens only on barlines in tick()
+            // New parameters will take effect at next barline
         }
 
         // Timing
@@ -588,25 +627,98 @@ impl HarmoniumEngine {
     }
 
     fn tick(&mut self) {
-        let trigger_primary = self.sequencer_primary.tick();
-        let trigger_secondary = if self.sequencer_primary.mode == RhythmMode::Euclidean {
+        let tick_primary = self.sequencer_primary.tick();
+        let trigger_primary = tick_primary.trigger;
+
+        let tick_secondary = if self.sequencer_primary.mode == RhythmMode::Euclidean {
             self.sequencer_secondary.tick()
         } else {
-            StepTrigger::default()
+            harmonium_core::sequencer::TickResult::default()
         };
+        let trigger_secondary = tick_secondary.trigger;
+
+        // Advance conductor
+        let bar_crossed = self.conductor.tick();
+
+        // === BARLINE-BASED BUFFER SWAP (Phase 1) ===
+        if bar_crossed {
+            // Log barline crossing
+            log::info(&format!(
+                "♩ Bar {} | Beat {}/{} | Time Signature: {}/{}",
+                self.conductor.current_bar,
+                self.conductor.current_beat,
+                self.conductor.time_signature.numerator,
+                self.conductor.time_signature.numerator,
+                self.conductor.time_signature.denominator
+            ));
+
+            // Apply pending time signature change
+            if let Some(new_ts) = self.pending_time_signature_change.take() {
+                log::info(&format!(
+                    "⚡ Time Signature Change: {}/{} → {}/{} (queued mid-bar, applied at barline)",
+                    self.conductor.time_signature.numerator,
+                    self.conductor.time_signature.denominator,
+                    new_ts.numerator,
+                    new_ts.denominator
+                ));
+
+                self.conductor.time_signature = new_ts;
+                let new_steps = new_ts.steps_per_bar(self.sequencer_primary.ticks_per_beat);
+
+                self.sequencer_primary.time_signature = new_ts;
+                self.sequencer_primary.steps = new_steps;
+                self.sequencer_secondary.time_signature = new_ts;
+                // Patterns will regenerate with new meter on next prepare_next_bar()
+
+                log::info(&format!(
+                    "   → New bar length: {} steps | Primary: {} | Secondary: {}",
+                    new_steps,
+                    self.sequencer_primary.steps,
+                    self.sequencer_secondary.steps
+                ));
+            }
+
+            // Swap both sequencer buffers
+            let mut swapped_primary = false;
+            let mut swapped_secondary = false;
+
+            if let Some(next) = self.sequencer_primary.next_pattern.take() {
+                self.sequencer_primary.pattern = next;
+                self.sequencer_primary.steps = self.sequencer_primary.pattern.len();
+                swapped_primary = true;
+            }
+            if let Some(next) = self.sequencer_secondary.next_pattern.take() {
+                self.sequencer_secondary.pattern = next;
+                self.sequencer_secondary.steps = self.sequencer_secondary.pattern.len();
+                swapped_secondary = true;
+            }
+
+            if swapped_primary || swapped_secondary {
+                log::info(&format!(
+                    "   → Pattern buffers swapped | Primary: {} | Secondary: {}",
+                    if swapped_primary { "✓ swapped" } else { "- unchanged" },
+                    if swapped_secondary { "✓ swapped" } else { "- unchanged" }
+                ));
+            }
+
+            // Prepare next bars immediately for both sequencers
+            self.sequencer_primary.prepare_next_bar();
+            self.sequencer_secondary.prepare_next_bar();
+        }
 
         // === HARMONY & PROGRESSION ===
         // Skip harmony updates if disabled
         let harmony_enabled = self.musical_params.enable_harmony;
 
-        if harmony_enabled && self.sequencer_primary.current_step == 0 {
-            self.measure_counter += 1;
+        if harmony_enabled && bar_crossed {
+            // Update conductor time signature if needed
+            self.conductor.time_signature = self.musical_params.time_signature;
 
             match self.harmony_mode {
                 HarmonyMode::Basic => {
                     // === MODE BASIC: Progressions par quadrants émotionnels ===
                     // Palette Selection (Hysteresis)
-                    if self.measure_counter.is_multiple_of(4) {
+                    if self.conductor.current_bar.is_multiple_of(4) {
                         let valence_delta =
                             (self.current_state.valence - self.last_valence_choice).abs();
                         let tension_delta =
@@ -636,7 +748,7 @@ impl HarmoniumEngine {
 
                     // Chord Progression
                     let measures_per_chord = if self.current_state.tension > 0.6 { 1 } else { 2 };
-                    if self.measure_counter.is_multiple_of(measures_per_chord) {
+                    if self.conductor.current_bar.is_multiple_of(measures_per_chord) {
                         self.progression_index =
                             (self.progression_index + 1) % self.current_progression.len();
                         let chord = &self.current_progression[self.progression_index];
@@ -661,14 +773,14 @@ impl HarmoniumEngine {
                         // Phase 2.5: Convert String to ArrayString (unavoidable allocation once per chord change)
                         self.last_harmony_state.chord_name =
                             ArrayString::from(&chord_name).unwrap_or_default();
-                        self.last_harmony_state.measure_number = self.measure_counter;
+                        self.last_harmony_state.measure_number = self.conductor.current_bar;
                     }
                 }
 
                 HarmonyMode::Driver => {
                     // === MODE DRIVER: Steedman Grammar + Neo-Riemannian + LCC ===
                     let measures_per_chord = if self.current_state.tension > 0.6 { 1 } else { 2 };
-                    if self.measure_counter.is_multiple_of(measures_per_chord)
+                    if self.conductor.current_bar.is_multiple_of(measures_per_chord)
                         && let Some(ref mut driver) = self.harmonic_driver
                     {
                         let mut rng = rand::thread_rng();
@@ -708,7 +820,7 @@ impl HarmoniumEngine {
                         // Phase 2.5: Convert String to ArrayString (unavoidable allocation once per chord change)
                         self.last_harmony_state.chord_name =
                             ArrayString::from(&chord_name).unwrap_or_default();
-                        self.last_harmony_state.measure_number = self.measure_counter;
+                        self.last_harmony_state.measure_number = self.conductor.current_bar;
                         self.last_harmony_state.progression_name =
                             ArrayString::from("Driver").unwrap_or_default();
                         self.last_harmony_state.progression_length = 0; // Driver n'a pas de longueur fixe
@@ -824,7 +936,10 @@ impl HarmoniumEngine {
                 (chord_root_offset as u8) % 12,
                 self.current_chord_type,
             );
-            let lcc_level = self.lcc.level_for_tension(self.current_state.tension);
+            // Use LCC level from unified tension system (couples harmonic and rhythmic tension)
+            let lcc_level_num = self.unified_tension.calculate_lcc_level() as u8;
+            let lcc_level = harmonium_core::harmony::lydian_chromatic::LccLevel::from_u8(lcc_level_num)
+                .unwrap_or(harmonium_core::harmony::lydian_chromatic::LccLevel::Lydian);
             let parent = self.lcc.parent_lydian(&chord);
             let lcc_scale = self.lcc.get_scale(parent, lcc_level);
 
@@ -956,6 +1071,7 @@ impl HarmoniumEngine {
                         note_midi: *note,
                         instrument: *channel,
                         step: self.sequencer_primary.current_step,
+                        bar: self.conductor.current_bar,
                         duration_samples: self.samples_per_step,
                     };
                     // Push to SPSC queue (non-blocking, drops if full)
@@ -973,7 +1089,8 @@ impl HarmoniumEngine {
         // Update live state for UI visualization (VST webview)
         // if let Ok(mut mode) = self.control_mode.try_lock() {
         //     mode.current_step = self.sequencer_primary.current_step as u32;
-        //     mode.current_measure = self.measure_counter as u32;
+        //     mode.current_measure = self.conductor.current_bar as u32;
+        //     mode.time_signature = self.conductor.time_signature;
         //     mode.primary_pattern = self.sequencer_primary.pattern.iter().map(|t| t.is_any()).collect();
         //     mode.secondary_pattern = self.sequencer_secondary.pattern.iter().map(|t| t.is_any()).collect();
         //     mode.current_chord = self.last_harmony_state.chord_name.clone();
