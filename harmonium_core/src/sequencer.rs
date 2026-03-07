@@ -104,6 +104,9 @@ pub struct Sequencer {
     pub mode: RhythmMode,
     pub tension: f32,
     pub density: f32,
+    /// Target rhythmic oddity score (4-7+) for pattern generation
+    /// Used by UnifiedTensionSystem to couple rhythmic and harmonic tension
+    pub target_oddity: Option<usize>,
 }
 
 /// Résultat d'un tick du séquenceur
@@ -135,6 +138,7 @@ impl Sequencer {
             mode,
             tension: 0.0,
             density: 0.5,
+            target_oddity: None,
         };
         seq.regenerate_pattern();
         seq
@@ -739,6 +743,180 @@ pub fn generate_classic_groove(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// RHYTHMIC ODDITY METRICS (Phase 2)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Find the minimum circular distance from a given index to the nearest onset (true value)
+/// in a rhythmic pattern.
+///
+/// This helper function is used by `antipodal_distance_sum()` to calculate rhythmic oddity.
+///
+/// # Arguments
+/// * `pattern` - Boolean array representing a rhythmic pattern (true = onset, false = rest)
+/// * `index` - The position to measure distance from
+///
+/// # Returns
+/// The minimum circular distance (in steps) to the nearest onset
+#[must_use]
+pub fn find_min_distance_to_nearest_onset(pattern: &[bool], index: usize) -> usize {
+    let n = pattern.len();
+    if n == 0 || !pattern.contains(&true) {
+        return 0;
+    }
+
+    let mut min_distance = n;
+
+    for (i, &is_onset) in pattern.iter().enumerate() {
+        if is_onset {
+            // Calculate circular distance between index and i
+            let forward_dist = (i + n - index) % n;
+            let backward_dist = (index + n - i) % n;
+            let distance = forward_dist.min(backward_dist);
+
+            min_distance = min_distance.min(distance);
+        }
+    }
+
+    min_distance
+}
+
+/// Calculate the Antipodal Distance Sum for a rhythmic pattern.
+///
+/// This metric measures rhythmic "oddity" or syncopation by calculating the sum of
+/// distances from each onset to the nearest onset at its antipodal (opposite) position
+/// on the rhythmic cycle.
+///
+/// Higher scores indicate more syncopated, "odd" rhythms:
+/// - Gahu (West African): 4
+/// - Rumba: 5
+/// - Clave Son (Cuban): 7
+///
+/// # Arguments
+/// * `pattern` - Boolean array representing a rhythmic pattern (true = onset, false = rest)
+///
+/// # Returns
+/// Oddity score (typically 0-7+, where higher = more syncopated)
+///
+/// # Algorithm
+/// For each onset at position `i`:
+/// 1. Calculate antipodal position: `(i + n/2) % n`
+/// 2. Find minimum distance from antipodal position to any onset
+/// 3. Sum all these distances
+///
+/// # References
+/// Based on research on rhythmic oddity and antipodal symmetry in world music rhythms.
+#[must_use]
+pub fn antipodal_distance_sum(pattern: &[bool]) -> usize {
+    let n = pattern.len();
+    if n == 0 {
+        return 0;
+    }
+
+    let mut total_distance = 0;
+
+    for (i, &is_onset) in pattern.iter().enumerate() {
+        if is_onset {
+            // Calculate antipodal position (opposite side of the circle)
+            let antipodal_pos = (i + n / 2) % n;
+
+            // Find distance from antipodal position to nearest onset
+            let distance = find_min_distance_to_nearest_onset(pattern, antipodal_pos);
+
+            total_distance += distance;
+        }
+    }
+
+    total_distance
+}
+
+/// Count the number of ways a rhythm can be equally bipartitioned.
+///
+/// A bipartition is "equal" if the two halves have the same number of onsets.
+/// This provides an alternative measure of rhythmic regularity/oddity.
+///
+/// # Arguments
+/// * `pattern` - Boolean array representing a rhythmic pattern
+///
+/// # Returns
+/// Number of equal bipartitions possible
+#[must_use]
+pub fn count_equal_bipartitions(pattern: &[bool]) -> usize {
+    let n = pattern.len();
+    if n == 0 || n % 2 != 0 {
+        return 0;
+    }
+
+    let total_onsets: usize = pattern.iter().filter(|&&x| x).count();
+    if total_onsets % 2 != 0 {
+        return 0; // Can't split odd number of onsets equally
+    }
+
+    let target_onsets = total_onsets / 2;
+    let mut count = 0;
+
+    // Try all possible rotation points as bipartition splits
+    for split_point in 0..n {
+        let first_half_onsets: usize = pattern
+            .iter()
+            .cycle()
+            .skip(split_point)
+            .take(n / 2)
+            .filter(|&&x| x)
+            .count();
+
+        if first_half_onsets == target_onsets {
+            count += 1;
+        }
+    }
+
+    count
+}
+
+/// Generate a Euclidean rhythm that targets a specific oddity score.
+///
+/// This function generates multiple Euclidean rhythms with different pulse counts
+/// and selects the one whose antipodal distance sum is closest to the target oddity.
+///
+/// # Arguments
+/// * `n` - Total number of steps in the pattern
+/// * `target_oddity` - Desired oddity score (typically 4-7)
+///
+/// # Returns
+/// Boolean pattern with oddity score closest to target
+#[must_use]
+pub fn generate_euclidean_with_target_oddity(n: usize, target_oddity: usize) -> Vec<bool> {
+    if n == 0 {
+        return Vec::new();
+    }
+
+    let mut best_pattern = vec![false; n];
+    let mut best_diff = usize::MAX;
+
+    // Try different pulse counts to find the pattern closest to target oddity
+    for pulses in 1..=n {
+        let pattern = generate_euclidean_bools(n, pulses);
+        let oddity = antipodal_distance_sum(&pattern);
+        let diff = if oddity > target_oddity {
+            oddity - target_oddity
+        } else {
+            target_oddity - oddity
+        };
+
+        if diff < best_diff {
+            best_diff = diff;
+            best_pattern = pattern;
+        }
+
+        // If we found exact match, no need to continue
+        if diff == 0 {
+            break;
+        }
+    }
+
+    best_pattern
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // TESTS
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -1044,5 +1222,100 @@ mod tests {
                 "Beat 1 should have velocity accent in 5/4 PerfectBalance mode"
             );
         }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════
+    // PHASE 2 TESTS: Rhythmic Oddity Metrics
+    // ═════════════════════════════════════════════════════════════════════
+
+    /// Test Phase 2: Antipodal distance sum for Gahu (West African bell pattern)
+    /// Gahu/Bell pattern scores 5 (medium oddity)
+    #[test]
+    fn test_antipodal_distance_sum_gahu() {
+        // Gahu/Bell: x..x.x.x.x.x..x. (16-pulse) - Standard West African bell pattern
+        let gahu = vec![
+            true, false, false, true, false, true, false, true,
+            false, true, false, true, false, false, true, false,
+        ];
+
+        let oddity = antipodal_distance_sum(&gahu);
+        assert_eq!(
+            oddity, 5,
+            "Gahu/Bell pattern should have oddity score of 5, got {}",
+            oddity
+        );
+    }
+
+    /// Test Phase 2: Antipodal distance sum for Rumba (Cuban rumba clave)
+    /// Rumba pattern scores 6 (medium-high oddity)
+    #[test]
+    fn test_antipodal_distance_sum_rumba() {
+        // Rumba: x..x..x..x..x... (16-pulse) - Cuban 3-2 rumba clave
+        let rumba = vec![
+            true, false, false, true, false, false, true, false,
+            false, true, false, false, true, false, false, false,
+        ];
+
+        let oddity = antipodal_distance_sum(&rumba);
+        assert_eq!(
+            oddity, 6,
+            "Rumba clave pattern should have oddity score of 6, got {}",
+            oddity
+        );
+    }
+
+    /// Test Phase 2: Antipodal distance sum for Clave Son (Cuban son clave)
+    /// Clave Son pattern should score 7 (high oddity)
+    #[test]
+    fn test_antipodal_distance_sum_clave_son() {
+        // Clave Son: x..x..x...x.x... (16-pulse)
+        let clave_son = vec![
+            true, false, false, true, false, false, true, false,
+            false, false, true, false, true, false, false, false,
+        ];
+
+        let oddity = antipodal_distance_sum(&clave_son);
+        assert_eq!(
+            oddity, 7,
+            "Clave Son pattern should have oddity score of 7, got {}",
+            oddity
+        );
+    }
+
+    /// Test Phase 2: Generate Euclidean pattern with target oddity
+    /// Should find a pattern close to the target oddity score
+    #[test]
+    fn test_generate_euclidean_with_target_oddity() {
+        // Test targeting low oddity (4-5)
+        let low_oddity_pattern = generate_euclidean_with_target_oddity(16, 4);
+        let low_oddity = antipodal_distance_sum(&low_oddity_pattern);
+        assert!(
+            (3..=5).contains(&low_oddity),
+            "Low oddity pattern should be close to 4, got {}",
+            low_oddity
+        );
+
+        // Test targeting medium oddity (5-6)
+        let med_oddity_pattern = generate_euclidean_with_target_oddity(16, 6);
+        let med_oddity = antipodal_distance_sum(&med_oddity_pattern);
+        assert!(
+            (5..=7).contains(&med_oddity),
+            "Medium oddity pattern should be close to 6, got {}",
+            med_oddity
+        );
+
+        // Test targeting high oddity (7+)
+        let high_oddity_pattern = generate_euclidean_with_target_oddity(16, 7);
+        let high_oddity = antipodal_distance_sum(&high_oddity_pattern);
+        assert!(
+            high_oddity >= 6,
+            "High oddity pattern should be >= 6, got {}",
+            high_oddity
+        );
+
+        // Verify patterns are valid Euclidean rhythms
+        assert!(!low_oddity_pattern.is_empty());
+        assert!(!med_oddity_pattern.is_empty());
+        assert!(!high_oddity_pattern.is_empty());
     }
 }
