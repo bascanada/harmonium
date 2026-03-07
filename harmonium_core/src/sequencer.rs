@@ -157,23 +157,64 @@ impl Sequencer {
     pub fn regenerate_pattern(&mut self) {
         let mut raw = match self.mode {
             RhythmMode::Euclidean => {
-                // Mode classique : On map le booléen sur Kick + Hat
-                let bools = generate_euclidean_bools(self.steps, self.pulses);
-                bools
+                // Mode classique : Constrain to bar length and add meter-aware snare
+                let bar_steps = self.time_signature.steps_per_bar(self.ticks_per_beat);
+                let bools = generate_euclidean_bools(bar_steps, self.pulses);
+
+                // Calculate beat positions for snare placement
+                let beats_in_bar = self.time_signature.numerator;
+                let beat = bar_steps / beats_in_bar;
+
+                let mut pattern: Vec<StepTrigger> = bools
                     .into_iter()
-                    .map(|b| StepTrigger {
+                    .enumerate()
+                    .map(|(i, b)| StepTrigger {
                         kick: b,
-                        snare: false,
-                        hat: b,  // Layering simple
-                        bass: b, // Sync bass with kick in Euclidean mode
+                        snare: false,  // Will be set below
+                        hat: b,        // Layering simple
+                        bass: b,       // Sync bass with kick in Euclidean mode
                         lead: false,
-                        velocity: if b { 1.0 } else { 0.0 },
+                        velocity: if i == 0 { 1.0 } else if b { 0.85 } else { 0.0 },
                     })
-                    .collect()
+                    .collect();
+
+                // Add snare on backbeats based on meter
+                if beats_in_bar == 4 {
+                    // 4/4: snare on beats 2 and 4
+                    if beat < pattern.len() {
+                        pattern[beat].snare = true;
+                        pattern[beat].velocity = 1.0;
+                    }
+                    if 3 * beat < pattern.len() {
+                        pattern[3 * beat].snare = true;
+                        pattern[3 * beat].velocity = 1.0;
+                    }
+                } else if beats_in_bar == 3 {
+                    // 3/4: snare on beat 3
+                    if 2 * beat < pattern.len() {
+                        pattern[2 * beat].snare = true;
+                        pattern[2 * beat].velocity = 1.0;
+                    }
+                } else if beats_in_bar == 2 {
+                    // 2/4: snare on beat 2
+                    if beat < pattern.len() {
+                        pattern[beat].snare = true;
+                        pattern[beat].velocity = 1.0;
+                    }
+                } else {
+                    // Odd meters: snare on last beat
+                    let pos = (beats_in_bar - 1) * beat;
+                    if pos < pattern.len() {
+                        pattern[pos].snare = true;
+                        pattern[pos].velocity = 1.0;
+                    }
+                }
+
+                pattern
             }
             RhythmMode::PerfectBalance => {
-                // Mode XronoMorph : Polygones réguliers superposés
-                generate_balanced_layers(self.steps, self.density, self.tension)
+                // Mode XronoMorph : Polygones réguliers superposés - Now meter-aware
+                generate_balanced_layers(self.density, self.tension, self.time_signature, self.ticks_per_beat)
             }
             RhythmMode::ClassicGroove => {
                 // Mode groove réaliste : Patterns de batterie avec ghost notes
@@ -197,21 +238,63 @@ impl Sequencer {
     pub fn prepare_next_bar(&mut self) {
         let mut raw = match self.mode {
             RhythmMode::Euclidean => {
-                let bools = generate_euclidean_bools(self.steps, self.pulses);
-                bools
+                // Mode classique : Constrain to bar length and add meter-aware snare
+                let bar_steps = self.time_signature.steps_per_bar(self.ticks_per_beat);
+                let bools = generate_euclidean_bools(bar_steps, self.pulses);
+
+                // Calculate beat positions for snare placement
+                let beats_in_bar = self.time_signature.numerator;
+                let beat = bar_steps / beats_in_bar;
+
+                let mut pattern: Vec<StepTrigger> = bools
                     .into_iter()
-                    .map(|b| StepTrigger {
+                    .enumerate()
+                    .map(|(i, b)| StepTrigger {
                         kick: b,
-                        snare: false,
-                        hat: b,
-                        bass: b,
+                        snare: false,  // Will be set below
+                        hat: b,        // Layering simple
+                        bass: b,       // Sync bass with kick in Euclidean mode
                         lead: false,
-                        velocity: if b { 1.0 } else { 0.0 },
+                        velocity: if i == 0 { 1.0 } else if b { 0.85 } else { 0.0 },
                     })
-                    .collect()
+                    .collect();
+
+                // Add snare on backbeats based on meter
+                if beats_in_bar == 4 {
+                    // 4/4: snare on beats 2 and 4
+                    if beat < pattern.len() {
+                        pattern[beat].snare = true;
+                        pattern[beat].velocity = 1.0;
+                    }
+                    if 3 * beat < pattern.len() {
+                        pattern[3 * beat].snare = true;
+                        pattern[3 * beat].velocity = 1.0;
+                    }
+                } else if beats_in_bar == 3 {
+                    // 3/4: snare on beat 3
+                    if 2 * beat < pattern.len() {
+                        pattern[2 * beat].snare = true;
+                        pattern[2 * beat].velocity = 1.0;
+                    }
+                } else if beats_in_bar == 2 {
+                    // 2/4: snare on beat 2
+                    if beat < pattern.len() {
+                        pattern[beat].snare = true;
+                        pattern[beat].velocity = 1.0;
+                    }
+                } else {
+                    // Odd meters: snare on last beat
+                    let pos = (beats_in_bar - 1) * beat;
+                    if pos < pattern.len() {
+                        pattern[pos].snare = true;
+                        pattern[pos].velocity = 1.0;
+                    }
+                }
+
+                pattern
             }
             RhythmMode::PerfectBalance => {
-                generate_balanced_layers(self.steps, self.density, self.tension)
+                generate_balanced_layers(self.density, self.tension, self.time_signature, self.ticks_per_beat)
             }
             RhythmMode::ClassicGroove => {
                 generate_classic_groove(self.steps, self.density, self.tension, self.time_signature)
@@ -321,36 +404,55 @@ pub fn generate_euclidean_bools(steps: usize, pulses: usize) -> Vec<bool> {
 
 /// Generates a pattern based on the superposition of regular polygons.
 /// Respects the Perfect Balance theorem (sum of vectors is zero).
+/// Now meter-aware: respects time signature for bar length and snare placement.
 #[must_use]
-pub fn generate_balanced_layers(steps: usize, density: f32, tension: f32) -> Vec<StepTrigger> {
+pub fn generate_balanced_layers(
+    density: f32,
+    tension: f32,
+    ts: TimeSignature,
+    ticks_per_beat: usize,
+) -> Vec<StepTrigger> {
+    // Calculate bar length from time signature
+    let steps = ts.steps_per_bar(ticks_per_beat);
     let mut triggers = vec![StepTrigger::default(); steps];
+
+    // Calculate beat positions for meter-aware snare
+    let beats_in_bar = ts.numerator;
+    let beat = steps / beats_in_bar;
 
     // --- 1. LAYER CONFIGURATION ---
 
     // LAYER A: KICK (Foundation)
-    // Uses stable (even) shapes
+    // Uses stable (even) shapes aligned with bar structure
     let kick_gon = if density < 0.3 {
-        // Low density: Digon (on 1 and 25 for 48 steps)
+        // Low density: Digon (on beat 1 and halfway through bar)
         Polygon::new(2, 0, 1.0)
     } else {
-        // Standard density: Square (Four-on-the-floor)
-        Polygon::new(4, 0, 1.0)
+        // Standard density: Square (Four-on-the-floor) or aligned with beats
+        // For odd meters, use beats_in_bar as vertices to align with bar structure
+        let kick_vertices = if beats_in_bar == 4 { 4 } else { beats_in_bar.min(4) };
+        Polygon::new(kick_vertices, 0, 1.0)
     };
 
-    // LAYER B: SNARE (Counterpoint)
-    // Uses odd shapes to create polyrhythm (e.g., 4 against 3)
-    // OR shapes shifted by tension.
-    let snare_vertices = if density < 0.5 { 3 } else { 6 }; // Triangle or Hexagon
-
-    // Tension controls Snare rotation relative to Kick.
-    // Tension 0.0 = Aligned. Tension 0.5 = Pure shift (off-beat).
-    // On 48 steps, a full shift = steps / vertices.
-    let max_snare_shift = steps / snare_vertices;
-    // Using simple casting for integer arithmetic on grid
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let snare_offset = (tension * max_snare_shift as f32) as usize;
-
-    let snare_gon = Polygon::new(snare_vertices, snare_offset, 0.9);
+    // LAYER B: SNARE (Counterpoint) - METER-AWARE
+    // Place snare on musically appropriate backbeats
+    let snare_gon = if beats_in_bar == 4 {
+        // 4/4: Polygon with 2 vertices at beat positions (hits beats 2 & 4)
+        // Each vertex is `beat` steps apart, starting at beat 2
+        Polygon::new(2, beat, 0.9)
+    } else if beats_in_bar == 3 {
+        // 3/4: Single vertex on beat 3 (step 2*beat)
+        Polygon::new(1, 2 * beat, 0.9)
+    } else if beats_in_bar == 5 {
+        // 5/4: Single vertex on beat 3 (step 2*beat)
+        Polygon::new(1, 2 * beat, 0.9)
+    } else if beats_in_bar == 2 {
+        // 2/4: Single vertex on beat 2
+        Polygon::new(1, beat, 0.9)
+    } else {
+        // Other odd meters: vertex on last beat
+        Polygon::new(1, (beats_in_bar - 1) * beat, 0.9)
+    };
 
     // LAYER C: HI-HAT (Fill)
     // High frequency shapes.
@@ -422,6 +524,12 @@ pub fn generate_balanced_layers(steps: usize, density: f32, tension: f32) -> Vec
         }
         if hit_lead {
             trigger.lead = true;
+        }
+
+        // --- 4. BEAT 1 ACCENT (Meter-aware) ---
+        // Ensure beat 1 (downbeat) has maximum velocity
+        if i == 0 && trigger.is_any() {
+            trigger.velocity = 1.0;
         }
     }
 
@@ -628,4 +736,313 @@ pub fn generate_classic_groove(
     }
 
     pattern
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TESTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test Phase 3: Euclidean mode respects 3/4 time signature
+    /// Snare should be on beat 3 only (step 8 with 4 ticks per beat)
+    #[test]
+    fn test_euclidean_3_4_snare() {
+        let mut seq = Sequencer::new_with_mode(12, 5, 120.0, RhythmMode::Euclidean);
+        seq.time_signature = TimeSignature::new(3, 4);
+        seq.ticks_per_beat = 4;
+        seq.regenerate_pattern();
+
+        // Pattern should be constrained to 12 steps (3 beats * 4 ticks)
+        assert_eq!(seq.pattern.len(), 12, "Pattern should be 12 steps for 3/4");
+
+        // Calculate beat positions
+        let beat = 12 / 3; // = 4 steps per beat
+
+        // Snare should be on beat 3 (step 8)
+        let beat_3 = 2 * beat; // = 8
+        assert!(
+            seq.pattern[beat_3].snare,
+            "Snare should be on beat 3 (step {}) in 3/4 time",
+            beat_3
+        );
+
+        // Snare should NOT be on beats 1 or 2
+        assert!(
+            !seq.pattern[0].snare,
+            "Snare should NOT be on beat 1 in 3/4 time"
+        );
+        if beat < seq.pattern.len() {
+            assert!(
+                !seq.pattern[beat].snare,
+                "Snare should NOT be on beat 2 in 3/4 time"
+            );
+        }
+
+        // Velocity accent on beat 1
+        assert_eq!(
+            seq.pattern[0].velocity, 1.0,
+            "Beat 1 should have velocity accent"
+        );
+    }
+
+    /// Test Phase 3: Euclidean mode respects 4/4 time signature
+    /// Snare should be on beats 2 and 4 (steps 4 and 12 with 4 ticks per beat)
+    #[test]
+    fn test_euclidean_4_4_snare() {
+        let mut seq = Sequencer::new_with_mode(16, 6, 120.0, RhythmMode::Euclidean);
+        seq.time_signature = TimeSignature::new(4, 4);
+        seq.ticks_per_beat = 4;
+        seq.regenerate_pattern();
+
+        // Pattern should be constrained to 16 steps (4 beats * 4 ticks)
+        assert_eq!(seq.pattern.len(), 16, "Pattern should be 16 steps for 4/4");
+
+        // Calculate beat positions
+        let beat = 16 / 4; // = 4 steps per beat
+
+        // Snare should be on beat 2 (step 4)
+        let beat_2 = beat; // = 4
+        assert!(
+            seq.pattern[beat_2].snare,
+            "Snare should be on beat 2 (step {}) in 4/4 time",
+            beat_2
+        );
+
+        // Snare should be on beat 4 (step 12)
+        let beat_4 = 3 * beat; // = 12
+        assert!(
+            seq.pattern[beat_4].snare,
+            "Snare should be on beat 4 (step {}) in 4/4 time",
+            beat_4
+        );
+
+        // Snare should NOT be on beats 1 or 3
+        assert!(
+            !seq.pattern[0].snare,
+            "Snare should NOT be on beat 1 in 4/4 time"
+        );
+        let beat_3 = 2 * beat;
+        if beat_3 < seq.pattern.len() {
+            assert!(
+                !seq.pattern[beat_3].snare,
+                "Snare should NOT be on beat 3 in 4/4 time"
+            );
+        }
+
+        // Velocity accent on beat 1
+        assert_eq!(
+            seq.pattern[0].velocity, 1.0,
+            "Beat 1 should have velocity accent"
+        );
+    }
+
+    /// Test Phase 3: Euclidean mode constrains pattern to bar length
+    /// Changing from default to 3/4 should change pattern length from 16 to 12
+    #[test]
+    fn test_euclidean_constrained_to_bar() {
+        // Start with default 4/4 (16 steps)
+        let mut seq = Sequencer::new_with_mode(16, 5, 120.0, RhythmMode::Euclidean);
+        seq.time_signature = TimeSignature::new(4, 4);
+        seq.ticks_per_beat = 4;
+        seq.regenerate_pattern();
+
+        assert_eq!(
+            seq.pattern.len(),
+            16,
+            "Pattern should be 16 steps for 4/4"
+        );
+
+        // Change to 3/4 (should become 12 steps)
+        seq.time_signature = TimeSignature::new(3, 4);
+        seq.regenerate_pattern();
+
+        assert_eq!(
+            seq.pattern.len(),
+            12,
+            "Pattern should be constrained to 12 steps for 3/4"
+        );
+
+        // Verify snare is on beat 3 in the new meter
+        let beat = 12 / 3; // = 4
+        let beat_3 = 2 * beat; // = 8
+        assert!(
+            seq.pattern[beat_3].snare,
+            "Snare should be on beat 3 after changing to 3/4"
+        );
+    }
+
+    // ═════════════════════════════════════════════════════════════════════
+    // PHASE 4 TESTS: PerfectBalance Metering
+    // ═════════════════════════════════════════════════════════════════════
+
+    /// Test Phase 4: PerfectBalance mode respects 3/4 time signature
+    /// Snare should be on beat 3 only
+    #[test]
+    fn test_perfect_balance_3_4_metering() {
+        let mut seq = Sequencer::new_with_mode(12, 5, 120.0, RhythmMode::PerfectBalance);
+        seq.time_signature = TimeSignature::new(3, 4);
+        seq.ticks_per_beat = 4;
+        seq.density = 0.5;
+        seq.regenerate_pattern();
+
+        // Pattern should be constrained to 12 steps (3 beats * 4 ticks)
+        assert_eq!(
+            seq.pattern.len(),
+            12,
+            "Pattern should be 12 steps for 3/4"
+        );
+
+        // Calculate beat positions
+        let beat = 12 / 3; // = 4 steps per beat
+
+        // Snare should be on beat 3 (step 8)
+        let beat_3 = 2 * beat; // = 8
+        assert!(
+            seq.pattern[beat_3].snare,
+            "Snare should be on beat 3 (step {}) in 3/4 PerfectBalance mode",
+            beat_3
+        );
+
+        // Snare should NOT be on beats 1 or 2
+        assert!(
+            !seq.pattern[0].snare,
+            "Snare should NOT be on beat 1 in 3/4 time"
+        );
+        assert!(
+            !seq.pattern[beat].snare,
+            "Snare should NOT be on beat 2 in 3/4 time"
+        );
+    }
+
+    /// Test Phase 4: PerfectBalance mode respects 5/4 time signature
+    /// Snare should be on beat 3
+    #[test]
+    fn test_perfect_balance_5_4_metering() {
+        let mut seq = Sequencer::new_with_mode(20, 7, 120.0, RhythmMode::PerfectBalance);
+        seq.time_signature = TimeSignature::new(5, 4);
+        seq.ticks_per_beat = 4;
+        seq.density = 0.6;
+        seq.regenerate_pattern();
+
+        // Pattern should be constrained to 20 steps (5 beats * 4 ticks)
+        assert_eq!(
+            seq.pattern.len(),
+            20,
+            "Pattern should be 20 steps for 5/4"
+        );
+
+        // Calculate beat positions
+        let beat = 20 / 5; // = 4 steps per beat
+
+        // Snare should be on beat 3 (step 8) in 5/4
+        let beat_3 = 2 * beat; // = 8
+        assert!(
+            seq.pattern[beat_3].snare,
+            "Snare should be on beat 3 (step {}) in 5/4 PerfectBalance mode",
+            beat_3
+        );
+
+        // Snare should NOT be on other beats
+        assert!(
+            !seq.pattern[0].snare,
+            "Snare should NOT be on beat 1 in 5/4 time"
+        );
+        assert!(
+            !seq.pattern[beat].snare,
+            "Snare should NOT be on beat 2 in 5/4 time"
+        );
+    }
+
+    /// Test Phase 4: Kick polygons align with bar length
+    /// Pattern length should match time signature bar length
+    #[test]
+    fn test_perfect_balance_polygon_alignment() {
+        // Test 4/4
+        let mut seq = Sequencer::new_with_mode(16, 6, 120.0, RhythmMode::PerfectBalance);
+        seq.time_signature = TimeSignature::new(4, 4);
+        seq.ticks_per_beat = 4;
+        seq.density = 0.5;
+        seq.regenerate_pattern();
+
+        assert_eq!(
+            seq.pattern.len(),
+            16,
+            "4/4 pattern should be 16 steps"
+        );
+
+        // Test 3/4
+        seq.time_signature = TimeSignature::new(3, 4);
+        seq.regenerate_pattern();
+
+        assert_eq!(
+            seq.pattern.len(),
+            12,
+            "3/4 pattern should be 12 steps"
+        );
+
+        // Test 5/4
+        seq.time_signature = TimeSignature::new(5, 4);
+        seq.regenerate_pattern();
+
+        assert_eq!(
+            seq.pattern.len(),
+            20,
+            "5/4 pattern should be 20 steps"
+        );
+
+        // Test 7/8 (7 beats, denominator 8, but with 4 ticks per beat it's 14 steps)
+        seq.time_signature = TimeSignature::new(7, 8);
+        seq.regenerate_pattern();
+
+        let expected_7_8 = (7 * 4 * 4) / 8; // 7 * 4 ticks_per_beat * 4 (quarter) / 8 (eighth) = 14
+        assert_eq!(
+            seq.pattern.len(),
+            expected_7_8,
+            "7/8 pattern should align with time signature calculation"
+        );
+    }
+
+    /// Test Phase 4: Beat 1 has velocity accent
+    /// First beat should always have velocity 1.0
+    #[test]
+    fn test_perfect_balance_accent_on_beat_1() {
+        let mut seq = Sequencer::new_with_mode(16, 6, 120.0, RhythmMode::PerfectBalance);
+        seq.time_signature = TimeSignature::new(4, 4);
+        seq.ticks_per_beat = 4;
+        seq.density = 0.5;
+        seq.regenerate_pattern();
+
+        // Beat 1 (step 0) should have maximum velocity if any instrument plays
+        if seq.pattern[0].is_any() {
+            assert_eq!(
+                seq.pattern[0].velocity, 1.0,
+                "Beat 1 should have velocity accent (1.0) in PerfectBalance mode"
+            );
+        }
+
+        // Test with 3/4
+        seq.time_signature = TimeSignature::new(3, 4);
+        seq.regenerate_pattern();
+
+        if seq.pattern[0].is_any() {
+            assert_eq!(
+                seq.pattern[0].velocity, 1.0,
+                "Beat 1 should have velocity accent in 3/4 PerfectBalance mode"
+            );
+        }
+
+        // Test with 5/4
+        seq.time_signature = TimeSignature::new(5, 4);
+        seq.regenerate_pattern();
+
+        if seq.pattern[0].is_any() {
+            assert_eq!(
+                seq.pattern[0].velocity, 1.0,
+                "Beat 1 should have velocity accent in 5/4 PerfectBalance mode"
+            );
+        }
+    }
 }
