@@ -6,10 +6,10 @@ use harmonium_audio::backend::odin2_backend::Odin2Backend;
 use harmonium_audio::backend::{
     AudioRenderer, recorder::RecorderBackend, synth_backend::SynthBackend,
 };
-use harmonium_core::{log, params::ControlMode};
+use harmonium_core::{log, EngineReport, HarmoniumController};
 
 use crate::engine::{
-    EngineParams, HarmoniumEngine, HarmonyState, SessionConfig, VisualizationEvent,
+    HarmoniumEngine, HarmonyState, SessionConfig, VisualizationEvent,
 };
 
 /// Available audio backend types
@@ -25,16 +25,13 @@ pub enum AudioBackendType {
 
 #[allow(clippy::type_complexity)]
 pub fn create_stream(
-    mut target_params: triple_buffer::Output<EngineParams>,
-    control_mode: Arc<Mutex<ControlMode>>,
     sf2_bytes: Option<&[u8]>,
     backend_type: AudioBackendType,
 ) -> Result<
     (
         cpal::Stream,
         SessionConfig,
-        Arc<Mutex<rtrb::Consumer<HarmonyState>>>,
-        Arc<Mutex<rtrb::Consumer<VisualizationEvent>>>,
+        harmonium_core::HarmoniumController,
         crate::FontQueue,
         crate::FinishedRecordings,
     ),
@@ -71,14 +68,18 @@ pub fn create_stream(
 
     log::info(&format!("Sample rate: {}, Channels: {}", sample_rate, channels));
 
-    // Phase 3: Read initial params from triple buffer
-    let initial_routing = target_params.read().channel_routing.clone();
+    // Create command/report queues for engine communication
+    let (command_tx, command_rx) = rtrb::RingBuffer::<harmonium_core::EngineCommand>::new(1024);
+    let (report_tx, report_rx) = rtrb::RingBuffer::<harmonium_core::EngineReport>::new(256);
+
+    // Default channel routing (will be updated via commands)
+    let default_routing = vec![0, 1, 2, 3];
 
     // Create the appropriate backend based on backend_type
     let inner_backend: Box<dyn AudioRenderer> = match backend_type {
         AudioBackendType::FundSP => {
             log::info("Using FundSP/Oxisynth backend");
-            Box::new(SynthBackend::new(sample_rate, sf2_bytes, &initial_routing))
+            Box::new(SynthBackend::new(sample_rate, sf2_bytes, &default_routing))
         }
         #[cfg(feature = "odin2")]
         AudioBackendType::Odin2 => {
@@ -94,16 +95,13 @@ pub fn create_stream(
         sample_rate as u32,
     ));
 
-    // Phase 2-3: Engine now returns consumers for lock-free queues
-    let (mut engine, harmony_state_rx, event_queue_rx) =
-        HarmoniumEngine::new(sample_rate, target_params, control_mode, recorder_backend);
+    // Create engine with new command/report queue architecture
+    let mut engine = HarmoniumEngine::new(sample_rate, command_rx, report_tx, recorder_backend);
     let session_config = engine.config.clone();
-
-    // Wrap consumers in Arc<Mutex<>> for backwards compatibility with existing API
-    // (Phase 2: temporary until we update callers to use consumers directly)
-    let harmony_state = Arc::new(Mutex::new(harmony_state_rx));
-    let event_queue = Arc::new(Mutex::new(event_queue_rx));
     let font_queue = engine.font_queue.clone();
+
+    // Create controller for external use
+    let controller = HarmoniumController::new(command_tx, report_rx);
 
     let err_fn = |err| log::error(&format!("an error occurred on stream: {}", err));
 
@@ -120,5 +118,5 @@ pub fn create_stream(
 
     stream.play().map_err(|e| e.to_string())?;
 
-    Ok((stream, session_config, harmony_state, event_queue, font_queue, finished_recordings))
+    Ok((stream, session_config, controller, font_queue, finished_recordings))
 }

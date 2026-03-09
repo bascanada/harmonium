@@ -1,18 +1,24 @@
+pub mod command;
+pub mod controller;
 pub mod events;
 pub mod export;
 pub mod fractal;
 pub mod harmony;
 pub mod log;
 pub mod params;
+pub mod report;
 pub mod sequencer;
 
 // Re-export common types
+pub use command::EngineCommand;
+pub use controller::{ControlMode, ControllerError, HarmoniumController};
 pub use events::AudioEvent;
 pub use export::{
     ChordSymbol, GitVersion, to_musicxml, to_musicxml_with_chords, write_musicxml,
     write_musicxml_with_chords,
 };
 pub use params::{EngineParams, MusicalParams};
+pub use report::{EngineReport, NoteEvent};
 pub use sequencer::Sequencer;
 
 // Define MusicKernel (skeleton for now, as requested in plan)

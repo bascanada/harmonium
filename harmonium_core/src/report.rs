@@ -1,0 +1,209 @@
+//! Unified report from engine to UI
+//!
+//! EngineReport replaces HarmonyState + VisualizationEvent with a single
+//! unified structure. Uses fixed-size arrays to avoid allocations in the audio thread.
+
+use arrayvec::ArrayString;
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
+
+use crate::{
+    harmony::HarmonyMode,
+    params::{MusicalParams, TimeSignature},
+    sequencer::RhythmMode,
+};
+
+/// Note event for real-time visualization
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NoteEvent {
+    /// MIDI note number
+    pub note_midi: u8,
+
+    /// MIDI velocity (0-127)
+    pub velocity: u8,
+
+    /// MIDI channel (0=Bass, 1=Lead, 2=Snare, 3=Hat)
+    pub channel: u8,
+
+    /// true = NoteOn, false = NoteOff
+    pub is_note_on: bool,
+}
+
+/// Unified report from engine to UI
+/// Replaces HarmonyState + VisualizationEvent
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EngineReport {
+    // === TIMING ===
+    /// Current bar number (1-based)
+    pub current_bar: usize,
+
+    /// Current beat in the bar (0-based)
+    pub current_beat: usize,
+
+    /// Current step in the sequencer (0-based)
+    pub current_step: usize,
+
+    /// Current time signature
+    pub time_signature: TimeSignature,
+
+    // === HARMONY STATE ===
+    /// Current chord name (e.g., "Imaj7", "iv")
+    pub current_chord: ArrayString<64>,
+
+    /// Root offset from key (semitones)
+    pub chord_root_offset: i32,
+
+    /// Whether current chord is minor
+    pub chord_is_minor: bool,
+
+    /// Progression name (e.g., "Hopeful", "Dark")
+    pub progression_name: ArrayString<64>,
+
+    /// Length of current progression
+    pub progression_length: usize,
+
+    /// Current harmony mode
+    pub harmony_mode: HarmonyMode,
+
+    // === RHYTHM STATE ===
+    /// Primary sequencer steps
+    pub primary_steps: usize,
+
+    /// Primary sequencer pulses
+    pub primary_pulses: usize,
+
+    /// Primary sequencer rotation
+    pub primary_rotation: usize,
+
+    /// Primary pattern (fixed-size array to avoid allocation)
+    #[serde(with = "BigArray")]
+    pub primary_pattern: [bool; 192],
+
+    /// Secondary sequencer steps
+    pub secondary_steps: usize,
+
+    /// Secondary sequencer pulses
+    pub secondary_pulses: usize,
+
+    /// Secondary sequencer rotation
+    pub secondary_rotation: usize,
+
+    /// Secondary pattern (fixed-size array)
+    #[serde(with = "BigArray")]
+    pub secondary_pattern: [bool; 192],
+
+    /// Current rhythm mode
+    pub rhythm_mode: RhythmMode,
+
+    // === NOTES TRIGGERED (this tick) ===
+    /// Notes triggered in this tick (pre-allocated capacity)
+    /// This Vec is created once and reused, not allocated per tick
+    pub notes: Vec<NoteEvent>,
+
+    // === CURRENT PARAMS (echoed back) ===
+    /// Current musical parameters
+    pub musical_params: MusicalParams,
+
+    // === SESSION INFO ===
+    /// Session key (e.g., "C")
+    pub session_key: ArrayString<8>,
+
+    /// Session scale (e.g., "major", "minor")
+    pub session_scale: ArrayString<32>,
+}
+
+impl Default for EngineReport {
+    fn default() -> Self {
+        Self {
+            current_bar: 1,
+            current_beat: 0,
+            current_step: 0,
+            time_signature: TimeSignature::default(),
+            current_chord: ArrayString::new(),
+            chord_root_offset: 0,
+            chord_is_minor: false,
+            progression_name: ArrayString::new(),
+            progression_length: 0,
+            harmony_mode: HarmonyMode::default(),
+            primary_steps: 16,
+            primary_pulses: 5,
+            primary_rotation: 0,
+            primary_pattern: [false; 192],
+            secondary_steps: 12,
+            secondary_pulses: 3,
+            secondary_rotation: 0,
+            secondary_pattern: [false; 192],
+            rhythm_mode: RhythmMode::default(),
+            notes: Vec::with_capacity(16), // Pre-allocated
+            musical_params: MusicalParams::default(),
+            session_key: ArrayString::new(),
+            session_scale: ArrayString::new(),
+        }
+    }
+}
+
+impl EngineReport {
+    /// Create a new report with pre-allocated note buffer
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Clear notes vector for reuse (doesn't deallocate)
+    pub fn clear_notes(&mut self) {
+        self.notes.clear();
+    }
+
+    /// Add a note event (reuses pre-allocated capacity)
+    pub fn add_note(&mut self, note_midi: u8, velocity: u8, channel: u8, is_note_on: bool) {
+        self.notes.push(NoteEvent {
+            note_midi,
+            velocity,
+            channel,
+            is_note_on,
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_report_default() {
+        let report = EngineReport::default();
+        assert_eq!(report.current_bar, 1);
+        assert_eq!(report.notes.capacity(), 16);
+    }
+
+    #[test]
+    fn test_report_serde() {
+        let report = EngineReport::default();
+        let json = serde_json::to_string(&report).unwrap();
+        let deserialized: EngineReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.current_bar, report.current_bar);
+    }
+
+    #[test]
+    fn test_add_note() {
+        let mut report = EngineReport::default();
+        report.add_note(60, 100, 0, true);
+        assert_eq!(report.notes.len(), 1);
+        assert_eq!(report.notes[0].note_midi, 60);
+        assert_eq!(report.notes[0].velocity, 100);
+        assert_eq!(report.notes[0].channel, 0);
+        assert!(report.notes[0].is_note_on);
+    }
+
+    #[test]
+    fn test_clear_notes() {
+        let mut report = EngineReport::default();
+        report.add_note(60, 100, 0, true);
+        report.add_note(64, 100, 0, true);
+        assert_eq!(report.notes.len(), 2);
+
+        report.clear_notes();
+        assert_eq!(report.notes.len(), 0);
+        assert_eq!(report.notes.capacity(), 16); // Capacity preserved
+    }
+}

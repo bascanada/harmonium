@@ -1,13 +1,13 @@
 use std::sync::{Arc, Mutex};
 
 use arrayvec::ArrayString;
-use harmonium_ai::mapper::{EmotionMapper, UnifiedTensionSystem};
+use harmonium_ai::mapper::UnifiedTensionSystem;
 use harmonium_audio::{
     backend::AudioRenderer,
     voicing::{BlockChordVoicer, Voicer, VoicerContext},
 };
 pub use harmonium_core::params::{
-    ControlMode, CurrentState, EngineParams, HarmonyState, MusicalParams, SessionConfig,
+    CurrentState, HarmonyState, MusicalParams, SessionConfig,
     VisualizationEvent,
 };
 use harmonium_core::{
@@ -21,16 +21,13 @@ use harmonium_core::{
 };
 use rand::Rng;
 use rust_music_theory::{note::PitchSymbol, scale::ScaleType};
-use triple_buffer::Output;
 
 pub struct HarmoniumEngine {
     pub config: SessionConfig,
-    // Phase 3: Lock-free triple buffer for UI→Audio parameter updates
-    target_params: Output<EngineParams>,
-    // Lock-free queues for Audio→UI communication (Phase 2)
-    harmony_state_tx: rtrb::Producer<HarmonyState>, // Audio thread writes harmony state
-    event_queue_tx: rtrb::Producer<VisualizationEvent>, // Audio thread writes visualization events
-    last_harmony_state: HarmonyState, // Cache to avoid sending duplicate harmony states
+    // NEW UNIFIED COMMUNICATION: Lock-free command/report queues
+    command_rx: rtrb::Consumer<harmonium_core::EngineCommand>, // UI→Audio commands
+    report_tx: rtrb::Producer<harmonium_core::EngineReport>,    // Audio→UI reports
+    last_harmony_state: HarmonyState, // Cache for generating reports
     pub font_queue: crate::FontQueue, // Queue de chargement de SoundFonts (Phase 5 will replace)
     current_state: CurrentState,
     // === POLYRYTHMIE: Plusieurs séquenceurs avec cycles différents ===
@@ -66,14 +63,10 @@ pub struct HarmoniumEngine {
     active_bass_note: Option<u8>, // Note de basse actuellement jouée
 
     // === NOUVELLE ARCHITECTURE: Params Musicaux Découplés ===
-    /// Mapper émotions → params musicaux
-    emotion_mapper: EmotionMapper,
-    /// Paramètres musicaux calculés (ou définis directement)
+    /// Paramètres musicaux (mis à jour via commandes)
     musical_params: MusicalParams,
     /// Unified tension system coupling harmonic and rhythmic tension
     unified_tension: UnifiedTensionSystem,
-    /// État partagé pour le mode de contrôle (émotion vs direct)
-    control_mode: Arc<Mutex<ControlMode>>,
 
     // Recording State Tracking
     is_recording_wav: bool,
@@ -90,16 +83,15 @@ pub struct HarmoniumEngine {
 impl HarmoniumEngine {
     pub fn new(
         sample_rate: f64,
-        mut target_params: Output<EngineParams>,
-        control_mode: Arc<Mutex<ControlMode>>,
+        command_rx: rtrb::Consumer<harmonium_core::EngineCommand>,
+        report_tx: rtrb::Producer<harmonium_core::EngineReport>,
         mut renderer: Box<dyn AudioRenderer>,
-    ) -> (Self, rtrb::Consumer<HarmonyState>, rtrb::Consumer<VisualizationEvent>) {
+    ) -> Self {
         let mut rng = rand::thread_rng();
-        let initial_params = target_params.read().clone();
         let font_queue = Arc::new(Mutex::new(Vec::new()));
-        let bpm = initial_params.compute_bpm();
+        let bpm = 120.0; // Default BPM (will be updated via commands)
         let steps = 16;
-        let initial_pulses = std::cmp::min((initial_params.density * 11.0) as usize + 1, 16);
+        let initial_pulses = 4; // Default pulses (will be updated via commands)
         let keys = [
             PitchSymbol::C,
             PitchSymbol::D,
@@ -123,16 +115,13 @@ impl HarmoniumEngine {
 
         log::info(&format!("Session: {} {} | BPM: {:.1}", config.key, config.scale, bpm));
 
-        // Phase 2: Create lock-free SPSC queues for Audio→UI communication
-        // harmony_state: 256 slots (~64 seconds buffer at 120 BPM, 4 updates/sec)
-        // event_queue: 4096 slots (~60 seconds buffer at 120 BPM, every step)
-        let (harmony_state_tx, harmony_state_rx) = rtrb::RingBuffer::new(256);
-        let (event_queue_tx, event_queue_rx) = rtrb::RingBuffer::new(4096);
+        // Initialize harmony state cache for report generation
         let last_harmony_state = HarmonyState::default();
 
         // Séquenceurs
         let sequencer_primary = Sequencer::new(steps, initial_pulses, bpm);
-        let secondary_pulses = std::cmp::min((initial_params.density * 8.0) as usize + 1, 12);
+        let default_density = 0.4; // Default density (will be updated via commands)
+        let secondary_pulses = std::cmp::min((default_density * 8.0) as usize + 1, 12);
         let sequencer_secondary = Sequencer::new_with_rotation(12, secondary_pulses, bpm, 0);
 
         let harmony = HarmonyNavigator::new(random_key, random_scale, 4);
@@ -141,14 +130,12 @@ impl HarmoniumEngine {
         // Initialize renderer timing
         renderer.handle_event(AudioEvent::TimingUpdate { samples_per_step });
 
-        // Progression initiale
-        let current_progression =
-            Progression::get_palette(initial_params.valence, initial_params.tension);
-        let _progression_name =
-            Progression::get_progression_name(initial_params.valence, initial_params.tension);
+        // Progression initiale (default values, will be updated via commands)
+        let current_progression = Progression::get_palette(0.3, 0.3);
+        let _progression_name = Progression::get_progression_name(0.3, 0.3);
 
         // HarmonicDriver (toujours créé pour permettre le switch dynamique)
-        let harmony_mode = initial_params.harmony_mode;
+        let harmony_mode = HarmonyMode::Driver; // Default, will be updated via commands
         let key_pc = match random_key {
             PitchSymbol::C => 0,
             PitchSymbol::D => 2,
@@ -161,29 +148,17 @@ impl HarmoniumEngine {
         };
         let harmonic_driver = Some(HarmonicDriver::new(key_pc));
 
-        // Phase 2: Initialize harmony state cache with default values
-        // (will be sent via queue in tick())
-        // Note: No longer initializing mutex-based harmony_state
+        // Initialize musical params with defaults (will be updated via commands)
+        let musical_params = MusicalParams::default();
 
-        // Créer le mapper et les params musicaux initiaux
-        let emotion_mapper = EmotionMapper::new();
-        let musical_params = emotion_mapper.map(&initial_params);
-
-        // Initialize unified tension system
+        // Initialize unified tension system with defaults
         let mut unified_tension = UnifiedTensionSystem::new();
-        unified_tension.update(initial_params.arousal, initial_params.valence, initial_params.tension);
-
-        // Initialize session key/scale in control_mode for UI
-        if let Ok(mut mode) = control_mode.lock() {
-            mode.session_key = config.key.clone();
-            mode.session_scale = config.scale.clone();
-        }
+        unified_tension.update(0.5, 0.3, 0.3); // Default arousal, valence, tension
 
         let engine = Self {
             config,
-            target_params,
-            harmony_state_tx,
-            event_queue_tx,
+            command_rx,
+            report_tx,
             last_harmony_state,
             font_queue,
             current_state: CurrentState::default(),
@@ -200,8 +175,8 @@ impl HarmoniumEngine {
             pending_time_signature_change: None,
             current_progression,
             progression_index: 0,
-            last_valence_choice: initial_params.valence,
-            last_tension_choice: initial_params.tension,
+            last_valence_choice: 0.3, // Default valence (will be updated via commands)
+            last_tension_choice: 0.3, // Default tension (will be updated via commands)
             harmonic_driver,
             harmony_mode,
             // Voicing Engine
@@ -212,10 +187,8 @@ impl HarmoniumEngine {
             active_lead_notes: Vec::with_capacity(8),
             active_bass_note: None,
             // Nouvelle architecture
-            emotion_mapper,
             musical_params,
             unified_tension,
-            control_mode,
             is_recording_wav: false,
             is_recording_midi: false,
             is_recording_musicxml: false,
@@ -224,8 +197,7 @@ impl HarmoniumEngine {
             events_buffer: Vec::with_capacity(8),
         };
 
-        // Return engine and consumers (Phase 2: lock-free queues)
-        (engine, harmony_state_rx, event_queue_rx)
+        engine
     }
 
     /// Change le voicer dynamiquement
@@ -245,11 +217,6 @@ impl HarmoniumEngine {
     /// Récupère une copie des paramètres musicaux actuels
     pub fn get_musical_params(&self) -> MusicalParams {
         self.musical_params.clone()
-    }
-
-    /// Récupère le mapper pour configuration (seuils, courbes, etc.)
-    pub fn emotion_mapper_mut(&mut self) -> &mut EmotionMapper {
-        &mut self.emotion_mapper
     }
 
     pub fn process_buffer(&mut self, output: &mut [f32], channels: usize) {
@@ -301,40 +268,274 @@ impl HarmoniumEngine {
         crate::realtime::rt_check::exit_audio_context();
     }
 
-    fn update_controls(&mut self) {
-        // === UPDATE MUSICAL PARAMS ===
-        // Phase 3: Read latest params from triple buffer (lock-free, non-blocking)
-        self.target_params.update();
-        let target_params = self.target_params.read();
+    /// Process all pending commands from the command queue
+    /// This replaces the old triple buffer read in update_controls()
+    fn process_commands(&mut self) {
+        use harmonium_core::EngineCommand;
 
-        // Selon le mode, on obtient les params soit du mapper, soit directement
-        let use_emotion_mode = self.control_mode.lock().map(|m| m.use_emotion_mode).unwrap_or(true);
+        // Drain all pending commands (non-blocking)
+        while let Ok(cmd) = self.command_rx.pop() {
+            match cmd {
+                // === GLOBAL ===
+                EngineCommand::SetBpm(bpm) => {
+                    self.musical_params.bpm = bpm.clamp(70.0, 180.0);
+                }
+                EngineCommand::SetMasterVolume(volume) => {
+                    self.musical_params.master_volume = volume.clamp(0.0, 1.0);
+                }
+                EngineCommand::SetTimeSignature { numerator, denominator } => {
+                    // Queue time signature change for next barline
+                    self.pending_time_signature_change = Some(harmonium_core::params::TimeSignature {
+                        numerator,
+                        denominator,
+                    });
+                }
 
-        if use_emotion_mode {
-            // Mode émotionnel: EngineParams → EmotionMapper → MusicalParams
-            self.musical_params = self.emotion_mapper.map(target_params);
-        } else {
-            // Mode direct: MusicalParams depuis l'état partagé
-            if let Ok(guard) = self.control_mode.try_lock() {
-                self.musical_params = guard.direct_params.clone();
+                // === MODULE TOGGLES ===
+                EngineCommand::EnableRhythm(enabled) => {
+                    self.musical_params.enable_rhythm = enabled;
+                }
+                EngineCommand::EnableHarmony(enabled) => {
+                    self.musical_params.enable_harmony = enabled;
+                }
+                EngineCommand::EnableMelody(enabled) => {
+                    self.musical_params.enable_melody = enabled;
+                }
+                EngineCommand::EnableVoicing(enabled) => {
+                    self.musical_params.enable_voicing = enabled;
+                }
+
+                // === RHYTHM ===
+                EngineCommand::SetRhythmMode(mode) => {
+                    self.musical_params.rhythm_mode = mode;
+                }
+                EngineCommand::SetRhythmSteps(steps) => {
+                    self.musical_params.rhythm_steps = steps;
+                }
+                EngineCommand::SetRhythmPulses(pulses) => {
+                    self.musical_params.rhythm_pulses = pulses;
+                }
+                EngineCommand::SetRhythmRotation(rotation) => {
+                    self.musical_params.rhythm_rotation = rotation;
+                }
+                EngineCommand::SetRhythmDensity(density) => {
+                    self.musical_params.rhythm_density = density.clamp(0.0, 1.0);
+                }
+                EngineCommand::SetRhythmTension(tension) => {
+                    self.musical_params.rhythm_tension = tension.clamp(0.0, 1.0);
+                }
+                EngineCommand::SetRhythmSecondary { steps, pulses, rotation } => {
+                    self.musical_params.rhythm_secondary_steps = steps;
+                    self.musical_params.rhythm_secondary_pulses = pulses;
+                    self.musical_params.rhythm_secondary_rotation = rotation;
+                }
+                EngineCommand::SetFixedKick(fixed) => {
+                    self.musical_params.fixed_kick = fixed;
+                }
+
+                // === HARMONY ===
+                EngineCommand::SetHarmonyMode(mode) => {
+                    self.musical_params.harmony_mode = mode;
+                }
+                EngineCommand::SetHarmonyStrategy(strategy) => {
+                    self.musical_params.harmony_strategy = strategy;
+                }
+                EngineCommand::SetHarmonyTension(tension) => {
+                    self.musical_params.harmony_tension = tension.clamp(0.0, 1.0);
+                }
+                EngineCommand::SetHarmonyValence(valence) => {
+                    self.musical_params.harmony_valence = valence.clamp(-1.0, 1.0);
+                }
+                EngineCommand::SetHarmonyMeasuresPerChord(measures) => {
+                    self.musical_params.harmony_measures_per_chord = measures;
+                }
+                EngineCommand::SetKeyRoot(root) => {
+                    self.musical_params.key_root = root % 12;
+                }
+
+                // === MELODY / VOICING ===
+                EngineCommand::SetMelodySmoothness(smoothness) => {
+                    self.musical_params.melody_smoothness = smoothness.clamp(0.0, 1.0);
+                }
+                EngineCommand::SetMelodyOctave(octave) => {
+                    self.musical_params.melody_octave = octave.clamp(3, 6);
+                }
+                EngineCommand::SetVoicingDensity(density) => {
+                    self.musical_params.voicing_density = density.clamp(0.0, 1.0);
+                }
+                EngineCommand::SetVoicingTension(tension) => {
+                    self.musical_params.voicing_tension = tension.clamp(0.0, 1.0);
+                }
+
+                // === MIXER (per-channel) ===
+                EngineCommand::SetChannelGain { channel, gain } => {
+                    if (channel as usize) < 16 {
+                        // Update specific channel gains
+                        match channel {
+                            0 => self.musical_params.gain_bass = gain.clamp(0.0, 1.0),
+                            1 => self.musical_params.gain_lead = gain.clamp(0.0, 1.0),
+                            2 => self.musical_params.gain_snare = gain.clamp(0.0, 1.0),
+                            3 => self.musical_params.gain_hat = gain.clamp(0.0, 1.0),
+                            _ => {} // Other channels not yet mapped to MusicalParams
+                        }
+                    }
+                }
+                EngineCommand::SetChannelMute { channel, muted } => {
+                    if (channel as usize) < self.musical_params.muted_channels.len() {
+                        self.musical_params.muted_channels[channel as usize] = muted;
+                    }
+                }
+                EngineCommand::SetChannelRoute { channel, bank_id } => {
+                    if (channel as usize) < self.musical_params.channel_routing.len() {
+                        self.musical_params.channel_routing[channel as usize] = bank_id;
+                    }
+                }
+                EngineCommand::SetVelocityBase { channel, velocity } => {
+                    match channel {
+                        0 => self.musical_params.vel_base_bass = velocity,
+                        2 => self.musical_params.vel_base_snare = velocity,
+                        _ => {} // Other channels not yet mapped
+                    }
+                }
+
+                // === RECORDING ===
+                EngineCommand::StartRecording(format) => {
+                    match format {
+                        harmonium_core::events::RecordFormat::Wav => {
+                            self.musical_params.record_wav = true;
+                        }
+                        harmonium_core::events::RecordFormat::Midi => {
+                            self.musical_params.record_midi = true;
+                        }
+                        harmonium_core::events::RecordFormat::MusicXml => {
+                            self.musical_params.record_musicxml = true;
+                        }
+                    }
+                }
+                EngineCommand::StopRecording(format) => {
+                    match format {
+                        harmonium_core::events::RecordFormat::Wav => {
+                            self.musical_params.record_wav = false;
+                        }
+                        harmonium_core::events::RecordFormat::Midi => {
+                            self.musical_params.record_midi = false;
+                        }
+                        harmonium_core::events::RecordFormat::MusicXml => {
+                            self.musical_params.record_musicxml = false;
+                        }
+                    }
+                }
+
+                // === CONTROL MODE ===
+                // Note: These are handled by HarmoniumController, not the engine
+                // The engine only sees the resulting musical parameter commands
+                EngineCommand::UseEmotionMode => {
+                    // No-op: EmotionMapper lives in Controller, not engine
+                }
+                EngineCommand::UseDirectMode => {
+                    // No-op: EmotionMapper lives in Controller, not engine
+                }
+                EngineCommand::SetEmotionParams { .. } => {
+                    // No-op: EmotionMapper lives in Controller, not engine
+                    // Controller will translate this to concrete musical param commands
+                }
+
+                // === BATCH OPERATIONS ===
+                EngineCommand::SetAllRhythmParams {
+                    mode,
+                    steps,
+                    pulses,
+                    rotation,
+                    density,
+                    tension,
+                    secondary_steps,
+                    secondary_pulses,
+                    secondary_rotation,
+                } => {
+                    self.musical_params.rhythm_mode = mode;
+                    self.musical_params.rhythm_steps = steps;
+                    self.musical_params.rhythm_pulses = pulses;
+                    self.musical_params.rhythm_rotation = rotation;
+                    self.musical_params.rhythm_density = density.clamp(0.0, 1.0);
+                    self.musical_params.rhythm_tension = tension.clamp(0.0, 1.0);
+                    self.musical_params.rhythm_secondary_steps = secondary_steps;
+                    self.musical_params.rhythm_secondary_pulses = secondary_pulses;
+                    self.musical_params.rhythm_secondary_rotation = secondary_rotation;
+                }
+
+                // === UTILITY ===
+                EngineCommand::GetState => {
+                    // Will be handled by send_report() which is called periodically
+                }
+                EngineCommand::Reset => {
+                    // Reset to defaults
+                    self.musical_params = MusicalParams::default();
+                }
+            }
+        }
+    }
+
+    /// Generate and send an EngineReport to the UI
+    /// This replaces the old harmony_state_tx and event_queue_tx
+    fn send_report(&mut self) {
+        use harmonium_core::EngineReport;
+
+        let mut report = EngineReport::new();
+
+        // === TIMING ===
+        report.current_bar = self.conductor.current_bar;
+        report.current_beat = self.conductor.current_beat;
+        report.current_step = self.sequencer_primary.current_step;
+        report.time_signature = self.conductor.time_signature;
+
+        // === HARMONY STATE ===
+        report.current_chord = self.last_harmony_state.chord_name.clone();
+        report.chord_root_offset = self.last_harmony_state.chord_root_offset;
+        report.chord_is_minor = self.last_harmony_state.chord_is_minor;
+        report.progression_name = self.last_harmony_state.progression_name.clone();
+        report.progression_length = self.last_harmony_state.progression_length;
+        report.harmony_mode = self.last_harmony_state.harmony_mode;
+
+        // === RHYTHM STATE ===
+        report.primary_steps = self.last_harmony_state.primary_steps;
+        report.primary_pulses = self.last_harmony_state.primary_pulses;
+        report.rhythm_mode = self.musical_params.rhythm_mode;
+
+        // Copy primary pattern (fixed-size array, no allocation)
+        for (i, trigger) in self.sequencer_primary.pattern.iter().enumerate() {
+            if i < 192 {
+                report.primary_pattern[i] = trigger.is_any();
             }
         }
 
-        // Apply params from target_params (they work in BOTH modes)
-        self.musical_params.gain_lead = target_params.gain_lead;
-        self.musical_params.gain_bass = target_params.gain_bass;
-        self.musical_params.gain_snare = target_params.gain_snare;
-        self.musical_params.gain_hat = target_params.gain_hat;
-        self.musical_params.vel_base_bass = target_params.vel_base_bass;
-        self.musical_params.vel_base_snare = target_params.vel_base_snare;
-
-        // Apply global enable overrides (work in BOTH modes)
-        if let Ok(guard) = self.control_mode.try_lock() {
-            self.musical_params.enable_rhythm = guard.enable_rhythm;
-            self.musical_params.enable_harmony = guard.enable_harmony;
-            self.musical_params.enable_melody = guard.enable_melody;
-            self.musical_params.enable_voicing = guard.enable_voicing;
+        // Copy secondary pattern
+        report.secondary_steps = self.last_harmony_state.secondary_steps;
+        report.secondary_pulses = self.last_harmony_state.secondary_pulses;
+        for (i, trigger) in self.sequencer_secondary.pattern.iter().enumerate() {
+            if i < 192 {
+                report.secondary_pattern[i] = trigger.is_any();
+            }
         }
+
+        // === CURRENT PARAMS (echoed back) ===
+        report.musical_params = self.musical_params.clone();
+
+        // === SESSION INFO ===
+        report.session_key = ArrayString::from(&self.config.key).unwrap_or_default();
+        report.session_scale = ArrayString::from(&self.config.scale).unwrap_or_default();
+
+        // === NOTES (will be populated by tick() as notes are triggered) ===
+        // Note: We pre-allocate capacity in EngineReport::new()
+
+        // Push to report queue (non-blocking, drops if full)
+        let _ = self.report_tx.push(report);
+    }
+
+    fn update_controls(&mut self) {
+        // === PROCESS COMMANDS ===
+        // NEW: Process all pending commands from the command queue
+        // This replaces the old triple buffer + EmotionMapper + control_mode logic
+        self.process_commands();
 
         // === UPDATE UNIFIED TENSION SYSTEM ===
         // Recalculate TRQ state based on current emotional parameters
@@ -404,9 +605,7 @@ impl HarmoniumEngine {
 
         // === SYNTHESIS MORPHING (emotional timbre control) ===
         #[cfg(feature = "odin2")]
-        if target_params.enable_synthesis_morphing
-            && let Some(odin2) = self.renderer.odin2_backend_mut()
-        {
+        if let Some(odin2) = self.renderer.odin2_backend_mut() {
             odin2.apply_emotional_morphing(
                 self.current_state.valence,
                 self.current_state.arousal,
@@ -1063,46 +1262,10 @@ impl HarmoniumEngine {
             self.renderer.handle_event(event.clone());
         }
 
-        // Phase 2: Send events to UI via lock-free queue
-        if !self.events_buffer.is_empty() {
-            for event in &self.events_buffer {
-                if let AudioEvent::NoteOn { note, channel, .. } = event {
-                    let vis_event = VisualizationEvent {
-                        note_midi: *note,
-                        instrument: *channel,
-                        step: self.sequencer_primary.current_step,
-                        bar: self.conductor.current_bar,
-                        duration_samples: self.samples_per_step,
-                    };
-                    // Push to SPSC queue (non-blocking, drops if full)
-                    let _ = self.event_queue_tx.push(vis_event);
-                }
-            }
-        }
-
-        // PHASE 2 NOTE: Temporarily disabled to prevent allocations in audio thread
-        // - Vec::collect() allocates every tick (lines 961-962)
-        // - String::clone() allocates every tick (lines 965, 967)
-        // - try_lock() can still block
-        // Phase 4 will replace this with lock-free SPSC queue for live state updates
-
-        // Update live state for UI visualization (VST webview)
-        // if let Ok(mut mode) = self.control_mode.try_lock() {
-        //     mode.current_step = self.sequencer_primary.current_step as u32;
-        //     mode.current_measure = self.conductor.current_bar as u32;
-        //     mode.time_signature = self.conductor.time_signature;
-        //     mode.primary_pattern = self.sequencer_primary.pattern.iter().map(|t| t.is_any()).collect();
-        //     mode.secondary_pattern = self.sequencer_secondary.pattern.iter().map(|t| t.is_any()).collect();
-        //     mode.current_chord = self.last_harmony_state.chord_name.clone();
-        //     mode.is_minor_chord = self.last_harmony_state.chord_is_minor;
-        //     mode.progression_name = self.last_harmony_state.progression_name.clone();
-        // }
-
-        // Phase 2: Push harmony state to queue for UI updates
-        // Push every 4 ticks to balance update frequency vs allocation cost
-        // This ensures smooth visualization while minimizing memory allocations
+        // NEW: Send unified report to UI via lock-free queue
+        // Send every 4 ticks to balance update frequency vs allocation cost
         if self.sequencer_primary.current_step.is_multiple_of(4) {
-            let _ = self.harmony_state_tx.push(self.last_harmony_state.clone());
+            self.send_report();
         }
     }
 

@@ -84,24 +84,15 @@ impl RecordedData {
 pub type FontQueue = Arc<Mutex<Vec<(u32, Vec<u8>)>>>;
 pub type FinishedRecordings = Arc<Mutex<Vec<(events::RecordFormat, Vec<u8>)>>>;
 
-// Handle and WASM bindings only available with standalone feature (cpal)
-#[cfg(feature = "standalone")]
+// Handle and WASM bindings only available with wasm feature
+// TODO: Phase 3 - Rebuild this API to use controller properly
+#[cfg(all(feature = "standalone", feature = "wasm"))]
 #[cfg_attr(feature = "wasm", wasm_bindgen)]
 pub struct Handle {
     #[allow(dead_code)]
     stream: cpal::Stream,
-    /// Phase 3: Lock-free triple buffer for UI→Audio parameter updates
-    target_params_input: Input<engine::EngineParams>,
-    /// Phase 3: Local cache to avoid read-modify-write races
-    cached_params: engine::EngineParams,
-    /// État partagé pour le mode de contrôle (émotion vs direct)
-    control_mode: Arc<Mutex<params::ControlMode>>,
-    /// Phase 2: Lock-free consumer for harmony state (Audio→UI)
-    harmony_state_rx: Arc<Mutex<rtrb::Consumer<engine::HarmonyState>>>,
-    /// Phase 2: Lock-free consumer for visualization events (Audio→UI)
-    event_queue_rx: Arc<Mutex<rtrb::Consumer<engine::VisualizationEvent>>>,
-    /// Phase 2: Cached harmony state (updated by draining consumer)
-    cached_harmony_state: Arc<Mutex<engine::HarmonyState>>,
+    /// NEW: Unified controller for all engine communication
+    controller: harmonium_core::HarmoniumController,
     /// Queue de chargement de SoundFonts
     font_queue: FontQueue,
     /// Enregistrements terminés
@@ -113,7 +104,7 @@ pub struct Handle {
     steps: usize,
 }
 
-#[cfg(feature = "standalone")]
+#[cfg(all(feature = "standalone", feature = "wasm"))]
 #[cfg_attr(feature = "wasm", wasm_bindgen)]
 impl Handle {
     pub fn get_bpm(&self) -> f32 {
@@ -136,74 +127,79 @@ impl Handle {
         self.steps
     }
 
-    // Phase 2: Helper to update cached harmony state from consumer
-    fn update_harmony_state_cache(&self) {
-        // Drain all available harmony states and keep only the latest
-        if let Ok(mut rx) = self.harmony_state_rx.lock() {
-            let mut latest: Option<engine::HarmonyState> = None;
-            while let Ok(state) = rx.pop() {
-                latest = Some(state);
-            }
-            // Update cache if we got at least one state
-            if let Some(state) = latest
-                && let Ok(mut cache) = self.cached_harmony_state.lock()
-            {
-                *cache = state;
-            }
-        }
-    }
-
     // === Contrôles en Temps Réel pour l'UI (Modèle Émotionnel) ===
 
     /// Définir l'arousal (activation/énergie) qui contrôle le BPM (0.0 à 1.0)
     /// Low (0.0) = 70 BPM, High (1.0) = 180 BPM
     pub fn set_arousal(&mut self, arousal: f32) {
-        // Phase 3: Update local cache then write to triple buffer
-        self.cached_params.arousal = arousal.clamp(0.0, 1.0);
-        self.target_params_input.write(self.cached_params.clone());
+        use harmonium_core::EngineCommand;
+        let _ = self.controller.send(EngineCommand::SetEmotionParams {
+            arousal: arousal.clamp(0.0, 1.0),
+            valence: self.controller.get_state()
+                .and_then(|s| Some(s.musical_params.valence))
+                .unwrap_or(0.3),
+            density: self.controller.get_state()
+                .and_then(|s| Some(s.musical_params.rhythm_density))
+                .unwrap_or(0.4),
+            tension: self.controller.get_state()
+                .and_then(|s| Some(s.musical_params.harmony_tension))
+                .unwrap_or(0.3),
+        });
     }
 
     /// Définir la valence (positif/négatif) pour l'harmonie (-1.0 à 1.0)
     /// Negative = Minor/Sad, Positive = Major/Happy
     pub fn set_valence(&mut self, valence: f32) {
-        // Phase 3: Update local cache then write to triple buffer
-        self.cached_params.valence = valence.clamp(-1.0, 1.0);
-        self.target_params_input.write(self.cached_params.clone());
+        use harmonium_core::EngineCommand;
+        let _ = self.controller.send(EngineCommand::SetEmotionParams {
+            arousal: self.controller.get_state()
+                .and_then(|s| Some((s.musical_params.bpm - 70.0) / (180.0 - 70.0)))
+                .unwrap_or(0.5),
+            valence: valence.clamp(-1.0, 1.0),
+            density: self.controller.get_state()
+                .and_then(|s| Some(s.musical_params.rhythm_density))
+                .unwrap_or(0.4),
+            tension: self.controller.get_state()
+                .and_then(|s| Some(s.musical_params.harmony_tension))
+                .unwrap_or(0.3),
+        });
     }
 
     /// Définir la densité rythmique (0.0 = calme, 1.0 = dense)
     pub fn set_density(&mut self, density: f32) {
-        // Phase 3: Update local cache then write to triple buffer
-        self.cached_params.density = density.clamp(0.0, 1.0);
-        self.target_params_input.write(self.cached_params.clone());
+        use harmonium_core::EngineCommand;
+        let _ = self.controller.send(EngineCommand::SetRhythmDensity(density.clamp(0.0, 1.0)));
     }
 
     /// Définir la tension harmonique (0.0 = consonant, 1.0 = dissonant)
     pub fn set_tension(&mut self, tension: f32) {
-        // Phase 3: Update local cache then write to triple buffer
-        self.cached_params.tension = tension.clamp(0.0, 1.0);
-        self.target_params_input.write(self.cached_params.clone());
+        use harmonium_core::EngineCommand;
+        let _ = self.controller.send(EngineCommand::SetHarmonyTension(tension.clamp(0.0, 1.0)));
     }
 
     /// Définir l'algorithme rythmique (0 = Euclidean, 1 = PerfectBalance, 2 = ClassicGroove)
     /// PerfectBalance: polyrythmes parfaits via polygones (XronoMorph)
     /// ClassicGroove: patterns de batterie réalistes avec ghost notes
     pub fn set_algorithm(&mut self, algorithm: u8) {
-        self.cached_params.algorithm = match algorithm {
+        use harmonium_core::EngineCommand;
+        let mode = match algorithm {
             0 => RhythmMode::Euclidean,
             1 => RhythmMode::PerfectBalance,
             2 => RhythmMode::ClassicGroove,
-            _ => RhythmMode::Euclidean, // Fallback
+            _ => RhythmMode::Euclidean,
         };
-        self.target_params_input.write(self.cached_params.clone());
+        let _ = self.controller.send(EngineCommand::SetRhythmMode(mode));
     }
 
     /// Obtenir l'algorithme rythmique actuel (0 = Euclidean, 1 = PerfectBalance, 2 = ClassicGroove)
     pub fn get_algorithm(&mut self) -> u8 {
-        match self.target_params_input.input_buffer_mut().algorithm {
-            RhythmMode::Euclidean => 0,
-            RhythmMode::PerfectBalance => 1,
-            RhythmMode::ClassicGroove => 2,
+        // Poll for latest state
+        self.controller.poll_reports();
+        match self.controller.get_state().map(|s| s.rhythm_mode) {
+            Some(RhythmMode::Euclidean) => 0,
+            Some(RhythmMode::PerfectBalance) => 1,
+            Some(RhythmMode::ClassicGroove) => 2,
+            None => 0,
         }
     }
 
@@ -211,20 +207,19 @@ impl Handle {
     /// Basic: Russell Circumplex quadrants (I-IV-vi-V progressions)
     /// Driver: Steedman Grammar + Neo-Riemannian PLR + LCC
     pub fn set_harmony_mode(&mut self, mode: u8) {
-        self.cached_params.harmony_mode = match mode {
+        use harmonium_core::EngineCommand;
+        let harmony_mode = match mode {
             0 => HarmonyMode::Basic,
             1 => HarmonyMode::Driver,
-            _ => HarmonyMode::Driver, // Fallback
+            _ => HarmonyMode::Driver,
         };
-        self.target_params_input.write(self.cached_params.clone());
+        let _ = self.controller.send(EngineCommand::SetHarmonyMode(harmony_mode));
     }
 
     /// Obtenir le mode d'harmonie actuel depuis l'état du moteur (0 = Basic, 1 = Driver)
-    pub fn get_harmony_mode(&self) -> u8 {
-        self.update_harmony_state_cache();
-        self.cached_harmony_state
-            .lock()
-            .map(|s| match s.harmony_mode {
+    pub fn get_harmony_mode(&mut self) -> u8 {
+        self.controller.poll_reports();
+        self.controller.get_state().map(|s| match s.harmony_mode {
                 HarmonyMode::Basic => 0,
                 HarmonyMode::Driver => 1,
             })
@@ -920,36 +915,13 @@ pub fn start_with_backend(sf2_bytes: Option<Box<[u8]>>, backend: &str) -> Result
         }
     };
 
-    // Phase 3: Create triple buffer for lock-free UI→Audio parameter updates
-    let (target_params_input, target_params_output) =
-        triple_buffer::triple_buffer(&engine::EngineParams::default());
-    let control_mode = Arc::new(Mutex::new(params::ControlMode::default()));
-
-    let control_mode_clone = control_mode.clone();
-
-    let (stream, config, harmony_state_rx, event_queue_rx, font_queue, finished_recordings) =
-        audio::create_stream(
-            target_params_output,
-            control_mode,
-            sf2_bytes.as_deref(),
-            backend_type,
-        )
-        .map_err(|e| JsValue::from_str(&e))?;
-
-    // Phase 2: Create cached harmony state
-    let cached_harmony_state = Arc::new(Mutex::new(engine::HarmonyState::default()));
-
-    // Phase 3: Initialize cached_params from the initial params written to triple buffer
-    let cached_params = engine::EngineParams::default();
+    let (stream, config, controller, font_queue, finished_recordings) =
+        audio::create_stream(sf2_bytes.as_deref(), backend_type)
+            .map_err(|e| JsValue::from_str(&e))?;
 
     Ok(Handle {
         stream,
-        target_params_input,
-        cached_params,
-        control_mode: control_mode_clone,
-        harmony_state_rx,
-        event_queue_rx,
-        cached_harmony_state,
+        controller,
         font_queue,
         finished_recordings,
         bpm: config.bpm,
