@@ -14,16 +14,14 @@ use harmonium_audio::backend::AudioRenderer;
 use harmonium_core::{
     events::AudioEvent,
     harmony::{
-        ChordQuality, HarmonicDriver, HarmonyMode, HarmonyNavigator,
-        chord::ChordType, lydian_chromatic::LydianChromaticConcept,
+        HarmonicDriver, HarmonyNavigator,
     },
     log,
     params::{CurrentState, MusicalParams, SessionConfig, TimeSignature},
-    sequencer::{RhythmMode, Sequencer},
-    timeline::{Measure, Playhead, TimelineGenerator, TrackId, Writehead},
+    sequencer::Sequencer,
+    timeline::{Measure, Playhead, TimelineGenerator, Writehead},
 };
 use harmonium_ai::mapper::UnifiedTensionSystem;
-use harmonium_audio::voicing::{BlockChordVoicer, Voicer, VoicerContext};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use rust_music_theory::{note::PitchSymbol, scale::ScaleType};

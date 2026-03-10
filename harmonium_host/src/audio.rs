@@ -6,10 +6,10 @@ use harmonium_audio::backend::odin2_backend::Odin2Backend;
 use harmonium_audio::backend::{
     AudioRenderer, recorder::RecorderBackend, synth_backend::SynthBackend,
 };
-use harmonium_core::{log, EngineReport, HarmoniumController};
+use harmonium_core::{log, HarmoniumController};
 
 use crate::engine::{
-    HarmoniumEngine, HarmonyState, SessionConfig, VisualizationEvent,
+    HarmoniumEngine, SessionConfig,
 };
 use crate::timeline_engine::TimelineEngine;
 
