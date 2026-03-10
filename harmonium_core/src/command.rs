@@ -153,6 +153,22 @@ pub enum EngineCommand {
         secondary_rotation: usize,
     },
 
+    // === TIMELINE (Playhead control) ===
+    /// Seek to a specific bar number (1-based)
+    Seek(usize),
+
+    /// Set loop region (start_bar..=end_bar, 1-based)
+    SetLoop {
+        start_bar: usize,
+        end_bar: usize,
+    },
+
+    /// Clear loop region
+    ClearLoop,
+
+    /// Export timeline to MusicXML
+    ExportTimeline(RecordFormat),
+
     // === UTILITY ===
     /// Request full state report
     GetState,

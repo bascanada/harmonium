@@ -8,9 +8,11 @@
 //! The algorithms (Sequencer, HarmonicDriver, HarmonyNavigator, Voicer) stay
 //! identical to the legacy engine - only separated into composer and performer roles.
 
+pub mod export;
 pub mod generator;
 mod pointers;
 
+pub use export::timeline_to_musicxml;
 pub use generator::TimelineGenerator;
 pub use pointers::{Playhead, Writehead};
 

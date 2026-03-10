@@ -473,6 +473,14 @@ impl HarmoniumEngine {
                     self.musical_params.rhythm_secondary_rotation = secondary_rotation;
                 }
 
+                // === TIMELINE (not supported in legacy engine) ===
+                EngineCommand::Seek(_)
+                | EngineCommand::SetLoop { .. }
+                | EngineCommand::ClearLoop
+                | EngineCommand::ExportTimeline(_) => {
+                    log::warn("Timeline commands not supported in legacy engine");
+                }
+
                 // === UTILITY ===
                 EngineCommand::GetState => {
                     // Will be handled by send_report() which is called periodically

@@ -527,6 +527,42 @@ impl HarmoniumController {
         self.send(EngineCommand::StopRecording(format))
     }
 
+    // === TIMELINE CONTROLS ===
+
+    /// Seek to a specific bar (1-based)
+    ///
+    /// # Errors
+    ///
+    /// Returns `QueueFull` if the command queue is full
+    pub fn seek(&mut self, bar: usize) -> Result<(), ControllerError> {
+        self.send(EngineCommand::Seek(bar))
+    }
+
+    /// Set loop region (start_bar..=end_bar, 1-based)
+    ///
+    /// # Errors
+    ///
+    /// Returns `QueueFull` if the command queue is full
+    pub fn set_loop(
+        &mut self,
+        start_bar: usize,
+        end_bar: usize,
+    ) -> Result<(), ControllerError> {
+        self.send(EngineCommand::SetLoop {
+            start_bar,
+            end_bar,
+        })
+    }
+
+    /// Clear loop region
+    ///
+    /// # Errors
+    ///
+    /// Returns `QueueFull` if the command queue is full
+    pub fn clear_loop(&mut self) -> Result<(), ControllerError> {
+        self.send(EngineCommand::ClearLoop)
+    }
+
     // === UTILITY ===
 
     /// Request full state report

@@ -81,6 +81,9 @@ pub struct TimelineEngine {
 
     // Mute tracking
     last_muted_channels: Vec<bool>,
+
+    // Loop region (None = no loop)
+    loop_region: Option<(usize, usize)>, // (start_bar, end_bar) inclusive
 }
 
 impl TimelineEngine {
@@ -185,6 +188,7 @@ impl TimelineEngine {
             is_recording_midi: false,
             is_recording_musicxml: false,
             last_muted_channels: vec![false; 16],
+            loop_region: None,
         }
     }
 
@@ -259,6 +263,21 @@ impl TimelineEngine {
 
     /// Audio thread tick: read from playhead and emit events
     fn tick(&mut self) {
+        // Check loop region: if playhead crossed end_bar, seek back to start_bar
+        if let Some((start_bar, end_bar)) = self.loop_region {
+            if self.playhead.current_bar() > end_bar {
+                // Stop active notes before looping
+                self.renderer.handle_event(AudioEvent::AllNotesOff { channel: 0 });
+                self.renderer.handle_event(AudioEvent::AllNotesOff { channel: 1 });
+                self.renderer.handle_event(AudioEvent::AllNotesOff { channel: 2 });
+                self.renderer.handle_event(AudioEvent::AllNotesOff { channel: 3 });
+                self.playhead.seek_to_bar(start_bar);
+                // Drain ring buffer and regenerate from loop start
+                while self.measure_rx.pop().is_ok() {}
+                self.writehead.current_bar = start_bar;
+            }
+        }
+
         // If playhead needs a new measure, try to read from ring buffer
         if self.playhead.needs_measure() {
             if let Ok(measure) = self.measure_rx.pop() {
@@ -387,11 +406,42 @@ impl TimelineEngine {
                     self.musical_params.rhythm_secondary_pulses = secondary_pulses;
                     self.musical_params.rhythm_secondary_rotation = secondary_rotation;
                 }
+                EngineCommand::Seek(bar) => {
+                    let target_bar = bar.max(1);
+                    log::info(&format!("Seeking to bar {target_bar}"));
+                    // Stop active notes
+                    self.renderer.handle_event(AudioEvent::AllNotesOff { channel: 0 });
+                    self.renderer.handle_event(AudioEvent::AllNotesOff { channel: 1 });
+                    self.renderer.handle_event(AudioEvent::AllNotesOff { channel: 2 });
+                    self.renderer.handle_event(AudioEvent::AllNotesOff { channel: 3 });
+                    // Seek playhead
+                    self.playhead.seek_to_bar(target_bar);
+                    // Drain the measure ring buffer
+                    while self.measure_rx.pop().is_ok() {}
+                    // Reset writehead to generate from the seek position
+                    self.writehead.current_bar = target_bar;
+                }
+                EngineCommand::SetLoop { start_bar, end_bar } => {
+                    let start = start_bar.max(1);
+                    let end = end_bar.max(start);
+                    log::info(&format!("Loop set: bars {start}-{end}"));
+                    self.loop_region = Some((start, end));
+                }
+                EngineCommand::ClearLoop => {
+                    log::info("Loop cleared");
+                    self.loop_region = None;
+                }
+                EngineCommand::ExportTimeline(_format) => {
+                    // Timeline export handled separately via the ScoreTimeline
+                    // The Writehead's timeline contains the master copy
+                    log::info("Timeline export requested (not yet implemented in audio thread)");
+                }
                 EngineCommand::GetState => {}
                 EngineCommand::Reset => {
                     self.musical_params = MusicalParams::default();
                     self.playhead.reset();
                     self.writehead.reset();
+                    self.loop_region = None;
                 }
             }
         }
