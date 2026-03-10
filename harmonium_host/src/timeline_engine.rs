@@ -1,0 +1,522 @@
+//! Timeline-based engine - separates generation (Writehead) from playback (Playhead)
+//!
+//! This engine replaces the monolithic tick() approach with:
+//! - A Writehead that generates measures ahead of playback (main thread)
+//! - A Playhead that reads measures and emits AudioEvents (audio thread)
+//! - A ring buffer connecting them (lock-free SPSC)
+//!
+//! The legacy engine is preserved as `engine.rs` for A/B comparison.
+
+use std::sync::{Arc, Mutex};
+
+use arrayvec::ArrayString;
+use harmonium_audio::backend::AudioRenderer;
+use harmonium_core::{
+    events::AudioEvent,
+    harmony::{
+        ChordQuality, HarmonicDriver, HarmonyMode, HarmonyNavigator,
+        chord::ChordType, lydian_chromatic::LydianChromaticConcept,
+    },
+    log,
+    params::{CurrentState, MusicalParams, SessionConfig, TimeSignature},
+    sequencer::{RhythmMode, Sequencer},
+    timeline::{Measure, Playhead, TimelineGenerator, TrackId, Writehead},
+};
+use harmonium_ai::mapper::UnifiedTensionSystem;
+use harmonium_audio::voicing::{BlockChordVoicer, Voicer, VoicerContext};
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
+use rust_music_theory::{note::PitchSymbol, scale::ScaleType};
+
+pub use harmonium_core::params::{
+    CurrentState as TimelineCurrentState, HarmonyState, VisualizationEvent,
+};
+
+/// Timeline-based engine that separates music generation from audio playback.
+///
+/// The Writehead runs on the main thread, generating measures ahead of time.
+/// The Playhead runs on the audio thread, reading measures and emitting events.
+pub struct TimelineEngine {
+    pub config: SessionConfig,
+
+    // Communication queues (same as legacy engine)
+    command_rx: rtrb::Consumer<harmonium_core::EngineCommand>,
+    report_tx: rtrb::Producer<harmonium_core::EngineReport>,
+    pub font_queue: crate::FontQueue,
+
+    // === WRITEHEAD (main thread generation) ===
+    generator: TimelineGenerator,
+    writehead: Writehead,
+
+    // === PLAYHEAD (audio thread playback) ===
+    playhead: Playhead,
+
+    // === MEASURE RING BUFFER (Writehead → Playhead) ===
+    measure_tx: rtrb::Producer<Measure>,
+    measure_rx: rtrb::Consumer<Measure>,
+
+    // === AUDIO RENDERER ===
+    renderer: Box<dyn AudioRenderer>,
+    sample_rate: f64,
+
+    // === TIMING ===
+    sample_counter: usize,
+    samples_per_step: usize,
+
+    // === STATE ===
+    musical_params: MusicalParams,
+    current_state: CurrentState,
+    rng: ChaCha8Rng,
+
+    // === REPORT CACHE ===
+    last_chord_name: ArrayString<64>,
+    last_chord_root_offset: i32,
+    last_chord_is_minor: bool,
+
+    // Unified tension system
+    unified_tension: UnifiedTensionSystem,
+
+    // Recording state
+    is_recording_wav: bool,
+    is_recording_midi: bool,
+    is_recording_musicxml: bool,
+
+    // Mute tracking
+    last_muted_channels: Vec<bool>,
+}
+
+impl TimelineEngine {
+    pub fn new(
+        sample_rate: f64,
+        command_rx: rtrb::Consumer<harmonium_core::EngineCommand>,
+        report_tx: rtrb::Producer<harmonium_core::EngineReport>,
+        mut renderer: Box<dyn AudioRenderer>,
+    ) -> Self {
+        use rand::Rng;
+
+        let session_seed: u64 = rand::thread_rng().r#gen();
+        let mut rng = ChaCha8Rng::seed_from_u64(session_seed);
+
+        let font_queue = Arc::new(Mutex::new(Vec::new()));
+        let bpm = 120.0;
+        let steps = 16;
+        let initial_pulses = 4;
+
+        let keys = [
+            PitchSymbol::C, PitchSymbol::D, PitchSymbol::E, PitchSymbol::F,
+            PitchSymbol::G, PitchSymbol::A, PitchSymbol::B,
+        ];
+        let scales = [ScaleType::PentatonicMinor, ScaleType::PentatonicMajor];
+        let random_key = keys[rng.r#gen::<usize>() % keys.len()];
+        let random_scale = scales[rng.r#gen::<usize>() % scales.len()];
+
+        let config = SessionConfig {
+            bpm,
+            key: format!("{}", random_key),
+            scale: format!("{:?}", random_scale),
+            pulses: initial_pulses,
+            steps,
+        };
+
+        log::info(&format!(
+            "Timeline Engine - Session: {} {} | BPM: {:.1}",
+            config.key, config.scale, bpm
+        ));
+
+        // Initialize sequencers
+        let sequencer_primary = Sequencer::new(steps, initial_pulses, bpm);
+        let sequencer_secondary = Sequencer::new_with_rotation(12, 3, bpm, 0);
+
+        // Initialize harmony
+        let harmony = HarmonyNavigator::new(random_key, random_scale, 4);
+        let key_pc = match random_key {
+            PitchSymbol::C => 0, PitchSymbol::D => 2, PitchSymbol::E => 4,
+            PitchSymbol::F => 5, PitchSymbol::G => 7, PitchSymbol::A => 9,
+            PitchSymbol::B => 11, _ => 0,
+        };
+        let harmonic_driver = Some(HarmonicDriver::new(key_pc));
+
+        let musical_params = MusicalParams::default();
+        let current_state = CurrentState::default();
+
+        // Create the generator
+        let generator = TimelineGenerator::new(
+            sequencer_primary,
+            sequencer_secondary,
+            harmony,
+            harmonic_driver,
+            musical_params.clone(),
+            current_state.clone(),
+        );
+
+        // Create writehead and playhead
+        let writehead = Writehead::new(sample_rate, 4);
+        let playhead = Playhead::new(sample_rate, 4);
+
+        // Ring buffer for measures (8 slots)
+        let (measure_tx, measure_rx) = rtrb::RingBuffer::<Measure>::new(8);
+
+        let samples_per_step = (sample_rate * 60.0 / (bpm as f64) / 4.0) as usize;
+        renderer.handle_event(AudioEvent::TimingUpdate { samples_per_step });
+
+        let mut unified_tension = UnifiedTensionSystem::new();
+        unified_tension.update(0.5, 0.3, 0.3);
+
+        Self {
+            config,
+            command_rx,
+            report_tx,
+            font_queue,
+            generator,
+            writehead,
+            playhead,
+            measure_tx,
+            measure_rx,
+            renderer,
+            sample_rate,
+            sample_counter: 0,
+            samples_per_step,
+            musical_params,
+            current_state,
+            rng,
+            last_chord_name: ArrayString::from("I").unwrap_or_default(),
+            last_chord_root_offset: 0,
+            last_chord_is_minor: false,
+            unified_tension,
+            is_recording_wav: false,
+            is_recording_midi: false,
+            is_recording_musicxml: false,
+            last_muted_channels: vec![false; 16],
+        }
+    }
+
+    /// Main thread: generate measures ahead of playback and push to ring buffer
+    pub fn generate_ahead(&mut self) {
+        let playhead_bar = self.playhead.current_bar();
+
+        while self.writehead.needs_generation(playhead_bar) {
+            let bar_idx = self.writehead.current_bar;
+            let measure = self.generator.generate_measure(bar_idx, &mut self.rng);
+
+            // Update report cache from generated measure
+            self.last_chord_name = ArrayString::from(&measure.chord_context.chord_name)
+                .unwrap_or_default();
+            self.last_chord_root_offset = measure.chord_context.root_offset;
+            self.last_chord_is_minor = measure.chord_context.is_minor;
+
+            // Try to push to ring buffer for the playhead
+            match self.measure_tx.push(measure.clone()) {
+                Ok(()) => {}
+                Err(_) => {
+                    // Ring buffer full - playhead hasn't consumed yet, skip
+                    break;
+                }
+            }
+
+            // Store in master timeline
+            self.writehead.commit_measure(measure);
+        }
+    }
+
+    /// Audio thread: process a buffer of audio samples
+    pub fn process_buffer(&mut self, output: &mut [f32], channels: usize) {
+        crate::realtime::rt_check::enter_audio_context();
+
+        let total_samples = output.len() / channels;
+        let mut processed = 0;
+
+        // Process commands and generate ahead (main thread work)
+        crate::realtime::rt_check::exit_audio_context();
+        self.update_controls();
+        self.generate_ahead();
+        crate::realtime::rt_check::enter_audio_context();
+
+        while processed < total_samples {
+            let remaining = total_samples - processed;
+            let samples_until_tick = if self.samples_per_step > self.sample_counter {
+                self.samples_per_step - self.sample_counter
+            } else {
+                1
+            };
+
+            let chunk_size = std::cmp::min(remaining, samples_until_tick);
+            let start_idx = processed * channels;
+            let end_idx = (processed + chunk_size) * channels;
+            let chunk = &mut output[start_idx..end_idx];
+
+            self.renderer.process_buffer(chunk, channels);
+            self.sample_counter += chunk_size;
+            processed += chunk_size;
+
+            if self.sample_counter >= self.samples_per_step {
+                self.sample_counter = 0;
+                crate::realtime::rt_check::exit_audio_context();
+                self.tick();
+                crate::realtime::rt_check::enter_audio_context();
+            }
+        }
+
+        crate::realtime::rt_check::exit_audio_context();
+    }
+
+    /// Audio thread tick: read from playhead and emit events
+    fn tick(&mut self) {
+        // If playhead needs a new measure, try to read from ring buffer
+        if self.playhead.needs_measure() {
+            if let Ok(measure) = self.measure_rx.pop() {
+                // Update timing from measure tempo
+                let steps_per_beat = 4.0f64;
+                let new_sps = (self.sample_rate * 60.0 / (measure.tempo as f64) / steps_per_beat) as usize;
+                if new_sps != self.samples_per_step {
+                    self.samples_per_step = new_sps;
+                    self.renderer.handle_event(AudioEvent::TimingUpdate {
+                        samples_per_step: new_sps,
+                    });
+                }
+
+                self.playhead.load_measure(measure);
+            } else {
+                // No measure available - silence (underflow)
+                return;
+            }
+        }
+
+        // Tick the playhead to get events for this step
+        let events = self.playhead.tick();
+
+        // Forward events to renderer
+        for event in events {
+            self.renderer.handle_event(event.clone());
+        }
+
+        // Send report periodically
+        let current_step = self.playhead.position.step_in_bar(4);
+        if current_step.is_multiple_of(4) {
+            self.send_report();
+        }
+    }
+
+    /// Process pending commands
+    fn process_commands(&mut self) {
+        use harmonium_core::EngineCommand;
+
+        while let Ok(cmd) = self.command_rx.pop() {
+            match cmd {
+                EngineCommand::SetBpm(bpm) => {
+                    self.musical_params.bpm = bpm.clamp(70.0, 180.0);
+                }
+                EngineCommand::SetMasterVolume(volume) => {
+                    self.musical_params.master_volume = volume.clamp(0.0, 1.0);
+                }
+                EngineCommand::SetTimeSignature { numerator, denominator } => {
+                    self.musical_params.time_signature = TimeSignature { numerator, denominator };
+                }
+                EngineCommand::EnableRhythm(e) => self.musical_params.enable_rhythm = e,
+                EngineCommand::EnableHarmony(e) => self.musical_params.enable_harmony = e,
+                EngineCommand::EnableMelody(e) => self.musical_params.enable_melody = e,
+                EngineCommand::EnableVoicing(e) => self.musical_params.enable_voicing = e,
+                EngineCommand::SetRhythmMode(m) => self.musical_params.rhythm_mode = m,
+                EngineCommand::SetRhythmSteps(s) => self.musical_params.rhythm_steps = s,
+                EngineCommand::SetRhythmPulses(p) => self.musical_params.rhythm_pulses = p,
+                EngineCommand::SetRhythmRotation(r) => self.musical_params.rhythm_rotation = r,
+                EngineCommand::SetRhythmDensity(d) => self.musical_params.rhythm_density = d.clamp(0.0, 1.0),
+                EngineCommand::SetRhythmTension(t) => self.musical_params.rhythm_tension = t.clamp(0.0, 1.0),
+                EngineCommand::SetRhythmSecondary { steps, pulses, rotation } => {
+                    self.musical_params.rhythm_secondary_steps = steps;
+                    self.musical_params.rhythm_secondary_pulses = pulses;
+                    self.musical_params.rhythm_secondary_rotation = rotation;
+                }
+                EngineCommand::SetFixedKick(f) => self.musical_params.fixed_kick = f,
+                EngineCommand::SetHarmonyMode(m) => self.musical_params.harmony_mode = m,
+                EngineCommand::SetHarmonyStrategy(s) => self.musical_params.harmony_strategy = s,
+                EngineCommand::SetHarmonyTension(t) => self.musical_params.harmony_tension = t.clamp(0.0, 1.0),
+                EngineCommand::SetHarmonyValence(v) => self.musical_params.harmony_valence = v.clamp(-1.0, 1.0),
+                EngineCommand::SetHarmonyMeasuresPerChord(m) => self.musical_params.harmony_measures_per_chord = m,
+                EngineCommand::SetKeyRoot(r) => self.musical_params.key_root = r % 12,
+                EngineCommand::SetMelodySmoothness(s) => self.musical_params.melody_smoothness = s.clamp(0.0, 1.0),
+                EngineCommand::SetMelodyOctave(o) => self.musical_params.melody_octave = o.clamp(3, 6),
+                EngineCommand::SetVoicingDensity(d) => self.musical_params.voicing_density = d.clamp(0.0, 1.0),
+                EngineCommand::SetVoicingTension(t) => self.musical_params.voicing_tension = t.clamp(0.0, 1.0),
+                EngineCommand::SetChannelGain { channel, gain } => {
+                    match channel {
+                        0 => self.musical_params.gain_bass = gain.clamp(0.0, 1.0),
+                        1 => self.musical_params.gain_lead = gain.clamp(0.0, 1.0),
+                        2 => self.musical_params.gain_snare = gain.clamp(0.0, 1.0),
+                        3 => self.musical_params.gain_hat = gain.clamp(0.0, 1.0),
+                        _ => {}
+                    }
+                }
+                EngineCommand::SetChannelMute { channel, muted } => {
+                    if (channel as usize) < self.musical_params.muted_channels.len() {
+                        self.musical_params.muted_channels[channel as usize] = muted;
+                    }
+                }
+                EngineCommand::SetChannelRoute { channel, bank_id } => {
+                    if (channel as usize) < self.musical_params.channel_routing.len() {
+                        self.musical_params.channel_routing[channel as usize] = bank_id;
+                    }
+                }
+                EngineCommand::SetVelocityBase { channel, velocity } => {
+                    match channel {
+                        0 => self.musical_params.vel_base_bass = velocity,
+                        2 => self.musical_params.vel_base_snare = velocity,
+                        _ => {}
+                    }
+                }
+                EngineCommand::StartRecording(format) => {
+                    match format {
+                        harmonium_core::events::RecordFormat::Wav => self.musical_params.record_wav = true,
+                        harmonium_core::events::RecordFormat::Midi => self.musical_params.record_midi = true,
+                        harmonium_core::events::RecordFormat::MusicXml => self.musical_params.record_musicxml = true,
+                    }
+                }
+                EngineCommand::StopRecording(format) => {
+                    match format {
+                        harmonium_core::events::RecordFormat::Wav => self.musical_params.record_wav = false,
+                        harmonium_core::events::RecordFormat::Midi => self.musical_params.record_midi = false,
+                        harmonium_core::events::RecordFormat::MusicXml => self.musical_params.record_musicxml = false,
+                    }
+                }
+                EngineCommand::UseEmotionMode | EngineCommand::UseDirectMode | EngineCommand::SetEmotionParams { .. } => {}
+                EngineCommand::SetAllRhythmParams { mode, steps, pulses, rotation, density, tension, secondary_steps, secondary_pulses, secondary_rotation } => {
+                    self.musical_params.rhythm_mode = mode;
+                    self.musical_params.rhythm_steps = steps;
+                    self.musical_params.rhythm_pulses = pulses;
+                    self.musical_params.rhythm_rotation = rotation;
+                    self.musical_params.rhythm_density = density.clamp(0.0, 1.0);
+                    self.musical_params.rhythm_tension = tension.clamp(0.0, 1.0);
+                    self.musical_params.rhythm_secondary_steps = secondary_steps;
+                    self.musical_params.rhythm_secondary_pulses = secondary_pulses;
+                    self.musical_params.rhythm_secondary_rotation = secondary_rotation;
+                }
+                EngineCommand::GetState => {}
+                EngineCommand::Reset => {
+                    self.musical_params = MusicalParams::default();
+                    self.playhead.reset();
+                    self.writehead.reset();
+                }
+            }
+        }
+    }
+
+    /// Update controls and sync generator with latest params
+    fn update_controls(&mut self) {
+        self.process_commands();
+
+        // Sync generator with updated params
+        self.generator.update_params(self.musical_params.clone());
+
+        // Load fonts
+        if let Ok(mut queue) = self.font_queue.try_lock() {
+            while let Some((id, bytes)) = queue.pop() {
+                self.renderer.handle_event(AudioEvent::LoadFont { id, bytes });
+            }
+        }
+
+        // Sync routing
+        for (i, &mode) in self.musical_params.channel_routing.iter().enumerate() {
+            if i < 16 {
+                self.renderer.handle_event(AudioEvent::SetChannelRoute {
+                    channel: i as u8,
+                    bank: mode,
+                });
+            }
+        }
+
+        // Mute control
+        for (i, &is_muted) in self.musical_params.muted_channels.iter().enumerate() {
+            if i < 16 && i < self.last_muted_channels.len() {
+                if is_muted && !self.last_muted_channels[i] {
+                    self.renderer.handle_event(AudioEvent::AllNotesOff { channel: i as u8 });
+                }
+                self.last_muted_channels[i] = is_muted;
+            }
+        }
+
+        // Mixer gains
+        self.renderer.handle_event(AudioEvent::SetMixerGains {
+            lead: self.musical_params.gain_lead,
+            bass: self.musical_params.gain_bass,
+            snare: self.musical_params.gain_snare,
+            hat: self.musical_params.gain_hat,
+        });
+
+        // Recording control
+        self.sync_recording();
+
+        // Timing update
+        let steps_per_beat = 4.0f64;
+        let new_sps = (self.sample_rate * 60.0 / (self.musical_params.bpm as f64) / steps_per_beat) as usize;
+        if new_sps != self.samples_per_step {
+            self.samples_per_step = new_sps;
+            self.renderer.handle_event(AudioEvent::TimingUpdate {
+                samples_per_step: new_sps,
+            });
+        }
+    }
+
+    fn sync_recording(&mut self) {
+        let mp = &self.musical_params;
+
+        if mp.record_wav != self.is_recording_wav {
+            self.is_recording_wav = mp.record_wav;
+            let fmt = harmonium_core::events::RecordFormat::Wav;
+            if self.is_recording_wav {
+                self.renderer.handle_event(AudioEvent::StartRecording { format: fmt });
+            } else {
+                self.renderer.handle_event(AudioEvent::StopRecording { format: fmt });
+            }
+        }
+
+        if mp.record_midi != self.is_recording_midi {
+            self.is_recording_midi = mp.record_midi;
+            let fmt = harmonium_core::events::RecordFormat::Midi;
+            if self.is_recording_midi {
+                self.renderer.handle_event(AudioEvent::StartRecording { format: fmt });
+            } else {
+                self.renderer.handle_event(AudioEvent::StopRecording { format: fmt });
+            }
+        }
+
+        if mp.record_musicxml != self.is_recording_musicxml {
+            self.is_recording_musicxml = mp.record_musicxml;
+            let fmt = harmonium_core::events::RecordFormat::MusicXml;
+            if self.is_recording_musicxml {
+                self.renderer.handle_event(AudioEvent::UpdateMusicalParams {
+                    params: Box::new(mp.clone()),
+                });
+                self.renderer.handle_event(AudioEvent::StartRecording { format: fmt });
+            } else {
+                self.renderer.handle_event(AudioEvent::StopRecording { format: fmt });
+            }
+        }
+    }
+
+    fn send_report(&mut self) {
+        use harmonium_core::EngineReport;
+
+        let mut report = EngineReport::new();
+
+        report.current_bar = self.playhead.current_bar();
+        report.current_beat = self.playhead.position.beat;
+        report.current_step = self.playhead.position.step_in_bar(4);
+        report.time_signature = self.musical_params.time_signature;
+
+        report.current_chord = self.last_chord_name.clone();
+        report.chord_root_offset = self.last_chord_root_offset;
+        report.chord_is_minor = self.last_chord_is_minor;
+        report.harmony_mode = self.musical_params.harmony_mode;
+
+        report.rhythm_mode = self.musical_params.rhythm_mode;
+        report.primary_steps = self.musical_params.rhythm_steps;
+        report.primary_pulses = self.musical_params.rhythm_pulses;
+        report.secondary_steps = self.musical_params.rhythm_secondary_steps;
+        report.secondary_pulses = self.musical_params.rhythm_secondary_pulses;
+
+        report.musical_params = self.musical_params.clone();
+        report.session_key = ArrayString::from(&self.config.key).unwrap_or_default();
+        report.session_scale = ArrayString::from(&self.config.scale).unwrap_or_default();
+
+        let _ = self.report_tx.push(report);
+    }
+}

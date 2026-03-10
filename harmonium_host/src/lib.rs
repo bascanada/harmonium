@@ -6,6 +6,7 @@ use triple_buffer::Input;
 use wasm_bindgen::prelude::*;
 
 pub mod engine;
+pub mod timeline_engine;
 
 // Re-exports from workspace crates
 #[cfg(feature = "ai")]
