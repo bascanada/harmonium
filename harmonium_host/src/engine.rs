@@ -20,6 +20,8 @@ use harmonium_core::{
     sequencer::{RhythmMode, Sequencer, StepTrigger},
 };
 use rand::Rng;
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 use rust_music_theory::{note::PitchSymbol, scale::ScaleType};
 
 pub struct HarmoniumEngine {
@@ -78,6 +80,9 @@ pub struct HarmoniumEngine {
 
     // Phase 2.5: Pre-allocated buffer for event generation (no Vec::new() in audio thread)
     events_buffer: Vec<AudioEvent>,
+
+    // Deterministic seeded RNG for reproducible output
+    rng: ChaCha8Rng,
 }
 
 impl HarmoniumEngine {
@@ -87,7 +92,10 @@ impl HarmoniumEngine {
         report_tx: rtrb::Producer<harmonium_core::EngineReport>,
         mut renderer: Box<dyn AudioRenderer>,
     ) -> Self {
-        let mut rng = rand::thread_rng();
+        // Use a random seed from the system RNG, then all subsequent randomness
+        // flows through the deterministic ChaCha8Rng for reproducible output
+        let session_seed: u64 = rand::thread_rng().r#gen();
+        let mut rng = ChaCha8Rng::seed_from_u64(session_seed);
         let font_queue = Arc::new(Mutex::new(Vec::new()));
         let bpm = 120.0; // Default BPM (will be updated via commands)
         let steps = 16;
@@ -195,6 +203,8 @@ impl HarmoniumEngine {
             last_muted_channels: vec![false; 16],
             // Phase 2.5: Pre-allocate with capacity for typical number of events per tick
             events_buffer: Vec::with_capacity(8),
+            // Deterministic seeded RNG
+            rng,
         };
 
         engine
@@ -982,15 +992,13 @@ impl HarmoniumEngine {
                     if self.conductor.current_bar.is_multiple_of(measures_per_chord)
                         && let Some(ref mut driver) = self.harmonic_driver
                     {
-                        let mut rng = rand::thread_rng();
-
                         // NOTE: Chord name capture removed to prevent allocation
                         // let old_chord_name = driver.current_chord().name();
 
                         let decision = driver.next_chord(
                             self.current_state.tension,
                             self.current_state.valence,
-                            &mut rng,
+                            &mut self.rng,
                         );
 
                         // === LOGGING DISABLED IN AUDIO THREAD ===
@@ -1122,7 +1130,7 @@ impl HarmoniumEngine {
             let is_strong = trigger_primary.kick;
             let is_new_measure = self.sequencer_primary.current_step == 0;
             // Utilisation du générateur structuré (Motifs + Variations)
-            let freq = self.harmony.next_note_structured(is_strong, is_new_measure);
+            let freq = self.harmony.next_note_structured(is_strong, is_new_measure, &mut self.rng);
             let melody_midi = (69.0 + 12.0 * (freq / 440.0).log2()).round() as u8;
             let base_vel = 90 + (self.current_state.arousal * 30.0) as u8;
 

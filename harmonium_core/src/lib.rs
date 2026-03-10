@@ -8,6 +8,7 @@ pub mod log;
 pub mod params;
 pub mod report;
 pub mod sequencer;
+pub mod timeline;
 
 // Re-export common types
 pub use command::EngineCommand;
