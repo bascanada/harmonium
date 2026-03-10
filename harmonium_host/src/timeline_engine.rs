@@ -91,11 +91,22 @@ impl TimelineEngine {
         sample_rate: f64,
         command_rx: rtrb::Consumer<harmonium_core::EngineCommand>,
         report_tx: rtrb::Producer<harmonium_core::EngineReport>,
-        mut renderer: Box<dyn AudioRenderer>,
+        renderer: Box<dyn AudioRenderer>,
     ) -> Self {
         use rand::Rng;
-
         let session_seed: u64 = rand::thread_rng().r#gen();
+        Self::new_with_seed(sample_rate, command_rx, report_tx, renderer, session_seed)
+    }
+
+    /// Create timeline engine with explicit seed for deterministic/reproducible output.
+    pub fn new_with_seed(
+        sample_rate: f64,
+        command_rx: rtrb::Consumer<harmonium_core::EngineCommand>,
+        report_tx: rtrb::Producer<harmonium_core::EngineReport>,
+        mut renderer: Box<dyn AudioRenderer>,
+        session_seed: u64,
+    ) -> Self {
+        use rand::Rng;
         let mut rng = ChaCha8Rng::seed_from_u64(session_seed);
 
         let font_queue = Arc::new(Mutex::new(Vec::new()));
@@ -108,8 +119,8 @@ impl TimelineEngine {
             PitchSymbol::G, PitchSymbol::A, PitchSymbol::B,
         ];
         let scales = [ScaleType::PentatonicMinor, ScaleType::PentatonicMajor];
-        let random_key = keys[rng.r#gen::<usize>() % keys.len()];
-        let random_scale = scales[rng.r#gen::<usize>() % scales.len()];
+        let random_key = keys[rng.gen_range(0..keys.len())];
+        let random_scale = scales[rng.gen_range(0..scales.len())];
 
         let config = SessionConfig {
             bpm,
@@ -124,9 +135,11 @@ impl TimelineEngine {
             config.key, config.scale, bpm
         ));
 
-        // Initialize sequencers
+        // Initialize sequencers (match legacy engine initialization)
         let sequencer_primary = Sequencer::new(steps, initial_pulses, bpm);
-        let sequencer_secondary = Sequencer::new_with_rotation(12, 3, bpm, 0);
+        let default_density = 0.4;
+        let secondary_pulses = std::cmp::min((default_density * 8.0) as usize + 1, 12);
+        let sequencer_secondary = Sequencer::new_with_rotation(12, secondary_pulses, bpm, 0);
 
         // Initialize harmony
         let harmony = HarmonyNavigator::new(random_key, random_scale, 4);

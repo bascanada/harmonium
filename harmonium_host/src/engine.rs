@@ -90,11 +90,20 @@ impl HarmoniumEngine {
         sample_rate: f64,
         command_rx: rtrb::Consumer<harmonium_core::EngineCommand>,
         report_tx: rtrb::Producer<harmonium_core::EngineReport>,
-        mut renderer: Box<dyn AudioRenderer>,
+        renderer: Box<dyn AudioRenderer>,
     ) -> Self {
-        // Use a random seed from the system RNG, then all subsequent randomness
-        // flows through the deterministic ChaCha8Rng for reproducible output
         let session_seed: u64 = rand::thread_rng().r#gen();
+        Self::new_with_seed(sample_rate, command_rx, report_tx, renderer, session_seed)
+    }
+
+    /// Create engine with explicit seed for deterministic/reproducible output.
+    pub fn new_with_seed(
+        sample_rate: f64,
+        command_rx: rtrb::Consumer<harmonium_core::EngineCommand>,
+        report_tx: rtrb::Producer<harmonium_core::EngineReport>,
+        mut renderer: Box<dyn AudioRenderer>,
+        session_seed: u64,
+    ) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(session_seed);
         let font_queue = Arc::new(Mutex::new(Vec::new()));
         let bpm = 120.0; // Default BPM (will be updated via commands)
