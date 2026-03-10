@@ -23,7 +23,7 @@ impl HarmoniumCompleter {
             commands: vec![
                 "set", "emotion", "direct", "enable", "disable",
                 "record", "stop", "state", "show", "status",
-                "reset", "help", "quit", "exit",
+                "seek", "loop", "reset", "help", "quit", "exit",
             ],
             set_params: vec![
                 "bpm", "volume", "master_volume", "time", "time_signature",
@@ -138,6 +138,26 @@ impl HarmoniumCompleter {
                         .map(|&fmt| Pair {
                             display: fmt.to_string(),
                             replacement: fmt.to_string(),
+                        })
+                        .collect()
+                } else {
+                    vec![]
+                }
+            }
+
+            "loop" => {
+                if tokens.len() <= 2 {
+                    let partial = if tokens.len() == 2 {
+                        tokens[1].to_lowercase()
+                    } else {
+                        String::new()
+                    };
+                    vec!["off"]
+                        .iter()
+                        .filter(|s| s.starts_with(&partial))
+                        .map(|&s| Pair {
+                            display: s.to_string(),
+                            replacement: s.to_string(),
                         })
                         .collect()
                 } else {

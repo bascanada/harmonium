@@ -55,6 +55,12 @@ pub fn print_help() {
         ("set unmute <ch>", "Unmute channel"),
     ]);
 
+    print_section("TIMELINE (timeline engine only)", &[
+        ("seek <bar>", "Seek playhead to a specific bar"),
+        ("loop <start> <end>", "Loop playback between two bars"),
+        ("loop off", "Clear loop region"),
+    ]);
+
     print_section("RECORDING", &[
         ("record wav", "Start WAV recording"),
         ("record midi", "Start MIDI recording"),
@@ -83,6 +89,8 @@ pub fn print_help() {
     println!("  {}", "emotion a+0.1 t-0.2        # Increase arousal, decrease tension".green());
     println!("  {}", "set rhythm_mode perfect".green());
     println!("  {}", "enable voicing".green());
+    println!("  {}", "seek 4                         # Jump to bar 4".green());
+    println!("  {}", "loop 4 8                       # Loop bars 4-8".green());
     println!("  {}", "record midi output.mid".green());
     println!();
 }

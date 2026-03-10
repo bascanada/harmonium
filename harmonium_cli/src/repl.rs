@@ -198,6 +198,37 @@ fn handle_command(
             return Ok(true);
         }
 
+        "seek" => {
+            if tokens.len() > 1 {
+                if let Ok(bar) = tokens[1].parse::<usize>() {
+                    let _ = controller.seek(bar);
+                    println!("{} Seeking to bar {bar}", "[OK]".green().bold());
+                } else {
+                    println!("{} Usage: seek <bar_number>", "[ERROR]".red().bold());
+                }
+            } else {
+                println!("{} Usage: seek <bar_number>", "[ERROR]".red().bold());
+            }
+            return Ok(true);
+        }
+
+        "loop" => {
+            if tokens.len() > 2 {
+                if let (Ok(start), Ok(end)) = (tokens[1].parse::<usize>(), tokens[2].parse::<usize>()) {
+                    let _ = controller.set_loop(start, end);
+                    println!("{} Loop set: bars {start}-{end}", "[OK]".green().bold());
+                } else {
+                    println!("{} Usage: loop <start_bar> <end_bar>", "[ERROR]".red().bold());
+                }
+            } else if tokens.len() > 1 && tokens[1] == "off" {
+                let _ = controller.clear_loop();
+                println!("{} Loop cleared", "[OK]".green().bold());
+            } else {
+                println!("{} Usage: loop <start> <end> | loop off", "[ERROR]".red().bold());
+            }
+            return Ok(true);
+        }
+
         // Handle relative emotion adjustments
         "emotion" if tokens.len() > 1 && has_relative_values(&tokens[1..]) => {
             return handle_relative_emotion(controller, emotion_state, emotion_mapper, &tokens[1..]);
