@@ -19,7 +19,7 @@ pub use export::{
     write_musicxml_with_chords,
 };
 pub use params::{EngineParams, MusicalParams};
-pub use report::{EngineReport, NoteEvent};
+pub use report::{EngineReport, MeasureSnapshot, NoteEvent, NoteSnapshot};
 pub use sequencer::Sequencer;
 
 // Define MusicKernel (skeleton for now, as requested in plan)

@@ -392,6 +392,17 @@ impl Handle {
             .unwrap_or_else(|| vec![0; 12])
     }
 
+    /// Get newly generated measures as JSON array.
+    ///
+    /// Returns a JSON string like `[{index, tempo, time_sig_numerator, ...}, ...]`.
+    /// Call this on each animation frame; the frontend should append the returned
+    /// measures to its score cache for VexFlow rendering.
+    /// Returns `"[]"` when no new measures are available.
+    pub fn get_new_measures_json(&mut self) -> String {
+        let measures = self.controller.poll_new_measures();
+        serde_json::to_string(&measures).unwrap_or_else(|_| "[]".to_string())
+    }
+
     /// Get visualization events as flat array [note, channel, step, velocity, ...]
     pub fn get_events(&mut self) -> Vec<u32> {
         let mut result = Vec::new();

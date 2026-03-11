@@ -8,7 +8,7 @@ use crate::{
     events::RecordFormat,
     harmony::HarmonyMode,
     params::{EngineParams, HarmonyStrategy},
-    report::EngineReport,
+    report::{EngineReport, MeasureSnapshot},
     sequencer::RhythmMode,
 };
 
@@ -605,6 +605,20 @@ impl HarmoniumController {
     #[must_use]
     pub fn current_bar(&self) -> Option<usize> {
         self.cached_state.as_ref().map(|state| state.current_bar)
+    }
+
+    /// Poll reports and collect all new measure snapshots.
+    ///
+    /// Drains `new_measures` from every report received since the last poll.
+    /// The frontend should append these to its score cache for rendering.
+    #[must_use]
+    pub fn poll_new_measures(&mut self) -> Vec<MeasureSnapshot> {
+        let reports = self.poll_reports();
+        let mut measures = Vec::new();
+        for report in reports {
+            measures.extend(report.new_measures);
+        }
+        measures
     }
 }
 

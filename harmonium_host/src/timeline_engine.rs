@@ -78,6 +78,9 @@ pub struct TimelineEngine {
 
     // When true, skip real-time safety checks (for offline rendering)
     offline: bool,
+
+    // Pending measure snapshots to include in the next report
+    pending_measure_snapshots: Vec<harmonium_core::report::MeasureSnapshot>,
 }
 
 impl TimelineEngine {
@@ -191,6 +194,7 @@ impl TimelineEngine {
             last_muted_channels: vec![false; 16],
             loop_region: None,
             offline: false,
+            pending_measure_snapshots: Vec::new(),
         }
     }
 
@@ -212,6 +216,11 @@ impl TimelineEngine {
                 .unwrap_or_default();
             self.last_chord_root_offset = measure.chord_context.root_offset;
             self.last_chord_is_minor = measure.chord_context.is_minor;
+
+            // Capture snapshot for frontend score rendering
+            self.pending_measure_snapshots.push(
+                harmonium_core::report::MeasureSnapshot::from_measure(&measure),
+            );
 
             // Try to push to ring buffer for the playhead
             match self.measure_tx.push(measure.clone()) {
@@ -601,6 +610,11 @@ impl TimelineEngine {
         report.musical_params = self.musical_params.clone();
         report.session_key = ArrayString::from(&self.config.key).unwrap_or_default();
         report.session_scale = ArrayString::from(&self.config.scale).unwrap_or_default();
+
+        // Drain pending measure snapshots into this report
+        if !self.pending_measure_snapshots.is_empty() {
+            report.new_measures = std::mem::take(&mut self.pending_measure_snapshots);
+        }
 
         let _ = self.report_tx.push(report);
     }

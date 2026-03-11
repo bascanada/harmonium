@@ -13,6 +13,81 @@ use crate::{
     sequencer::RhythmMode,
 };
 
+/// Lightweight snapshot of a note for score rendering (e.g., VexFlow).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NoteSnapshot {
+    /// Track: 0=Bass, 1=Lead, 2=Snare, 3=Hat
+    pub track: u8,
+    /// MIDI note number (0-127)
+    pub pitch: u8,
+    /// Start position within the measure (step index, 0-based)
+    pub start_step: usize,
+    /// Duration in steps (0 = trigger-only for percussion)
+    pub duration_steps: usize,
+    /// MIDI velocity (0-127)
+    pub velocity: u8,
+}
+
+/// Lightweight snapshot of a generated measure for score rendering.
+///
+/// Pushed to the frontend whenever the Writehead generates a new bar,
+/// so a score renderer (e.g., VexFlow) can display upcoming music
+/// before it plays.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MeasureSnapshot {
+    /// Absolute measure index (1-based)
+    pub index: usize,
+    /// Tempo at generation time
+    pub tempo: f32,
+    /// Time signature numerator
+    pub time_sig_numerator: usize,
+    /// Time signature denominator
+    pub time_sig_denominator: usize,
+    /// Number of steps in this measure
+    pub steps: usize,
+    /// Chord name for display (e.g., "Imaj7", "iv")
+    pub chord_name: String,
+    /// Root offset from key (semitones)
+    pub chord_root_offset: i32,
+    /// Whether the chord is minor
+    pub chord_is_minor: bool,
+    /// All notes in this measure (flattened across tracks)
+    pub notes: Vec<NoteSnapshot>,
+}
+
+impl MeasureSnapshot {
+    /// Create a snapshot from a full Measure (used by the engine)
+    pub fn from_measure(measure: &crate::timeline::Measure) -> Self {
+        use crate::timeline::TrackId;
+
+        let mut notes = Vec::new();
+        for &track_id in &TrackId::ALL {
+            let channel = track_id.channel();
+            for note in measure.notes_for_track(track_id) {
+                notes.push(NoteSnapshot {
+                    track: channel,
+                    pitch: note.pitch,
+                    start_step: note.start_step,
+                    duration_steps: note.duration_steps,
+                    velocity: note.velocity,
+                });
+            }
+        }
+
+        Self {
+            index: measure.index,
+            tempo: measure.tempo,
+            time_sig_numerator: measure.time_signature.numerator,
+            time_sig_denominator: measure.time_signature.denominator,
+            steps: measure.steps,
+            chord_name: measure.chord_context.chord_name.clone(),
+            chord_root_offset: measure.chord_context.root_offset,
+            chord_is_minor: measure.chord_context.is_minor,
+            notes,
+        }
+    }
+}
+
 /// Note event for real-time visualization
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NoteEvent {
@@ -100,6 +175,11 @@ pub struct EngineReport {
     /// This Vec is created once and reused, not allocated per tick
     pub notes: Vec<NoteEvent>,
 
+    // === NEW MEASURES (pushed when Writehead generates) ===
+    /// Newly generated measures since the last report.
+    /// Frontend should append these to its score cache for rendering.
+    pub new_measures: Vec<MeasureSnapshot>,
+
     // === CURRENT PARAMS (echoed back) ===
     /// Current musical parameters
     pub musical_params: MusicalParams,
@@ -135,6 +215,7 @@ impl Default for EngineReport {
             secondary_pattern: [false; 192],
             rhythm_mode: RhythmMode::default(),
             notes: Vec::with_capacity(16), // Pre-allocated
+            new_measures: Vec::new(),
             musical_params: MusicalParams::default(),
             session_key: ArrayString::new(),
             session_scale: ArrayString::new(),

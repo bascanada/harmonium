@@ -352,3 +352,51 @@ fn test_coverage_matrix_no_panics() {
 
     assert_eq!(test_count, 18, "Should run 3x2x3 = 18 configurations");
 }
+
+// ═══════════════════════════════════════════════════════════════
+// LEVEL 8: Measure snapshots flow through reports
+// ═══════════════════════════════════════════════════════════════
+
+#[test]
+fn test_measure_snapshots_in_reports() {
+    let seed = 42u64;
+    let sample_rate = 44100.0;
+    let (mut engine, _cmd_tx, mut rpt_rx) = create_engine(seed, sample_rate);
+
+    // Run for 8 bars
+    let total_samples = samples_for_bars(8, 120.0, 4, sample_rate);
+    run_engine_samples(&mut engine, total_samples);
+
+    // Collect all measure snapshots from reports
+    let mut all_measures = Vec::new();
+    while let Ok(report) = rpt_rx.pop() {
+        all_measures.extend(report.new_measures);
+    }
+
+    // Should have received multiple measures (at least a few bars)
+    assert!(
+        !all_measures.is_empty(),
+        "Should receive measure snapshots via reports"
+    );
+
+    // Verify measure data is populated (use last measure which has fully morphed state)
+    let last = all_measures.last().unwrap();
+    assert!(last.index > 0, "Measure index should be > 0");
+    assert!(last.tempo > 0.0, "Tempo should be positive");
+    assert!(last.steps > 0, "Steps should be > 0");
+    assert!(!last.chord_name.is_empty(), "Chord name should be set");
+
+    // Verify notes exist
+    let total_notes: usize = all_measures.iter().map(|m| m.notes.len()).sum();
+    assert!(total_notes > 0, "Should have notes across measures");
+
+    // Verify measure indices are sequential
+    for window in all_measures.windows(2) {
+        assert!(
+            window[1].index > window[0].index,
+            "Measures should be in ascending order: {} then {}",
+            window[0].index,
+            window[1].index,
+        );
+    }
+}
