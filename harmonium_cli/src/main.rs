@@ -2,8 +2,11 @@
 //!
 //! This CLI provides a REPL for testing and controlling the Harmonium engine,
 //! validating the command/report queue architecture before the frontend rebuild.
+//!
+//! Use `--export` mode for headless batch export (no REPL, runs as fast as possible).
 
 mod completer;
+mod export;
 mod help;
 mod parser;
 mod repl;
@@ -27,6 +30,30 @@ struct Args {
     /// Path to SoundFont file (.sf2) for audio synthesis
     #[arg(short, long)]
     soundfont: Option<String>,
+
+    /// Export mode: skip REPL, run engine for --duration seconds and save recordings
+    #[arg(long)]
+    export: bool,
+
+    /// Duration in seconds for export mode (required with --export)
+    #[arg(short, long)]
+    duration: Option<u64>,
+
+    /// Record WAV output to file
+    #[arg(long, value_name = "PATH")]
+    record_wav: Option<String>,
+
+    /// Record MIDI output to file
+    #[arg(long, value_name = "PATH")]
+    record_midi: Option<String>,
+
+    /// Record MusicXML output to file
+    #[arg(long, value_name = "PATH")]
+    record_musicxml: Option<String>,
+
+    /// Record engine state snapshots to JSON file (ground truth for testing)
+    #[arg(long, value_name = "PATH")]
+    record_truth: Option<String>,
 }
 
 fn main() -> Result<()> {
@@ -34,6 +61,12 @@ fn main() -> Result<()> {
     std::env::set_var("HARMONIUM_CLI", "1");
 
     let args = Args::parse();
+
+    // Validate export mode arguments
+    if args.export && args.duration.is_none() {
+        eprintln!("Error: --export requires --duration <seconds>");
+        std::process::exit(1);
+    }
 
     // Parse backend type
     let backend_type = match args.backend.as_str() {
@@ -83,8 +116,21 @@ fn main() -> Result<()> {
     println!("  BPM: {:.1}", config.bpm);
     println!();
 
-    // Start REPL
-    repl::run(controller, finished_recordings)?;
+    if args.export {
+        // Export mode: run engine for duration, save recordings, exit
+        export::run(
+            controller,
+            finished_recordings,
+            args.duration.unwrap(),
+            args.record_wav,
+            args.record_midi,
+            args.record_musicxml,
+            args.record_truth,
+        )?;
+    } else {
+        // Interactive REPL mode
+        repl::run(controller, finished_recordings)?;
+    }
 
     Ok(())
 }
