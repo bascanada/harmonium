@@ -20,8 +20,8 @@ struct Args {
     #[arg(short, long, default_value = "fundsp")]
     backend: String,
 
-    /// Engine type: legacy (event-streaming) or timeline (seekable)
-    #[arg(short, long, default_value = "legacy")]
+    /// Engine type: timeline (seekable, default) or legacy (event-streaming)
+    #[arg(short, long, default_value = "timeline")]
     engine: String,
 
     /// Path to SoundFont file (.sf2) for audio synthesis

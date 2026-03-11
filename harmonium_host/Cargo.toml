@@ -32,7 +32,6 @@ cpal = { version = "0.15", features = ["wasm-bindgen"], optional = true }
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", optional = true }
 nih_plug_webview = { git = "https://github.com/httnn/nih-plug-webview.git", optional = true }
 rtrb = "0.3"
-triple_buffer = "8.0"
 arrayvec = "0.7"
 crossbeam-channel = "0.5"
 rosc = "0.10"

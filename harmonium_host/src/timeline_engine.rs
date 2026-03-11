@@ -21,14 +21,9 @@ use harmonium_core::{
     sequencer::Sequencer,
     timeline::{Measure, Playhead, TimelineGenerator, Writehead},
 };
-use harmonium_ai::mapper::UnifiedTensionSystem;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use rust_music_theory::{note::PitchSymbol, scale::ScaleType};
-
-pub use harmonium_core::params::{
-    CurrentState as TimelineCurrentState, HarmonyState, VisualizationEvent,
-};
 
 /// Timeline-based engine that separates music generation from audio playback.
 ///
@@ -63,16 +58,12 @@ pub struct TimelineEngine {
 
     // === STATE ===
     musical_params: MusicalParams,
-    current_state: CurrentState,
     rng: ChaCha8Rng,
 
     // === REPORT CACHE ===
     last_chord_name: ArrayString<64>,
     last_chord_root_offset: i32,
     last_chord_is_minor: bool,
-
-    // Unified tension system
-    unified_tension: UnifiedTensionSystem,
 
     // Recording state
     is_recording_wav: bool,
@@ -151,7 +142,6 @@ impl TimelineEngine {
         let harmonic_driver = Some(HarmonicDriver::new(key_pc));
 
         let musical_params = MusicalParams::default();
-        let current_state = CurrentState::default();
 
         // Create the generator
         let generator = TimelineGenerator::new(
@@ -160,7 +150,7 @@ impl TimelineEngine {
             harmony,
             harmonic_driver,
             musical_params.clone(),
-            current_state.clone(),
+            CurrentState::default(),
         );
 
         // Create writehead and playhead
@@ -172,9 +162,6 @@ impl TimelineEngine {
 
         let samples_per_step = (sample_rate * 60.0 / (bpm as f64) / 4.0) as usize;
         renderer.handle_event(AudioEvent::TimingUpdate { samples_per_step });
-
-        let mut unified_tension = UnifiedTensionSystem::new();
-        unified_tension.update(0.5, 0.3, 0.3);
 
         Self {
             config,
@@ -191,12 +178,10 @@ impl TimelineEngine {
             sample_counter: 0,
             samples_per_step,
             musical_params,
-            current_state,
             rng,
             last_chord_name: ArrayString::from("I").unwrap_or_default(),
             last_chord_root_offset: 0,
             last_chord_is_minor: false,
-            unified_tension,
             is_recording_wav: false,
             is_recording_midi: false,
             is_recording_musicxml: false,
@@ -444,10 +429,28 @@ impl TimelineEngine {
                     log::info("Loop cleared");
                     self.loop_region = None;
                 }
-                EngineCommand::ExportTimeline(_format) => {
-                    // Timeline export handled separately via the ScoreTimeline
-                    // The Writehead's timeline contains the master copy
-                    log::info("Timeline export requested (not yet implemented in audio thread)");
+                EngineCommand::ExportTimeline(format) => {
+                    log::info(&format!("Timeline export requested: {:?}", format));
+                    match format {
+                        harmonium_core::events::RecordFormat::MusicXml => {
+                            let xml = harmonium_core::timeline::timeline_to_musicxml(
+                                &self.writehead.timeline,
+                                "Harmonium Export",
+                            );
+                            if let Ok(()) = std::fs::write("timeline_export.musicxml", &xml) {
+                                log::info(&format!(
+                                    "Timeline exported to timeline_export.musicxml ({} bytes)",
+                                    xml.len()
+                                ));
+                            }
+                        }
+                        _ => {
+                            log::warn(&format!(
+                                "Timeline export only supports MusicXML, got {:?}",
+                                format
+                            ));
+                        }
+                    }
                 }
                 EngineCommand::GetState => {}
                 EngineCommand::Reset => {

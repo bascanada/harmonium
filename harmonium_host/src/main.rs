@@ -20,9 +20,9 @@ use rosc::{OscPacket, OscType};
 /// Available engine types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EngineType {
-    /// Legacy event-streaming engine (default)
+    /// Legacy event-streaming engine
     Legacy,
-    /// Timeline-based engine (new architecture)
+    /// Timeline-based engine (default, seekable/replayable)
     Timeline,
 }
 
@@ -150,7 +150,7 @@ fn main() {
     #[cfg(not(feature = "odin2"))]
     let mut backend_type = AudioBackendType::FundSP;
     let mut fixed_kick = false;
-    let mut engine_type = EngineType::Legacy;
+    let mut engine_type = EngineType::Timeline;
 
     let mut i = 1;
     while i < args.len() {
@@ -257,7 +257,7 @@ fn main() {
                     "  --harmony-mode, -m <MODE>  Harmony engine: 'basic' or 'driver' (default: driver)"
                 );
                 println!(
-                    "  --engine, -e <TYPE>        Engine type: 'legacy' or 'timeline' (default: legacy)"
+                    "  --engine, -e <TYPE>        Engine type: 'timeline' or 'legacy' (default: timeline)"
                 );
                 println!(
                     "  --backend, -b <BACKEND>    Audio backend: 'fundsp' or 'odin2' (default: fundsp)"

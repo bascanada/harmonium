@@ -4094,7 +4094,6 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen 0.6.5",
  "serde_json",
- "triple_buffer",
  "wasm-bindgen",
  "web-sys",
 ]
