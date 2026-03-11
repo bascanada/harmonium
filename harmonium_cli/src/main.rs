@@ -31,7 +31,7 @@ struct Args {
     #[arg(short, long)]
     soundfont: Option<String>,
 
-    /// Export mode: skip REPL, run engine for --duration seconds and save recordings
+    /// Export mode: skip REPL, run engine offline for --duration seconds and save recordings
     #[arg(long)]
     export: bool,
 
@@ -84,7 +84,7 @@ fn main() -> Result<()> {
         println!("Loading SoundFont: {}", sf2_path);
         match std::fs::read(&sf2_path) {
             Ok(bytes) => {
-                println!("✓ Loaded SoundFont ({} bytes)", bytes.len());
+                println!("Loaded SoundFont ({} bytes)", bytes.len());
                 Some(bytes)
             }
             Err(e) => {
@@ -96,31 +96,12 @@ fn main() -> Result<()> {
         None
     };
 
-    // Create audio stream and controller
-    let use_timeline = args.engine.to_lowercase() == "timeline";
-    println!(
-        "Initializing Harmonium engine ({})...",
-        if use_timeline { "timeline" } else { "legacy" }
-    );
-
-    let (_stream, config, controller, _font_queue, finished_recordings) = if use_timeline {
-        audio::create_timeline_stream(sf2_bytes.as_deref(), backend_type)
-    } else {
-        audio::create_stream(sf2_bytes.as_deref(), backend_type)
-    }
-    .map_err(|e| anyhow::anyhow!(e))?;
-
-    println!("✓ Engine initialized");
-    println!("  Sample rate: 44100 Hz");
-    println!("  Key: {} {}", config.key, config.scale);
-    println!("  BPM: {:.1}", config.bpm);
-    println!();
-
     if args.export {
-        // Export mode: run engine for duration, save recordings, exit
+        // Export mode: offline rendering, no audio device
+        println!("Initializing offline engine...");
         export::run(
-            controller,
-            finished_recordings,
+            sf2_bytes.as_deref(),
+            backend_type,
             args.duration.unwrap(),
             args.record_wav,
             args.record_midi,
@@ -128,7 +109,26 @@ fn main() -> Result<()> {
             args.record_truth,
         )?;
     } else {
-        // Interactive REPL mode
+        // Interactive REPL mode: needs audio device
+        let use_timeline = args.engine.to_lowercase() == "timeline";
+        println!(
+            "Initializing Harmonium engine ({})...",
+            if use_timeline { "timeline" } else { "legacy" }
+        );
+
+        let (_stream, config, controller, _font_queue, finished_recordings) = if use_timeline {
+            audio::create_timeline_stream(sf2_bytes.as_deref(), backend_type)
+        } else {
+            audio::create_stream(sf2_bytes.as_deref(), backend_type)
+        }
+        .map_err(|e| anyhow::anyhow!(e))?;
+
+        println!("Engine initialized");
+        println!("  Sample rate: 44100 Hz");
+        println!("  Key: {} {}", config.key, config.scale);
+        println!("  BPM: {:.1}", config.bpm);
+        println!();
+
         repl::run(controller, finished_recordings)?;
     }
 

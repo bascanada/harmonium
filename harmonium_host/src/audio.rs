@@ -198,3 +198,49 @@ pub fn create_timeline_stream(
 
     Ok((stream, session_config, controller, font_queue, finished_recordings))
 }
+
+/// Create a timeline engine for offline (non-realtime) rendering.
+///
+/// No audio device is opened. The caller drives `engine.process_buffer()`
+/// in a tight loop to render as fast as possible.
+#[allow(clippy::type_complexity)]
+pub fn create_offline_engine(
+    sf2_bytes: Option<&[u8]>,
+    backend_type: AudioBackendType,
+    sample_rate: f64,
+) -> Result<
+    (
+        TimelineEngine,
+        harmonium_core::HarmoniumController,
+        crate::FinishedRecordings,
+    ),
+    String,
+> {
+    let (command_tx, command_rx) = rtrb::RingBuffer::<harmonium_core::EngineCommand>::new(1024);
+    let (report_tx, report_rx) = rtrb::RingBuffer::<harmonium_core::EngineReport>::new(256);
+
+    let default_routing = vec![0, 1, 2, 3];
+
+    let inner_backend: Box<dyn AudioRenderer> = match backend_type {
+        AudioBackendType::FundSP => {
+            Box::new(SynthBackend::new(sample_rate, sf2_bytes, &default_routing))
+        }
+        #[cfg(feature = "odin2")]
+        AudioBackendType::Odin2 => {
+            Box::new(Odin2Backend::new(sample_rate))
+        }
+    };
+
+    let finished_recordings = Arc::new(Mutex::new(Vec::new()));
+    let recorder_backend = Box::new(RecorderBackend::new(
+        inner_backend,
+        finished_recordings.clone(),
+        sample_rate as u32,
+    ));
+
+    let mut engine = TimelineEngine::new(sample_rate, command_rx, report_tx, recorder_backend);
+    engine.set_offline(true);
+    let controller = HarmoniumController::new(command_tx, report_rx);
+
+    Ok((engine, controller, finished_recordings))
+}

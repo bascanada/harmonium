@@ -75,6 +75,9 @@ pub struct TimelineEngine {
 
     // Loop region (None = no loop)
     loop_region: Option<(usize, usize)>, // (start_bar, end_bar) inclusive
+
+    // When true, skip real-time safety checks (for offline rendering)
+    offline: bool,
 }
 
 impl TimelineEngine {
@@ -187,7 +190,13 @@ impl TimelineEngine {
             is_recording_musicxml: false,
             last_muted_channels: vec![false; 16],
             loop_region: None,
+            offline: false,
         }
+    }
+
+    /// Enable offline mode (skip real-time safety checks for non-realtime rendering)
+    pub fn set_offline(&mut self, offline: bool) {
+        self.offline = offline;
     }
 
     /// Main thread: generate measures ahead of playback and push to ring buffer
@@ -220,16 +229,22 @@ impl TimelineEngine {
 
     /// Audio thread: process a buffer of audio samples
     pub fn process_buffer(&mut self, output: &mut [f32], channels: usize) {
-        crate::realtime::rt_check::enter_audio_context();
+        if !self.offline {
+            crate::realtime::rt_check::enter_audio_context();
+        }
 
         let total_samples = output.len() / channels;
         let mut processed = 0;
 
         // Process commands and generate ahead (main thread work)
-        crate::realtime::rt_check::exit_audio_context();
+        if !self.offline {
+            crate::realtime::rt_check::exit_audio_context();
+        }
         self.update_controls();
         self.generate_ahead();
-        crate::realtime::rt_check::enter_audio_context();
+        if !self.offline {
+            crate::realtime::rt_check::enter_audio_context();
+        }
 
         while processed < total_samples {
             let remaining = total_samples - processed;
@@ -250,13 +265,19 @@ impl TimelineEngine {
 
             if self.sample_counter >= self.samples_per_step {
                 self.sample_counter = 0;
-                crate::realtime::rt_check::exit_audio_context();
+                if !self.offline {
+                    crate::realtime::rt_check::exit_audio_context();
+                }
                 self.tick();
-                crate::realtime::rt_check::enter_audio_context();
+                if !self.offline {
+                    crate::realtime::rt_check::enter_audio_context();
+                }
             }
         }
 
-        crate::realtime::rt_check::exit_audio_context();
+        if !self.offline {
+            crate::realtime::rt_check::exit_audio_context();
+        }
     }
 
     /// Audio thread tick: read from playhead and emit events
