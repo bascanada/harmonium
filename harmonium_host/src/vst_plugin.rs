@@ -14,12 +14,12 @@ use std::sync::{Arc, Mutex};
 use harmonium_audio::backend::vst_midi_backend::VstMidiBackend;
 use harmonium_core::{harmony::HarmonyMode, sequencer::RhythmMode, HarmoniumController};
 
-use crate::engine::HarmoniumEngine;
+use crate::timeline_engine::TimelineEngine;
 
 /// Main Harmonium VST Plugin
 pub struct HarmoniumPlugin {
     params: Arc<HarmoniumParams>,
-    engine: Option<HarmoniumEngine>,
+    engine: Option<TimelineEngine>,
     controller: Option<harmonium_core::HarmoniumController>,
     midi_backend: Arc<Mutex<VstMidiBackend>>,
     sample_rate: f32,
@@ -343,8 +343,8 @@ impl Plugin for HarmoniumPlugin {
         let (command_tx, command_rx) = rtrb::RingBuffer::<harmonium_core::EngineCommand>::new(1024);
         let (report_tx, report_rx) = rtrb::RingBuffer::<harmonium_core::EngineReport>::new(256);
 
-        // Create engine with new command/report queue architecture
-        let engine = HarmoniumEngine::new(
+        // Create engine with timeline architecture
+        let engine = TimelineEngine::new(
             self.sample_rate as f64,
             command_rx,
             report_tx,

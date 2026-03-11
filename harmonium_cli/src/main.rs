@@ -23,10 +23,6 @@ struct Args {
     #[arg(short, long, default_value = "fundsp")]
     backend: String,
 
-    /// Engine type: timeline (seekable, default) or legacy (event-streaming)
-    #[arg(short, long, default_value = "timeline")]
-    engine: String,
-
     /// Path to SoundFont file (.sf2) for audio synthesis
     #[arg(short, long)]
     soundfont: Option<String>,
@@ -110,18 +106,11 @@ fn main() -> Result<()> {
         )?;
     } else {
         // Interactive REPL mode: needs audio device
-        let use_timeline = args.engine.to_lowercase() == "timeline";
-        println!(
-            "Initializing Harmonium engine ({})...",
-            if use_timeline { "timeline" } else { "legacy" }
-        );
+        println!("Initializing Harmonium engine...");
 
-        let (_stream, config, controller, _font_queue, finished_recordings) = if use_timeline {
+        let (_stream, config, controller, _font_queue, finished_recordings) =
             audio::create_timeline_stream(sf2_bytes.as_deref(), backend_type)
-        } else {
-            audio::create_stream(sf2_bytes.as_deref(), backend_type)
-        }
-        .map_err(|e| anyhow::anyhow!(e))?;
+                .map_err(|e| anyhow::anyhow!(e))?;
 
         println!("Engine initialized");
         println!("  Sample rate: 44100 Hz");

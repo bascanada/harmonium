@@ -3,7 +3,6 @@ use std::sync::{Arc, Mutex};
 #[cfg(feature = "wasm")]
 use wasm_bindgen::prelude::*;
 
-pub mod engine;
 pub mod timeline_engine;
 
 // Re-exports from workspace crates
@@ -971,7 +970,7 @@ pub fn start_with_backend(sf2_bytes: Option<Box<[u8]>>, backend: &str) -> Result
     };
 
     let (stream, config, controller, font_queue, finished_recordings) =
-        audio::create_stream(sf2_bytes.as_deref(), backend_type)
+        audio::create_timeline_stream(sf2_bytes.as_deref(), backend_type)
             .map_err(|e| JsValue::from_str(&e))?;
 
     Ok(Handle {

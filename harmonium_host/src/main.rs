@@ -17,15 +17,6 @@ use harmonium_core::events::RecordFormat;
 use rand::Rng;
 use rosc::{OscPacket, OscType};
 
-/// Available engine types
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EngineType {
-    /// Legacy event-streaming engine
-    Legacy,
-    /// Timeline-based engine (default, seekable/replayable)
-    Timeline,
-}
-
 fn perform_graceful_shutdown(
     controller: &Arc<Mutex<HarmoniumController>>,
     finished_recordings: &harmonium::FinishedRecordings,
@@ -150,8 +141,6 @@ fn main() {
     #[cfg(not(feature = "odin2"))]
     let mut backend_type = AudioBackendType::FundSP;
     let mut fixed_kick = false;
-    let mut engine_type = EngineType::Timeline;
-
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -192,22 +181,6 @@ fn main() {
                                 args[i + 1]
                             ));
                             HarmonyMode::Driver
-                        }
-                    };
-                    i += 1;
-                }
-            }
-            "--engine" | "-e" => {
-                if i + 1 < args.len() {
-                    engine_type = match args[i + 1].to_lowercase().as_str() {
-                        "legacy" => EngineType::Legacy,
-                        "timeline" => EngineType::Timeline,
-                        _ => {
-                            log::warn(&format!(
-                                "Unknown engine type '{}', using legacy",
-                                args[i + 1]
-                            ));
-                            EngineType::Legacy
                         }
                     };
                     i += 1;
@@ -257,9 +230,6 @@ fn main() {
                     "  --harmony-mode, -m <MODE>  Harmony engine: 'basic' or 'driver' (default: driver)"
                 );
                 println!(
-                    "  --engine, -e <TYPE>        Engine type: 'timeline' or 'legacy' (default: timeline)"
-                );
-                println!(
                     "  --backend, -b <BACKEND>    Audio backend: 'fundsp' or 'odin2' (default: fundsp)"
                 );
                 println!("  --record-wav [PATH]        Record to WAV file (default: output.wav)");
@@ -277,10 +247,6 @@ fn main() {
                 println!("  --drum-kit                 Fixed kick on C1 (for VST drums/samplers)");
                 println!("  --help, -h                 Show this help");
                 println!();
-                println!("Engine Types:");
-                println!("  legacy   - Event-streaming engine (original)");
-                println!("  timeline - Timeline-based engine (seekable, replayable)");
-                println!();
                 println!("Harmony Modes:");
                 println!("  basic   - Russell Circumplex quadrants (I-IV-vi-V progressions)");
                 println!("  driver  - Steedman Grammar + Neo-Riemannian PLR + LCC");
@@ -296,7 +262,6 @@ fn main() {
     }
 
     log::info(&format!("Harmony Mode: {harmony_mode:?}"));
-    log::info(&format!("Engine Type: {engine_type:?}"));
     log::info(&format!("Audio Backend: {backend_type:?}"));
     if fixed_kick {
         log::info("Drum Kit Mode: ON (Kick fixed on C1)");
@@ -335,10 +300,8 @@ fn main() {
     // === 1. Create Audio Stream ===
     log::info(&format!("Poly Steps: {poly_steps}"));
 
-    let (_stream, config, controller, _font_queue, finished_recordings) = match engine_type {
-        EngineType::Legacy => audio::create_stream(sf2_data.as_deref(), backend_type),
-        EngineType::Timeline => audio::create_timeline_stream(sf2_data.as_deref(), backend_type),
-    }
+    let (_stream, config, controller, _font_queue, finished_recordings) =
+        audio::create_timeline_stream(sf2_data.as_deref(), backend_type)
     .unwrap_or_else(|e| {
         #[allow(clippy::panic)]
         {
