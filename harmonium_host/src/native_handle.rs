@@ -193,6 +193,10 @@ impl NativeHandle {
         let _ = self.controller.set_harmony_valence(valence);
     }
 
+    pub fn set_channel_mute(&mut self, channel: u8, muted: bool) {
+        let _ = self.controller.set_channel_mute(channel, muted);
+    }
+
     pub fn set_writehead_lookahead(&mut self, bars: usize) {
         let _ = self.controller.set_writehead_lookahead(bars);
     }

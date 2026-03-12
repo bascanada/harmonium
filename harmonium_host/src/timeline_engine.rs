@@ -213,6 +213,17 @@ impl TimelineEngine {
 
         while self.writehead.needs_generation(playhead_bar) {
             let bar_idx = self.writehead.current_bar;
+
+            // If this bar already exists in the timeline (e.g. after SeekPlayhead),
+            // re-push the existing measure instead of generating a new one.
+            if let Some(existing) = self.writehead.timeline.get_measure(bar_idx) {
+                if self.measure_tx.push(existing.clone()).is_err() {
+                    break; // Ring buffer full
+                }
+                self.writehead.current_bar = bar_idx + 1;
+                continue;
+            }
+
             let measure = self.generator.generate_measure(bar_idx, &mut self.rng);
 
             // Update report cache from generated measure
@@ -340,8 +351,13 @@ impl TimelineEngine {
         // Tick the playhead to get events for this step
         let events = self.playhead.tick();
 
-        // Forward events to renderer
+        // Forward events to renderer, filtering out NoteOn for muted channels
         for event in events {
+            if let AudioEvent::NoteOn { channel, .. } = &event {
+                if self.musical_params.muted_channels.get(*channel as usize).copied().unwrap_or(false) {
+                    continue;
+                }
+            }
             self.renderer.handle_event(event.clone());
         }
 
@@ -509,7 +525,7 @@ impl TimelineEngine {
                     for ch in 0..4u8 {
                         self.renderer.handle_event(AudioEvent::AllNotesOff { channel: ch });
                     }
-                    // Reset ONLY playhead (writehead stays at its advanced position)
+                    // Reset playhead to target bar
                     self.playhead.seek_to_bar(target_bar);
                     // Drain ring buffer, re-fill from writehead's committed timeline
                     while self.measure_rx.pop().is_ok() {}
@@ -521,6 +537,10 @@ impl TimelineEngine {
                             }
                         }
                     }
+                    // Reset writehead to continue from where the ring buffer fill
+                    // stopped, so generate_ahead() re-pushes existing bars 9-16+
+                    // before generating new ones.
+                    self.writehead.current_bar = end_bar;
                 }
                 EngineCommand::SetWriteheadLookahead(n) => {
                     self.writehead.lookahead = n.max(4);
