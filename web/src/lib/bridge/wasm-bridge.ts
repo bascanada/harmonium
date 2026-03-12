@@ -11,7 +11,7 @@ export class WasmBridge extends BaseBridge {
 	private _currentBackend: AudioBackendType = 'fundsp';
 	private _availableBackends: AudioBackendType[] = ['fundsp'];
 
-	constructor() {
+constructor() {
 		super(createEmptyState());
 	}
 
@@ -85,9 +85,6 @@ export class WasmBridge extends BaseBridge {
 			if (hasChanges) {
 				this.subscribers.forEach((cb) => cb({ ...this.currentState }));
 			}
-
-			// Clear event queue
-			this.handle.get_events();
 
 			this.animationId = requestAnimationFrame(poll);
 		};
@@ -180,12 +177,20 @@ export class WasmBridge extends BaseBridge {
 		// Control mode
 		update('isEmotionMode', this._isEmotionMode);
 
+		// Emotional params
+		update('arousal', h.get_target_arousal());
+		update('valence', h.get_target_valence());
+		update('density', h.get_target_density());
+		update('tension', h.get_target_tension());
+
 		// Direct params (always sync from engine)
 		update('bpm', h.get_direct_bpm());
 		update('rhythmMode', h.get_direct_rhythm_mode());
 		update('enableRhythm', h.get_direct_enable_rhythm());
 		update('enableHarmony', h.get_direct_enable_harmony());
 		update('enableMelody', h.get_direct_enable_melody());
+		update('enableVoicing', h.get_direct_enable_voicing());
+		update('fixedKick', h.get_direct_fixed_kick());
 		update('rhythmDensity', h.get_direct_rhythm_density());
 		update('rhythmTension', h.get_direct_rhythm_tension());
 		update('harmonyTension', h.get_direct_harmony_tension());

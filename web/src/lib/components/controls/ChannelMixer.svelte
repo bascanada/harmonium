@@ -1,9 +1,7 @@
 <script lang="ts">
 	import type { HarmoniumBridge, EngineState } from '$lib/bridge';
 
-	// Props
-	export let bridge: HarmoniumBridge;
-	export let state: EngineState;
+	let { bridge, state }: { bridge: HarmoniumBridge; state: EngineState } = $props();
 
 	const channelNames = ['Bass', 'Lead', 'Snare', 'Hat'];
 

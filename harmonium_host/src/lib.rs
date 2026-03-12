@@ -23,6 +23,12 @@ static GLOBAL: harmonium_audio::realtime::rt_check::RTCheckAllocator =
 #[cfg(feature = "standalone")]
 pub mod audio;
 
+// Native handle (standalone without wasm)
+#[cfg(feature = "standalone")]
+pub mod native_handle;
+#[cfg(feature = "standalone")]
+pub use native_handle::NativeHandle;
+
 // VST Plugin module (only for VST builds)
 #[cfg(feature = "vst")]
 pub mod vst_plugin;
@@ -644,6 +650,15 @@ impl Handle {
         let _ = self.controller.enable_voicing(enabled);
     }
 
+    pub fn set_direct_fixed_kick(&mut self, enabled: bool) {
+        self.cached_params.fixed_kick = enabled;
+        let _ = self.controller.send(harmonium_core::EngineCommand::SetFixedKick(enabled));
+    }
+
+    pub fn get_direct_fixed_kick(&self) -> bool {
+        self.cached_params.fixed_kick
+    }
+
     /// Set all rhythm parameters at once
     #[allow(clippy::too_many_arguments)]
     pub fn set_all_rhythm_params(
@@ -823,20 +838,35 @@ impl Handle {
     // === Direct Mode Getters (from engine reports) ===
 
     pub fn get_direct_enable_rhythm(&mut self) -> bool {
-        // Module enables are always reflected in engine state
-        true // Default - engine report doesn't currently expose module toggles
+        let _ = self.controller.poll_reports();
+        self.controller
+            .get_state()
+            .map(|s| s.musical_params.enable_rhythm)
+            .unwrap_or(true)
     }
 
     pub fn get_direct_enable_harmony(&mut self) -> bool {
-        true
+        let _ = self.controller.poll_reports();
+        self.controller
+            .get_state()
+            .map(|s| s.musical_params.enable_harmony)
+            .unwrap_or(true)
     }
 
     pub fn get_direct_enable_melody(&mut self) -> bool {
-        true
+        let _ = self.controller.poll_reports();
+        self.controller
+            .get_state()
+            .map(|s| s.musical_params.enable_melody)
+            .unwrap_or(true)
     }
 
     pub fn get_direct_enable_voicing(&mut self) -> bool {
-        false // Default off
+        let _ = self.controller.poll_reports();
+        self.controller
+            .get_state()
+            .map(|s| s.musical_params.enable_voicing)
+            .unwrap_or(false)
     }
 
     pub fn get_direct_rhythm_mode(&mut self) -> u8 {

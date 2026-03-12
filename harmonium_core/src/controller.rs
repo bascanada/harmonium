@@ -563,6 +563,18 @@ impl HarmoniumController {
         self.send(EngineCommand::ClearLoop)
     }
 
+    /// Seek playhead to a specific bar without resetting the writehead.
+    ///
+    /// Re-fills the ring buffer from the writehead's committed timeline
+    /// so playback starts with the same measures the frontend displays.
+    ///
+    /// # Errors
+    ///
+    /// Returns `QueueFull` if the command queue is full
+    pub fn seek_playhead(&mut self, bar: usize) -> Result<(), ControllerError> {
+        self.send(EngineCommand::SeekPlayhead(bar))
+    }
+
     // === UTILITY ===
 
     /// Request full state report
@@ -581,6 +593,17 @@ impl HarmoniumController {
     /// Returns `QueueFull` if the command queue is full
     pub fn reset(&mut self) -> Result<(), ControllerError> {
         self.send(EngineCommand::Reset)
+    }
+
+    // === WRITEHEAD CONTROLS ===
+
+    /// Set writehead lookahead distance (minimum 4 bars)
+    ///
+    /// # Errors
+    ///
+    /// Returns `QueueFull` if the command queue is full
+    pub fn set_writehead_lookahead(&mut self, bars: usize) -> Result<(), ControllerError> {
+        self.send(EngineCommand::SetWriteheadLookahead(bars))
     }
 
     // === CONVENIENCE METHODS ===

@@ -126,7 +126,7 @@
 			<div class="controls">
 				{#if bridge}
 					{#key bridge}
-						<ControlPanel {state} {bridge} isAudioMode={false} />
+						<ControlPanel {state} {bridge} />
 					{/key}
 				{/if}
 			</div>

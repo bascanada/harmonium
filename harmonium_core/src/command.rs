@@ -169,6 +169,18 @@ pub enum EngineCommand {
     /// Export timeline to MusicXML
     ExportTimeline(RecordFormat),
 
+    // === PLAYHEAD (soft seek) ===
+    /// Seek playhead to a bar WITHOUT resetting the writehead.
+    /// Re-fills the ring buffer from the writehead's committed ScoreTimeline.
+    SeekPlayhead(usize),
+
+    /// Mute/unmute audio output (generation still runs, but output buffer is zeroed)
+    SetOutputMute(bool),
+
+    // === WRITEHEAD ===
+    /// Set the writehead lookahead distance (minimum 4 bars)
+    SetWriteheadLookahead(usize),
+
     // === UTILITY ===
     /// Request full state report
     GetState,

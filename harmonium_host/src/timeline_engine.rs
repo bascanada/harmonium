@@ -79,6 +79,9 @@ pub struct TimelineEngine {
     // When true, skip real-time safety checks (for offline rendering)
     offline: bool,
 
+    // When true, zero the output buffer after processing (silent pre-generation)
+    output_muted: bool,
+
     // Pending measure snapshots to include in the next report
     pending_measure_snapshots: Vec<harmonium_core::report::MeasureSnapshot>,
 }
@@ -194,6 +197,7 @@ impl TimelineEngine {
             last_muted_channels: vec![false; 16],
             loop_region: None,
             offline: false,
+            output_muted: false,
             pending_measure_snapshots: Vec::new(),
         }
     }
@@ -217,12 +221,7 @@ impl TimelineEngine {
             self.last_chord_root_offset = measure.chord_context.root_offset;
             self.last_chord_is_minor = measure.chord_context.is_minor;
 
-            // Capture snapshot for frontend score rendering
-            self.pending_measure_snapshots.push(
-                harmonium_core::report::MeasureSnapshot::from_measure(&measure),
-            );
-
-            // Try to push to ring buffer for the playhead
+            // Try ring buffer first — if full, stop (don't snapshot yet)
             match self.measure_tx.push(measure.clone()) {
                 Ok(()) => {}
                 Err(_) => {
@@ -230,6 +229,11 @@ impl TimelineEngine {
                     break;
                 }
             }
+
+            // Only snapshot AFTER successful ring buffer push (prevents duplicates)
+            self.pending_measure_snapshots.push(
+                harmonium_core::report::MeasureSnapshot::from_measure(&measure),
+            );
 
             // Store in master timeline
             self.writehead.commit_measure(measure);
@@ -281,6 +285,13 @@ impl TimelineEngine {
                 if !self.offline {
                     crate::realtime::rt_check::enter_audio_context();
                 }
+            }
+        }
+
+        // Zero output when muted (silent pre-generation: engine still ticks/generates)
+        if self.output_muted {
+            for sample in output.iter_mut() {
+                *sample = 0.0;
             }
         }
 
@@ -481,6 +492,38 @@ impl TimelineEngine {
                             ));
                         }
                     }
+                }
+                EngineCommand::SetOutputMute(muted) => {
+                    self.output_muted = muted;
+                    if muted {
+                        // Stop any active notes so the un-mute is clean
+                        for ch in 0..4u8 {
+                            self.renderer.handle_event(AudioEvent::AllNotesOff { channel: ch });
+                        }
+                    }
+                }
+                EngineCommand::SeekPlayhead(bar) => {
+                    let target_bar = bar.max(1);
+                    log::info(&format!("SeekPlayhead to bar {target_bar}"));
+                    // Stop active notes
+                    for ch in 0..4u8 {
+                        self.renderer.handle_event(AudioEvent::AllNotesOff { channel: ch });
+                    }
+                    // Reset ONLY playhead (writehead stays at its advanced position)
+                    self.playhead.seek_to_bar(target_bar);
+                    // Drain ring buffer, re-fill from writehead's committed timeline
+                    while self.measure_rx.pop().is_ok() {}
+                    let end_bar = (target_bar + 8).min(self.writehead.current_bar);
+                    for b in target_bar..end_bar {
+                        if let Some(measure) = self.writehead.timeline.get_measure(b) {
+                            if self.measure_tx.push(measure.clone()).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+                EngineCommand::SetWriteheadLookahead(n) => {
+                    self.writehead.lookahead = n.max(4);
                 }
                 EngineCommand::GetState => {}
                 EngineCommand::Reset => {

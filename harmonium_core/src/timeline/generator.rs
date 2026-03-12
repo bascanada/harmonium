@@ -416,7 +416,12 @@ impl TimelineGenerator {
             (arousal_from_bpm - self.current_state.arousal) * morph_factor;
     }
 
-    /// Calculate lead note duration (until next lead trigger or end of bar)
+    /// Standard note durations in steps (for ticks_per_beat=4).
+    /// These map 1:1 to VexFlow glyphs: 16=w, 12=hd, 8=h, 6=qd, 4=q, 3=8d, 2=8, 1=16
+    const NOTATION_SAFE_STEPS: [usize; 8] = [16, 12, 8, 6, 4, 3, 2, 1];
+
+    /// Calculate lead note duration (until next lead trigger or end of bar),
+    /// clamped down to the largest notation-safe value that fits.
     fn calculate_lead_duration(
         &self,
         current_step: usize,
@@ -426,21 +431,30 @@ impl TimelineGenerator {
         fill_zone_start: usize,
     ) -> usize {
         // Look ahead for the next lead trigger
-        for future_step in (current_step + 1)..total_steps {
-            let trigger = if future_step < pattern.len() {
-                pattern[future_step]
-            } else {
-                StepTrigger::default()
-            };
+        let raw = 'outer: {
+            for future_step in (current_step + 1)..total_steps {
+                let trigger = if future_step < pattern.len() {
+                    pattern[future_step]
+                } else {
+                    StepTrigger::default()
+                };
 
-            let would_play = (trigger.kick || trigger.snare)
-                && !(is_high_tension && future_step >= fill_zone_start);
-            if would_play {
-                return future_step - current_step;
+                let would_play = (trigger.kick || trigger.snare)
+                    && !(is_high_tension && future_step >= fill_zone_start);
+                if would_play {
+                    break 'outer future_step - current_step;
+                }
             }
-        }
-        // Sustain until end of bar
-        total_steps - current_step
+            // Sustain until end of bar
+            total_steps - current_step
+        };
+
+        // Clamp to largest notation-safe duration that fits within the raw gap
+        Self::NOTATION_SAFE_STEPS
+            .iter()
+            .copied()
+            .find(|&d| d <= raw)
+            .unwrap_or(1)
     }
 
     /// Update musical parameters (called when commands are processed)
