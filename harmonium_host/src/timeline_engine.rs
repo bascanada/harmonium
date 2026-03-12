@@ -550,6 +550,9 @@ impl TimelineEngine {
                 EngineCommand::GetState => {}
                 EngineCommand::Reset => {
                     self.musical_params = MusicalParams::default();
+                    // Drain the measure ring buffer so stale bars from a prior
+                    // SeekPlayhead refill don't block generate_ahead().
+                    while self.measure_rx.pop().is_ok() {}
                     self.playhead.reset();
                     self.writehead.reset();
                     self.loop_region = None;

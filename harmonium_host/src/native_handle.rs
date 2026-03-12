@@ -237,6 +237,8 @@ impl NativeHandle {
     /// Reset and regenerate measures.
     ///
     /// Clears the buffer, sends a Reset command, and re-generates measures.
+    /// The Reset command now drains the audio-thread ring buffer, preventing
+    /// stale bars (from a prior SeekPlayhead refill) from blocking generation.
     pub fn regenerate(&mut self) -> Result<(), String> {
         self.clear_measures();
         self.send_command(EngineCommand::Reset);
