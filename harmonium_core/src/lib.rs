@@ -1,18 +1,25 @@
+pub mod command;
+pub mod controller;
 pub mod events;
 pub mod export;
 pub mod fractal;
 pub mod harmony;
 pub mod log;
 pub mod params;
+pub mod report;
 pub mod sequencer;
+pub mod timeline;
 
 // Re-export common types
+pub use command::EngineCommand;
+pub use controller::{ControlMode, ControllerError, HarmoniumController};
 pub use events::AudioEvent;
 pub use export::{
     ChordSymbol, GitVersion, to_musicxml, to_musicxml_with_chords, write_musicxml,
     write_musicxml_with_chords,
 };
-pub use params::{EngineParams, MusicalParams};
+pub use params::{EngineParams, InstrumentConfig, MusicalParams};
+pub use report::{EngineReport, MeasureSnapshot, NoteEvent, NoteSnapshot};
 pub use sequencer::Sequencer;
 
 // Define MusicKernel (skeleton for now, as requested in plan)
@@ -79,7 +86,8 @@ impl MusicKernel {
             self.accumulator -= step_duration;
 
             // 3. Tick
-            let trigger = self.sequencer.tick();
+            let tick_result = self.sequencer.tick();
+            let trigger = tick_result.trigger;
 
             // 4. Generate Events
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -101,6 +109,7 @@ impl MusicKernel {
                 // TODO: Future refactoring - unify kick/bass or separate into dedicated percussion channel
                 // Simple Octave pattern: Root (C2) or Octave (C3)
                 let note = if self.sequencer.current_step.is_multiple_of(8) { 36 } else { 48 };
+                let note = self.params.instrument_bass.apply(note);
                 events.push(CoreAudioEvent::NoteOff { channel: 0, note });
                 events.push(CoreAudioEvent::NoteOn { channel: 0, note, velocity });
                 self.active_notes.push((0, note, note_duration * 1.5));
@@ -114,6 +123,7 @@ impl MusicKernel {
                 // Use step index to walk through chord tones
                 let note_idx = (self.sequencer.current_step / 2) % chord_tones.len();
                 let note = chord_tones[note_idx];
+                let note = self.params.instrument_lead.apply(note);
 
                 events.push(CoreAudioEvent::NoteOff { channel: 1, note });
                 events.push(CoreAudioEvent::NoteOn { channel: 1, note, velocity });

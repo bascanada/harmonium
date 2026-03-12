@@ -107,7 +107,6 @@ export interface HarmoniumBridge {
 	setDirectSecondarySteps(steps: number): void;
 	setDirectSecondaryPulses(pulses: number): void;
 	setDirectSecondaryRotation(rotation: number): void;
-	setDirectSecondaryRotation(rotation: number): void;
 	setAllRhythmParams(
 		mode: number,
 		steps: number,

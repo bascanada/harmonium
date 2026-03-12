@@ -55,22 +55,22 @@ export abstract class BaseBridge implements HarmoniumBridge {
 	// === Emotional Controls ===
 	setArousal(value: number): void {
 		this.sendCommand('set_arousal', value);
-		this.currentState.arousal = value;
+		this.updateState({ arousal: value });
 	}
 
 	setValence(value: number): void {
 		this.sendCommand('set_valence', value);
-		this.currentState.valence = value;
+		this.updateState({ valence: value });
 	}
 
 	setDensity(value: number): void {
 		this.sendCommand('set_density', value);
-		this.currentState.density = value;
+		this.updateState({ density: value });
 	}
 
 	setTension(value: number): void {
 		this.sendCommand('set_tension', value);
-		this.currentState.tension = value;
+		this.updateState({ tension: value });
 	}
 
 	// === Algorithm & Harmony Mode ===

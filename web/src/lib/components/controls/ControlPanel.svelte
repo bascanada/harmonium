@@ -4,20 +4,17 @@
 	import TechnicalControls from './TechnicalControls.svelte';
 	import ChannelMixer from './ChannelMixer.svelte';
 
-	// Props - bridge passed from parent
-	export let bridge: HarmoniumBridge;
-	export let state: EngineState;
-
-	// Audio mode detection (true = web audio rendering, false = VST MIDI-only)
-	export let isAudioMode = true;
+	let { bridge, state: engineState }: { bridge: HarmoniumBridge; state: EngineState } = $props();
 
 	// Local control mode (decoupled from state during transitions)
-	let localIsEmotionMode = true;
-	let isEditing = false;
+	let localIsEmotionMode = $state(true);
+	let isEditing = $state(false);
 	let editTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	// Sync with state ONLY when not actively toggling
-	$: if (!isEditing) localIsEmotionMode = state.isEmotionMode;
+	$effect(() => {
+		if (!isEditing) localIsEmotionMode = engineState.isEmotionMode;
+	});
 
 	function toggleControlMode() {
 		isEditing = true;
@@ -69,48 +66,40 @@
 
 	<!-- CHANNEL MIXER (always visible) -->
 	<div class="mb-4">
-		<ChannelMixer {bridge} {state} />
+		<ChannelMixer {bridge} state={engineState} />
 	</div>
 
 	{#if localIsEmotionMode}
 		<EmotionalControls
 			{bridge}
-			arousal={state.arousal}
-			valence={state.valence}
-			density={state.density}
-			tension={state.tension}
+			arousal={engineState.arousal}
+			valence={engineState.valence}
+			density={engineState.density}
+			tension={engineState.tension}
 		/>
 	{:else}
 		<TechnicalControls
 			{bridge}
-			{state}
-			{isAudioMode}
-			audioBackend={state.audioBackend}
-			enableRhythm={state.enableRhythm}
-			enableHarmony={state.enableHarmony}
-			enableMelody={state.enableMelody}
-			enableVoicing={state.enableVoicing}
-			fixedKick={state.fixedKick}
-			bpm={state.bpm}
-			rhythmMode={state.rhythmMode}
-			rhythmSteps={state.primarySteps}
-			rhythmPulses={state.primaryPulses}
-			rhythmRotation={state.primaryRotation}
-			rhythmDensity={state.rhythmDensity}
-			rhythmTension={state.rhythmTension}
-			secondarySteps={state.secondarySteps}
-			secondaryPulses={state.secondaryPulses}
-			secondaryRotation={state.secondaryRotation}
-			harmonyValence={state.harmonyValence}
-			harmonyTension={state.harmonyTension}
-			melodySmoothness={state.melodySmoothness}
-			voicingDensity={state.voicingDensity}
-			filterCutoff={state.voicingTension}
-			filterResonance={0.3}
-			chorusMix={0.0}
-			delayMix={0.0}
-			reverbMix={0.3}
-			expression={0.5}
+			state={engineState}
+			enableRhythm={engineState.enableRhythm}
+			enableHarmony={engineState.enableHarmony}
+			enableMelody={engineState.enableMelody}
+			enableVoicing={engineState.enableVoicing}
+			fixedKick={engineState.fixedKick}
+			bpm={engineState.bpm}
+			rhythmMode={engineState.rhythmMode}
+			rhythmSteps={engineState.primarySteps}
+			rhythmPulses={engineState.primaryPulses}
+			rhythmRotation={engineState.primaryRotation}
+			rhythmDensity={engineState.rhythmDensity}
+			rhythmTension={engineState.rhythmTension}
+			secondarySteps={engineState.secondarySteps}
+			secondaryPulses={engineState.secondaryPulses}
+			secondaryRotation={engineState.secondaryRotation}
+			harmonyValence={engineState.harmonyValence}
+			harmonyTension={engineState.harmonyTension}
+			melodySmoothness={engineState.melodySmoothness}
+			voicingDensity={engineState.voicingDensity}
 		/>
 	{/if}
 </div>

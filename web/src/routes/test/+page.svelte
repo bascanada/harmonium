@@ -508,6 +508,16 @@
 					(The "home" tonality - stays constant during session)
 				</span>
 			</div>
+			<!-- Live status bar -->
+			<div class="mt-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 font-mono text-xs text-neutral-400">
+				<span>Gen Bar <span class="text-neutral-200">{state.currentMeasure}</span> | Step <span class="text-neutral-200">{state.currentStep}/{state.primarySteps}</span></span>
+				<span class="text-neutral-600">|</span>
+				<span>{state.bpm} bpm</span>
+				<span class="text-neutral-600">|</span>
+				<span>A<span class="text-cyan-300">{state.arousal.toFixed(2)}</span> V<span class="text-cyan-300">{state.valence.toFixed(2)}</span> D<span class="text-cyan-300">{state.density.toFixed(2)}</span> T<span class="text-cyan-300">{state.tension.toFixed(2)}</span></span>
+				<span class="text-neutral-600">|</span>
+				<span class="text-neutral-500">{state.isEmotionMode ? 'EMO' : 'DIR'}</span>
+			</div>
 		</div>
 	{/if}
 
@@ -556,7 +566,7 @@
 				<!-- Right: Controls -->
 				{#if bridge}
 					{#key bridge}
-						<ControlPanel {state} {bridge} {isAudioMode} />
+						<ControlPanel {state} {bridge} />
 					{/key}
 				{/if}
 			</div>

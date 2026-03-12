@@ -22,7 +22,7 @@
 //! ```
 
 use harmonium_core::{
-    params::{EngineParams, HarmonyStrategy, MusicalParams},
+    params::{EngineParams, HarmonyStrategy, MusicalParams, TensionState},
     sequencer::RhythmMode,
 };
 
@@ -230,6 +230,178 @@ impl EmotionMapper {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// UNIFIED TENSION SYSTEM (TRQ Matrix)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Unified Tension System - Couples harmonic and rhythmic tension via emotion
+///
+/// Implements the TRQ (Tension-Rhythmic-Quality) Matrix which maps emotional
+/// inputs (arousal, valence, tension) to coherent combinations of:
+/// - **Harmonic tension** via Lydian Chromatic Concept (LCC) levels 1-7
+/// - **Rhythmic oddity** via antipodal distance (0-7+ oddity score)
+///
+/// ## TRQ Matrix States
+/// ```text
+///                 Low Oddity          High Oddity
+///                 (4-5)               (6-7+)
+///              ┌───────────────────┬──────────────────┐
+/// Low LCC      │  Stability (A)    │ RhythmicDrive(C)│
+/// (1-3)        │  Calm, consonant  │ Driving, groove │
+///              ├───────────────────┼──────────────────┤
+/// High LCC     │ HarmonicSuspense  │ PeakClimax (D)  │
+/// (4-7)        │ (B) Tense harmony │ Maximum tension │
+///              └───────────────────┴──────────────────┘
+/// ```
+///
+/// ## Emotional Mapping
+/// - **High arousal + Low valence** → State D (PeakClimax) — Angry, chaotic
+/// - **High arousal + High valence** → State C (RhythmicDrive) — Excited, energetic
+/// - **Low arousal + Low valence** → State B (HarmonicSuspense) — Sad, melancholic
+/// - **Low arousal + High valence** → State A (Stability) — Relaxed, peaceful
+#[derive(Clone, Debug)]
+pub struct UnifiedTensionSystem {
+    /// Current arousal level (0.0 to 1.0)
+    pub arousal: f32,
+    /// Current valence level (-1.0 to 1.0, negative = minor, positive = major)
+    pub valence: f32,
+    /// Current tension level (0.0 to 1.0)
+    pub tension: f32,
+    /// Current tension state (derived from arousal/valence/tension)
+    pub tension_state: TensionState,
+}
+
+impl Default for UnifiedTensionSystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl UnifiedTensionSystem {
+    /// Create a new Unified Tension System with default values (Stability state)
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            arousal: 0.0,
+            valence: 0.0,
+            tension: 0.0,
+            tension_state: TensionState::Stability,
+        }
+    }
+
+    /// Update the system with new emotional inputs and recalculate tension state
+    pub fn update(&mut self, arousal: f32, valence: f32, tension: f32) {
+        self.arousal = arousal.clamp(0.0, 1.0);
+        self.valence = valence.clamp(-1.0, 1.0);
+        self.tension = tension.clamp(0.0, 1.0);
+        self.tension_state = Self::select_tension_state(self.arousal, self.valence, self.tension);
+    }
+
+    /// Select tension state from emotional inputs using Russell's Circumplex Model
+    ///
+    /// Maps (arousal, valence, tension) to one of four TRQ Matrix states:
+    /// - **High arousal + Low valence** → PeakClimax (Angry, chaotic)
+    /// - **High arousal + High valence** → RhythmicDrive (Excited, energetic)
+    /// - **Low arousal + Low valence** → HarmonicSuspense (Sad, melancholic)
+    /// - **Low arousal + High valence** → Stability (Relaxed, peaceful)
+    ///
+    /// The tension parameter fine-tunes the selection within each quadrant.
+    #[must_use]
+    pub fn select_tension_state(arousal: f32, valence: f32, tension: f32) -> TensionState {
+        // Normalize inputs
+        let arousal = arousal.clamp(0.0, 1.0);
+        let valence = valence.clamp(-1.0, 1.0);
+        let tension = tension.clamp(0.0, 1.0);
+
+        // Determine quadrant from arousal and valence (Russell's Circumplex)
+        let high_arousal = arousal > 0.5;
+        let high_valence = valence > 0.0;
+
+        // Map to TRQ Matrix state
+        // Tension biases towards higher-tension states within each quadrant
+        match (high_arousal, high_valence) {
+            (true, false) => {
+                // High arousal, low valence (angry, stressed)
+                // Bias: always PeakClimax (maximum tension)
+                TensionState::PeakClimax
+            }
+            (true, true) => {
+                // High arousal, high valence (excited, energetic)
+                // High tension → PeakClimax, Low tension → RhythmicDrive
+                if tension > 0.6 {
+                    TensionState::PeakClimax
+                } else {
+                    TensionState::RhythmicDrive
+                }
+            }
+            (false, false) => {
+                // Low arousal, low valence (sad, melancholic)
+                // High tension → HarmonicSuspense, Low tension → Stability
+                if tension > 0.5 {
+                    TensionState::HarmonicSuspense
+                } else {
+                    TensionState::Stability
+                }
+            }
+            (false, true) => {
+                // Low arousal, high valence (relaxed, peaceful)
+                // Bias: always Stability (low tension)
+                TensionState::Stability
+            }
+        }
+    }
+
+    /// Calculate Lydian Chromatic Concept (LCC) level from current tension state
+    ///
+    /// Returns LCC level (1-7) based on the TRQ Matrix state:
+    /// - **Stability**: LCC 1-3 (Ingoing: I, IV, bVII)
+    /// - **RhythmicDrive**: LCC 1-3 (Ingoing: consonant harmony)
+    /// - **HarmonicSuspense**: LCC 4-7 (Outgoing: II, bII, VI, #IV)
+    /// - **PeakClimax**: LCC 4-7 (Outgoing: maximum dissonance)
+    ///
+    /// Within each range, the exact level is determined by the tension parameter.
+    #[must_use]
+    pub fn calculate_lcc_level(&self) -> usize {
+        match self.tension_state {
+            TensionState::Stability | TensionState::RhythmicDrive => {
+                // Ingoing scale degrees (1-3): I, IV, bVII
+                // Map tension 0.0-1.0 to LCC 1-3
+                (self.tension * 2.0) as usize + 1
+            }
+            TensionState::HarmonicSuspense | TensionState::PeakClimax => {
+                // Outgoing scale degrees (4-7): II, bII, VI, #IV
+                // Map tension 0.0-1.0 to LCC 4-7
+                (self.tension * 3.0) as usize + 4
+            }
+        }
+    }
+
+    /// Calculate target rhythmic oddity from current tension state
+    ///
+    /// Returns oddity score (4-7+) based on the TRQ Matrix state:
+    /// - **Stability**: Oddity 4-5 (low syncopation, stable patterns)
+    /// - **HarmonicSuspense**: Oddity 4-5 (stable rhythm, tense harmony)
+    /// - **RhythmicDrive**: Oddity 6-7 (high syncopation, driving groove)
+    /// - **PeakClimax**: Oddity 6-7+ (maximum rhythmic complexity)
+    ///
+    /// Within each range, the exact oddity is determined by the tension parameter.
+    #[must_use]
+    pub fn calculate_target_oddity(&self) -> usize {
+        match self.tension_state {
+            TensionState::Stability | TensionState::HarmonicSuspense => {
+                // Low oddity (4-5): stable, predictable rhythms
+                // Map tension 0.0-1.0 to oddity 4-5
+                (self.tension * 1.0) as usize + 4
+            }
+            TensionState::RhythmicDrive | TensionState::PeakClimax => {
+                // High oddity (6-7+): syncopated, complex rhythms
+                // Map tension 0.0-1.0 to oddity 6-7
+                (self.tension * 1.0) as usize + 6
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -307,5 +479,121 @@ mod tests {
 
         assert_eq!(mapper.arousal_to_bpm(0.0), 60.0);
         assert_eq!(mapper.arousal_to_bpm(1.0), 200.0);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // UNIFIED TENSION SYSTEM TESTS (Phase 5)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_select_tension_state_stability() {
+        // Low arousal + high valence → Stability
+        let state = UnifiedTensionSystem::select_tension_state(0.2, 0.5, 0.3);
+        assert_eq!(state, TensionState::Stability);
+
+        // Also low arousal + low valence + low tension → Stability
+        let state = UnifiedTensionSystem::select_tension_state(0.3, -0.3, 0.2);
+        assert_eq!(state, TensionState::Stability);
+    }
+
+    #[test]
+    fn test_select_tension_state_harmonic_suspense() {
+        // Low arousal + low valence + high tension → HarmonicSuspense
+        let state = UnifiedTensionSystem::select_tension_state(0.2, -0.7, 0.8);
+        assert_eq!(state, TensionState::HarmonicSuspense);
+    }
+
+    #[test]
+    fn test_select_tension_state_rhythmic_drive() {
+        // High arousal + high valence + low tension → RhythmicDrive
+        let state = UnifiedTensionSystem::select_tension_state(0.8, 0.7, 0.3);
+        assert_eq!(state, TensionState::RhythmicDrive);
+    }
+
+    #[test]
+    fn test_select_tension_state_peak_climax() {
+        // High arousal + low valence → PeakClimax (always)
+        let state = UnifiedTensionSystem::select_tension_state(0.9, -0.8, 0.5);
+        assert_eq!(state, TensionState::PeakClimax);
+
+        // High arousal + high valence + high tension → PeakClimax
+        let state = UnifiedTensionSystem::select_tension_state(0.9, 0.8, 0.9);
+        assert_eq!(state, TensionState::PeakClimax);
+    }
+
+    #[test]
+    fn test_calculate_lcc_level_ingoing() {
+        // Stability → Ingoing (LCC 1-3)
+        let mut system = UnifiedTensionSystem::new();
+        system.update(0.2, 0.5, 0.0);
+        let lcc = system.calculate_lcc_level();
+        assert!((1..=3).contains(&lcc), "Stability should map to LCC 1-3, got {}", lcc);
+
+        // RhythmicDrive → Ingoing (LCC 1-3)
+        system.update(0.8, 0.7, 0.3);
+        let lcc = system.calculate_lcc_level();
+        assert!((1..=3).contains(&lcc), "RhythmicDrive should map to LCC 1-3, got {}", lcc);
+    }
+
+    #[test]
+    fn test_calculate_lcc_level_outgoing() {
+        // HarmonicSuspense → Outgoing (LCC 4-7)
+        let mut system = UnifiedTensionSystem::new();
+        system.update(0.2, -0.7, 0.8);
+        let lcc = system.calculate_lcc_level();
+        assert!((4..=7).contains(&lcc), "HarmonicSuspense should map to LCC 4-7, got {}", lcc);
+
+        // PeakClimax → Outgoing (LCC 4-7)
+        system.update(0.9, -0.8, 0.9);
+        let lcc = system.calculate_lcc_level();
+        assert!((4..=7).contains(&lcc), "PeakClimax should map to LCC 4-7, got {}", lcc);
+    }
+
+    #[test]
+    fn test_calculate_target_oddity_low() {
+        // Stability → Low oddity (4-5)
+        let mut system = UnifiedTensionSystem::new();
+        system.update(0.2, 0.5, 0.0);
+        let oddity = system.calculate_target_oddity();
+        assert!((4..=5).contains(&oddity), "Stability should map to oddity 4-5, got {}", oddity);
+
+        // HarmonicSuspense → Low oddity (4-5)
+        system.update(0.2, -0.7, 0.8);
+        let oddity = system.calculate_target_oddity();
+        assert!((4..=5).contains(&oddity), "HarmonicSuspense should map to oddity 4-5, got {}", oddity);
+    }
+
+    #[test]
+    fn test_calculate_target_oddity_high() {
+        // RhythmicDrive → High oddity (6-7)
+        let mut system = UnifiedTensionSystem::new();
+        system.update(0.8, 0.7, 0.3);
+        let oddity = system.calculate_target_oddity();
+        assert!((6..=7).contains(&oddity), "RhythmicDrive should map to oddity 6-7, got {}", oddity);
+
+        // PeakClimax → High oddity (6-7)
+        system.update(0.9, -0.8, 0.9);
+        let oddity = system.calculate_target_oddity();
+        assert!((6..=7).contains(&oddity), "PeakClimax should map to oddity 6-7, got {}", oddity);
+    }
+
+    #[test]
+    fn test_unified_tension_update() {
+        let mut system = UnifiedTensionSystem::new();
+
+        // Start in Stability
+        assert_eq!(system.tension_state, TensionState::Stability);
+
+        // Update to PeakClimax
+        system.update(0.9, -0.8, 0.9);
+        assert_eq!(system.tension_state, TensionState::PeakClimax);
+        assert!((4..=7).contains(&system.calculate_lcc_level()));
+        assert!((6..=7).contains(&system.calculate_target_oddity()));
+
+        // Update to Stability
+        system.update(0.2, 0.5, 0.1);
+        assert_eq!(system.tension_state, TensionState::Stability);
+        assert!((1..=3).contains(&system.calculate_lcc_level()));
+        assert!((4..=5).contains(&system.calculate_target_oddity()));
     }
 }

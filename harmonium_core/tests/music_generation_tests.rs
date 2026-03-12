@@ -13,7 +13,7 @@ use harmonium_core::{
     events::AudioEvent,
     export::{ChordSymbol, write_musicxml_with_chords},
     harmony::driver::HarmonicDriver,
-    params::MusicalParams,
+    params::{InstrumentConfig, MusicalParams},
     sequencer::{RhythmMode, Sequencer},
 };
 
@@ -113,7 +113,8 @@ fn generate_and_export(name: &str, params: &MusicalParams, measures: usize, seed
         steps_in_chord += 1;
 
         // === RHYTHM: Get triggers from sequencer ===
-        let trigger = sequencer.tick();
+        let tick_result = sequencer.tick();
+        let trigger = tick_result.trigger;
 
         // === BASS (Channel 0) ===
         if trigger.kick {
@@ -475,6 +476,46 @@ fn test_scenario_jazz_swing() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ODD METER TESTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+#[ignore]
+fn test_odd_meter_3_4() {
+    let mut params = MusicalParams::default();
+    params.time_signature = harmonium_core::params::TimeSignature::new(3, 4);
+    params.rhythm_mode = RhythmMode::ClassicGroove;
+    params.rhythm_steps = 12; // 3 beats * 4 ticks
+    params.rhythm_density = 0.5;
+
+    generate_and_export("odd_meter_3_4", &params, 4, 42);
+}
+
+#[test]
+#[ignore]
+fn test_odd_meter_5_4() {
+    let mut params = MusicalParams::default();
+    params.time_signature = harmonium_core::params::TimeSignature::new(5, 4);
+    params.rhythm_mode = RhythmMode::ClassicGroove;
+    params.rhythm_steps = 20; // 5 beats * 4 ticks
+    params.rhythm_density = 0.6;
+
+    generate_and_export("odd_meter_5_4", &params, 4, 42);
+}
+
+#[test]
+#[ignore]
+fn test_odd_meter_7_8() {
+    let mut params = MusicalParams::default();
+    params.time_signature = harmonium_core::params::TimeSignature::new(7, 8);
+    params.rhythm_mode = RhythmMode::ClassicGroove;
+    params.rhythm_steps = 14; // 7 * (4*4/8) = 14 ticks
+    params.rhythm_density = 0.7;
+
+    generate_and_export("odd_meter_7_8", &params, 4, 42);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // GENERATE ALL
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -516,7 +557,146 @@ fn generate_all_music_tests() {
     test_scenario_dark_tense();
     test_scenario_jazz_swing();
 
+    // Odd meters
+    test_odd_meter_3_4();
+    test_odd_meter_5_4();
+    test_odd_meter_7_8();
+
+    // Transposing instrument tests
+    test_tenor_sax_lead_export();
+    test_alto_sax_lead_export();
+
     println!("\n========================================");
     println!("Done! Open files in MuseScore to review.");
     println!("========================================\n");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TRANSPOSING INSTRUMENT TESTS (Timeline-based export)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Generate measures using TimelineGenerator and export with instrument config
+fn generate_timeline_export(
+    name: &str,
+    params: &MusicalParams,
+    instrument_lead: &InstrumentConfig,
+    instrument_bass: &InstrumentConfig,
+    num_measures: usize,
+    seed: u64,
+) {
+    use harmonium_core::harmony::melody::HarmonyNavigator;
+    use harmonium_core::params::CurrentState;
+    use harmonium_core::timeline::{
+        TimelineGenerator, ScoreTimeline, TrackId,
+        timeline_to_musicxml_with_instruments,
+    };
+    use rust_music_theory::note::PitchSymbol;
+    use rust_music_theory::scale::ScaleType;
+
+    setup_output_dir();
+
+    let seq_primary = Sequencer::new(
+        params.rhythm_steps,
+        params.rhythm_pulses,
+        params.bpm,
+    );
+    let seq_secondary = Sequencer::new_with_rotation(12, 3, params.bpm, 0);
+    let harmony = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, params.melody_octave);
+    let driver = HarmonicDriver::new(params.key_root);
+    let state = CurrentState {
+        bpm: params.bpm,
+        density: params.rhythm_density,
+        tension: params.harmony_tension,
+        smoothness: params.melody_smoothness,
+        valence: params.harmony_valence,
+        arousal: 0.5,
+    };
+
+    let mut tgen = TimelineGenerator::new(
+        seq_primary,
+        seq_secondary,
+        harmony,
+        Some(driver),
+        params.clone(),
+        state,
+    );
+
+    let mut rng = TestRng::new(seed);
+    let mut timeline = ScoreTimeline::new(num_measures + 1);
+
+    for bar in 1..=num_measures {
+        let measure = tgen.generate_measure(bar, &mut rng);
+        timeline.push_measure(measure);
+    }
+
+    // Validate lead notes are within instrument range
+    let mut lead_count = 0;
+    for measure in timeline.measures() {
+        for note in measure.notes_for_track(TrackId::Lead) {
+            assert!(
+                note.pitch >= instrument_lead.min_note && note.pitch <= instrument_lead.max_note,
+                "Lead note {} out of instrument range [{}, {}]",
+                note.pitch, instrument_lead.min_note, instrument_lead.max_note,
+            );
+            lead_count += 1;
+        }
+    }
+
+    let xml = timeline_to_musicxml_with_instruments(
+        &timeline,
+        &format!("Harmonium - {name}"),
+        instrument_lead,
+        instrument_bass,
+    );
+
+    let path = Path::new(OUTPUT_DIR).join(format!("{name}.musicxml"));
+    std::fs::write(&path, &xml).unwrap_or_else(|_| panic!("Failed to write {name}"));
+
+    println!(
+        "Generated: {} ({} measures, {} lead notes, {} bytes)",
+        path.display(),
+        num_measures,
+        lead_count,
+        xml.len(),
+    );
+
+    // Print first few lines for quick inspection
+    for line in xml.lines().take(30) {
+        println!("  {line}");
+    }
+    println!("  ...");
+}
+
+#[test]
+#[ignore]
+fn test_tenor_sax_lead_export() {
+    let tenor = InstrumentConfig::tenor_sax();
+    let params = MusicalParams::default()
+        .instrument_lead(tenor);
+
+    generate_timeline_export(
+        "tenor_sax_lead",
+        &params,
+        &tenor,
+        &InstrumentConfig::default(),
+        8,
+        42,
+    );
+}
+
+#[test]
+#[ignore]
+fn test_alto_sax_lead_export() {
+    let alto = InstrumentConfig::alto_sax();
+    let params = MusicalParams::default()
+        .instrument_lead(alto);
+
+    generate_timeline_export(
+        "alto_sax_lead",
+        &params,
+        &alto,
+        &InstrumentConfig::default(),
+        8,
+        42,
+    );
 }

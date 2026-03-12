@@ -5,13 +5,12 @@
 //! - Bruit fractal 1/f (Pink Noise)
 //! - Hybride Markov+Fractal
 
-use rand::Rng; // Added for gen_bool
-use rand::distributions::{Distribution, WeightedIndex};
 use rust_music_theory::{
     note::{Notes, Pitch, PitchSymbol},
     scale::{Direction, Scale, ScaleType},
 };
 
+use super::RngCore;
 use super::basic::ChordQuality;
 use crate::fractal::PinkNoise;
 
@@ -127,9 +126,7 @@ impl HarmonyNavigator {
 
     /// Génère la prochaine note en utilisant des probabilités conditionnelles (Chaînes de Markov)
     /// Basé sur "Music and Probability" (David Temperley)
-    pub fn next_note(&mut self, is_strong_beat: bool) -> f32 {
-        let mut rng = rand::thread_rng();
-
+    pub fn next_note(&mut self, is_strong_beat: bool, rng: &mut dyn RngCore) -> f32 {
         // Position normalisée dans la gamme (0 = tonique, 1 = 2ème degré, etc.)
         let normalized_index = self.current_index.rem_euclid(self.scale_len as i32);
 
@@ -137,12 +134,7 @@ impl HarmonyNavigator {
         let (steps, weights) = self.get_weighted_steps(normalized_index, is_strong_beat);
 
         // Sélection pondérée
-        let chosen_step = if let Ok(dist) = WeightedIndex::new(&weights) {
-            steps[dist.sample(&mut rng)]
-        } else {
-            // Fallback: Uniform choice from available steps
-            steps[rng.gen_range(0..steps.len())]
-        };
+        let chosen_step = weighted_sample(&steps, &weights, rng);
 
         // === GAP FILL (Temperley): Après un grand saut, revenir dans l'autre direction ===
         // Principe: Si le dernier mouvement était un saut > 2, compenser en revenant
@@ -165,9 +157,9 @@ impl HarmonyNavigator {
 
     /// Génère la prochaine note en utilisant du bruit fractal (1/f)
     /// Cela crée des mélodies plus organiques et structurées que les chaînes de Markov
-    pub fn next_note_fractal(&mut self) -> f32 {
+    pub fn next_note_fractal(&mut self, rng: &mut dyn RngCore) -> f32 {
         // 1. Obtenir une valeur "tendance" du bruit fractal
-        let fractal_drift = self.pink_noise.next_value();
+        let fractal_drift = self.pink_noise.next_value(rng);
 
         // 2. Mapper cette valeur à un index dans la gamme (autour d'un centre)
         // Cela remplace la marche aléatoire pure par une évolution structurée
@@ -194,11 +186,9 @@ impl HarmonyNavigator {
 
     /// Génère un intervalle mélodique basé sur la logique Hybride (Markov + Fractal)
     /// Retourne le saut (step) en degrés, pas la fréquence
-    fn generate_hybrid_step(&mut self, is_strong_beat: bool) -> i32 {
-        let mut rng = rand::thread_rng();
-
+    fn generate_hybrid_step(&mut self, is_strong_beat: bool, rng: &mut dyn RngCore) -> i32 {
         // 1. LE GPS (Bruit Fractal) : Quelle est la "tendance" globale ?
-        let fractal_drift = self.pink_noise.next_value();
+        let fractal_drift = self.pink_noise.next_value(rng);
         let center_index = 0;
         let target_index = center_index + (fractal_drift * 12.0) as i32;
 
@@ -226,15 +216,7 @@ impl HarmonyNavigator {
         }
 
         // 4. SÉLECTION PONDÉRÉE
-        let dist_result = WeightedIndex::new(&final_weights);
-        let chosen_step = if let Ok(dist) = dist_result {
-            steps[dist.sample(&mut rng)]
-        } else if let Ok(uniform_dist) = WeightedIndex::new(vec![1.0; final_weights.len()]) {
-            steps[uniform_dist.sample(&mut rng)]
-        } else {
-            // Ultimate fallback
-            steps[0]
-        };
+        let chosen_step = weighted_sample_f32(&steps, &final_weights, rng);
 
         // === Gap Fill (Temperley) ===
         if self.last_step.abs() > 2
@@ -260,13 +242,17 @@ impl HarmonyNavigator {
     }
 
     /// Version structurée avec mémoire de motifs (Call & Response, Répétition)
-    pub fn next_note_structured(&mut self, is_strong_beat: bool, is_new_measure: bool) -> f32 {
-        let mut rng = rand::thread_rng();
-
+    pub fn next_note_structured(
+        &mut self,
+        is_strong_beat: bool,
+        is_new_measure: bool,
+        rng: &mut dyn RngCore,
+    ) -> f32 {
         // Au début d'une mesure, on décide si on réutilise le motif précédent
         if is_new_measure {
             // 50% de chance de répéter le motif (cohérence), 50% de générer du nouveau
-            self.playing_motif = rng.gen_bool(0.5) && !self.motif_buffer.is_empty();
+            let repeat = rng.next_f32() < 0.5;
+            self.playing_motif = repeat && !self.motif_buffer.is_empty();
             self.motif_index = 0;
             if !self.playing_motif {
                 self.motif_buffer.clear(); // On part sur du neuf
@@ -278,7 +264,7 @@ impl HarmonyNavigator {
             self.motif_buffer[self.motif_index]
         } else {
             // GÉNÉRATION : On utilise la logique Markov existante
-            let generated_step = self.generate_hybrid_step(is_strong_beat);
+            let generated_step = self.generate_hybrid_step(is_strong_beat, rng);
             if !self.playing_motif {
                 self.motif_buffer.push(generated_step);
             }
@@ -291,8 +277,8 @@ impl HarmonyNavigator {
 
     /// GÉNÉRATION HYBRIDE : Le Bruit Rose (GPS) guide les choix de Markov (Conducteur).
     /// `is_strong_beat` : Permet de favoriser les notes de l'accord sur les temps forts
-    pub fn next_note_hybrid(&mut self, is_strong_beat: bool) -> f32 {
-        let step = self.generate_hybrid_step(is_strong_beat);
+    pub fn next_note_hybrid(&mut self, is_strong_beat: bool, rng: &mut dyn RngCore) -> f32 {
+        let step = self.generate_hybrid_step(is_strong_beat, rng);
         self.apply_step_and_get_freq(step)
     }
 
@@ -380,9 +366,69 @@ impl HarmonyNavigator {
     }
 }
 
+/// Weighted sampling using cumulative distribution with u32 weights
+fn weighted_sample(items: &[i32], weights: &[u32], rng: &mut dyn RngCore) -> i32 {
+    let total: u32 = weights.iter().sum();
+    if total == 0 || items.is_empty() {
+        return items.first().copied().unwrap_or(0);
+    }
+    let threshold = rng.next_f32() * total as f32;
+    let mut cumulative = 0.0;
+    for (i, &w) in weights.iter().enumerate() {
+        cumulative += w as f32;
+        if threshold < cumulative {
+            return items[i];
+        }
+    }
+    items[items.len() - 1]
+}
+
+/// Weighted sampling using cumulative distribution with f32 weights
+fn weighted_sample_f32(items: &[i32], weights: &[f32], rng: &mut dyn RngCore) -> i32 {
+    let total: f32 = weights.iter().sum();
+    if total <= 0.0 || items.is_empty() {
+        return items.first().copied().unwrap_or(0);
+    }
+    let threshold = rng.next_f32() * total;
+    let mut cumulative = 0.0;
+    for (i, &w) in weights.iter().enumerate() {
+        cumulative += w;
+        if threshold < cumulative {
+            return items[i];
+        }
+    }
+    items[items.len() - 1]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Test RNG for deterministic tests
+    struct TestRng {
+        values: Vec<f32>,
+        index: usize,
+    }
+
+    impl TestRng {
+        fn new(values: Vec<f32>) -> Self {
+            Self { values, index: 0 }
+        }
+    }
+
+    impl RngCore for TestRng {
+        fn next_f32(&mut self) -> f32 {
+            let val = self.values[self.index % self.values.len()];
+            self.index += 1;
+            val
+        }
+
+        fn next_range_usize(&mut self, range: std::ops::Range<usize>) -> usize {
+            let val = self.next_f32();
+            let len = range.end - range.start;
+            range.start + (val * len as f32) as usize % len
+        }
+    }
 
     #[test]
     fn test_weighted_steps_tonic_strong_beat() {
@@ -419,12 +465,13 @@ mod tests {
     #[test]
     fn test_probabilistic_movement_distribution() {
         let mut navigator = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, 4);
+        let mut rng = rand::thread_rng();
 
         // Générer 100 notes et vérifier la distribution
         let mut movements = Vec::new();
         for _ in 0..100 {
             let prev_index = navigator.current_index;
-            navigator.next_note(false);
+            navigator.next_note(false, &mut rng);
             movements.push(navigator.current_index - prev_index);
         }
 

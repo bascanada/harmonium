@@ -3,51 +3,55 @@
 	import RhythmControls from './RhythmControls.svelte';
 	import HarmonyControls from './HarmonyControls.svelte';
 	import MelodyVoicingControls from './MelodyVoicingControls.svelte';
-	import AudioBackendControls from './AudioBackendControls.svelte';
 
-	// Props - bridge passed from parent
-	export let bridge: HarmoniumBridge;
-
-	// Full state from parent for reading harmonyMode
-	export let state: EngineState;
-
-	// Audio mode detection (true = web audio rendering, false = VST MIDI-only)
-	export let isAudioMode = true;
-
-	// Audio backend selection
-	export let audioBackend: 'fundsp' | 'odin2' = 'odin2';
-
-	// Props (from parent state) - MIDI Layer
-	export let enableRhythm = true;
-	export let enableHarmony = true;
-	export let enableMelody = true;
-	export let enableVoicing = false;
-	export let fixedKick = false;
-	export let bpm = 120;
-	export let rhythmMode = 0;
-	export let rhythmSteps = 16;
-	export let rhythmPulses = 4;
-	export let rhythmRotation = 0;
-	export let rhythmDensity = 0.5;
-	export let rhythmTension = 0.3;
-	export let secondarySteps = 12;
-	export let secondaryPulses = 3;
-	export let secondaryRotation = 0;
-	export let harmonyValence = 0.3;
-	export let harmonyTension = 0.3;
-	export let melodySmoothness = 0.7;
-	export let voicingDensity = 0.5;
-
-	// Audio Backend Layer
-	export let filterCutoff = 0.7;
-	export let filterResonance = 0.3;
-	export let chorusMix = 0.0;
-	export let delayMix = 0.0;
-	export let reverbMix = 0.3;
-	export let expression = 0.5;
+	let {
+		bridge,
+		state: engineState,
+		enableRhythm = true,
+		enableHarmony = true,
+		enableMelody = true,
+		enableVoicing = false,
+		fixedKick = false,
+		bpm = 120,
+		rhythmMode = 0,
+		rhythmSteps = 16,
+		rhythmPulses = 4,
+		rhythmRotation = 0,
+		rhythmDensity = 0.5,
+		rhythmTension = 0.3,
+		secondarySteps = 12,
+		secondaryPulses = 3,
+		secondaryRotation = 0,
+		harmonyValence = 0.3,
+		harmonyTension = 0.3,
+		melodySmoothness = 0.7,
+		voicingDensity = 0.5
+	}: {
+		bridge: HarmoniumBridge;
+		state: EngineState;
+		enableRhythm?: boolean;
+		enableHarmony?: boolean;
+		enableMelody?: boolean;
+		enableVoicing?: boolean;
+		fixedKick?: boolean;
+		bpm?: number;
+		rhythmMode?: number;
+		rhythmSteps?: number;
+		rhythmPulses?: number;
+		rhythmRotation?: number;
+		rhythmDensity?: number;
+		rhythmTension?: number;
+		secondarySteps?: number;
+		secondaryPulses?: number;
+		secondaryRotation?: number;
+		harmonyValence?: number;
+		harmonyTension?: number;
+		melodySmoothness?: number;
+		voicingDensity?: number;
+	} = $props();
 
 	// Local state for controls - decoupled during active editing
-	let local = {
+	let local = $state({
 		enableRhythm,
 		enableHarmony,
 		enableMelody,
@@ -67,35 +71,37 @@
 		harmonyTension,
 		melodySmoothness,
 		voicingDensity
-	};
+	});
 
 	// Track if user is actively editing (prevent prop overwrite)
-	let isEditing = false;
+	let isEditing = $state(false);
 
 	// Sync props to local ONLY when not editing
-	$: if (!isEditing) {
-		local = {
-			enableRhythm,
-			enableHarmony,
-			enableMelody,
-			enableVoicing,
-			fixedKick,
-			bpm,
-			rhythmMode,
-			rhythmSteps,
-			rhythmPulses,
-			rhythmRotation,
-			rhythmDensity,
-			rhythmTension,
-			secondarySteps,
-			secondaryPulses,
-			secondaryRotation,
-			harmonyValence,
-			harmonyTension,
-			melodySmoothness,
-			voicingDensity
-		};
-	}
+	$effect(() => {
+		if (!isEditing) {
+			local = {
+				enableRhythm,
+				enableHarmony,
+				enableMelody,
+				enableVoicing,
+				fixedKick,
+				bpm,
+				rhythmMode,
+				rhythmSteps,
+				rhythmPulses,
+				rhythmRotation,
+				rhythmDensity,
+				rhythmTension,
+				secondarySteps,
+				secondaryPulses,
+				secondaryRotation,
+				harmonyValence,
+				harmonyTension,
+				melodySmoothness,
+				voicingDensity
+			};
+		}
+	});
 
 	function onSliderStart() {
 		isEditing = true;
@@ -106,7 +112,6 @@
 	}
 
 	function update() {
-		// Only send Direct updates, do not set isEditing here
 		bridge.setDirectBpm(local.bpm);
 		bridge.setDirectEnableRhythm(local.enableRhythm);
 		bridge.setDirectEnableHarmony(local.enableHarmony);
@@ -129,9 +134,6 @@
 	}
 
 	function toggleModule(module: 'rhythm' | 'harmony' | 'melody' | 'voicing') {
-		// Buttons are instant (click), so we don't need pointer locking usually,
-		// but setting isEditing=true briefly protects against instant rebound if needed.
-		// simpler is direct update without locking:
 		if (module === 'rhythm') local.enableRhythm = !local.enableRhythm;
 		else if (module === 'harmony') local.enableHarmony = !local.enableHarmony;
 		else if (module === 'melody') local.enableMelody = !local.enableMelody;
@@ -240,7 +242,7 @@
 	{#if local.enableHarmony}
 		<HarmonyControls
 			{bridge}
-			{state}
+			state={engineState}
 			harmonyValence={local.harmonyValence}
 			harmonyTension={local.harmonyTension}
 		/>
@@ -251,20 +253,6 @@
 			{bridge}
 			melodySmoothness={local.melodySmoothness}
 			voicingDensity={local.voicingDensity}
-		/>
-	{/if}
-
-	<!-- Audio Backend Controls (only in audio mode, not VST MIDI-only) -->
-	{#if isAudioMode}
-		<AudioBackendControls
-			{bridge}
-			{audioBackend}
-			{filterCutoff}
-			{filterResonance}
-			{chorusMix}
-			{delayMix}
-			{reverbMix}
-			{expression}
 		/>
 	{/if}
 </div>

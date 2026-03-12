@@ -1,4 +1,4 @@
-use rand::Rng;
+use crate::harmony::RngCore;
 
 pub struct PinkNoise {
     rows: Vec<f32>,
@@ -19,17 +19,16 @@ impl PinkNoise {
 
     /// Génère la prochaine valeur (approximativement 1/f)
     /// Retourne une valeur flottante centrée autour de 0.0
-    pub fn next_value(&mut self) -> f32 {
-        let mut rng = rand::thread_rng();
-
+    pub fn next_value(&mut self, rng: &mut dyn RngCore) -> f32 {
         // Algorithme Voss-McCartney: on met à jour une rangée différente à chaque étape
         // Basé sur les bits qui changent dans le compteur binaire (trailing zeros)
         let trailing_zeros = self.index.trailing_zeros() as usize;
 
         // On met à jour la rangée correspondante (si elle existe)
         if trailing_zeros < self.rows.len() {
-            // Nouvelle valeur aléatoire pour cette octave
-            self.rows[trailing_zeros] = rng.gen_range(-1.0..1.0);
+            // Nouvelle valeur aléatoire pour cette octave (-1.0..1.0)
+            let val = rng.next_f32() * 2.0 - 1.0;
+            self.rows[trailing_zeros] = val;
         }
 
         self.index = self.index.wrapping_add(1);
