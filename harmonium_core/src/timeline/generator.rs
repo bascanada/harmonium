@@ -174,6 +174,7 @@ impl TimelineGenerator {
                 } else {
                     (36 + self.chord_root_offset) as u8
                 };
+                let midi_note = self.musical_params.instrument_bass.apply(midi_note);
                 let vel = self.musical_params.vel_base_bass
                     + (self.current_state.arousal * 25.0) as u8;
 
@@ -203,6 +204,7 @@ impl TimelineGenerator {
                     rng,
                 );
                 let melody_midi = (69.0 + 12.0 * (freq / 440.0).log2()).round() as u8;
+                let melody_midi = self.musical_params.instrument_lead.apply(melody_midi);
                 let base_vel = 90 + (self.current_state.arousal * 30.0) as u8;
 
                 // Determine duration: until next lead trigger or end of bar
@@ -677,6 +679,46 @@ mod tests {
     }
 
     #[test]
+    fn test_lead_notes_within_instrument_range() {
+        use crate::params::InstrumentConfig;
+
+        let mut tgen = make_gen();
+        tgen.musical_params.instrument_lead = InstrumentConfig { min_note: 60, max_note: 72, transposition_semitones: 0 };
+
+        let mut rng = rand::thread_rng();
+        for bar in 1..=8 {
+            let measure = tgen.generate_measure(bar, &mut rng);
+            for note in measure.notes_for_track(TrackId::Lead) {
+                assert!(
+                    note.pitch >= 60 && note.pitch <= 72,
+                    "Lead note {} out of range [60, 72] at bar {bar}",
+                    note.pitch,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_tenor_sax_lead_range() {
+        use crate::params::InstrumentConfig;
+
+        let mut tgen = make_gen();
+        tgen.musical_params.instrument_lead = InstrumentConfig::tenor_sax();
+
+        let mut rng = rand::thread_rng();
+        for bar in 1..=16 {
+            let measure = tgen.generate_measure(bar, &mut rng);
+            for note in measure.notes_for_track(TrackId::Lead) {
+                assert!(
+                    note.pitch >= 56 && note.pitch <= 90,
+                    "Tenor sax lead note {} out of range [56, 90] at bar {bar}",
+                    note.pitch,
+                );
+            }
+        }
+    }
+
+    #[test]
     fn test_different_time_signatures() {
         let mut tgen = make_gen();
 
@@ -692,5 +734,61 @@ mod tests {
         tgen.musical_params.time_signature = TimeSignature::new(5, 4);
         let measure = tgen.generate_measure(2, &mut rng);
         assert_eq!(measure.steps, 20); // 5 beats * 4 ticks
+    }
+
+    /// Full pipeline integration test: TimelineGenerator with tenor sax config
+    /// → generate measures → validate ranges → export MusicXML → validate XML structure.
+    #[test]
+    fn test_tenor_sax_full_pipeline() {
+        use crate::params::InstrumentConfig;
+        use crate::timeline::{ScoreTimeline, export::timeline_to_musicxml_with_instruments};
+
+        let tenor = InstrumentConfig::tenor_sax();
+        let mut tgen = make_gen();
+        tgen.musical_params.instrument_lead = tenor;
+
+        let mut rng = rand::thread_rng();
+        let mut timeline = ScoreTimeline::new(20);
+
+        for bar in 1..=16 {
+            let measure = tgen.generate_measure(bar, &mut rng);
+
+            // All lead notes must fall within tenor sax range
+            for note in measure.notes_for_track(TrackId::Lead) {
+                assert!(
+                    note.pitch >= tenor.min_note && note.pitch <= tenor.max_note,
+                    "Lead note MIDI {} out of tenor sax range [{}, {}] at bar {bar}",
+                    note.pitch, tenor.min_note, tenor.max_note,
+                );
+            }
+
+            timeline.push_measure(measure);
+        }
+
+        // Export with instrument config and validate XML structure
+        let xml = timeline_to_musicxml_with_instruments(
+            &timeline,
+            "Integration Test - Tenor Sax",
+            &tenor,
+            &InstrumentConfig::default(),
+        );
+
+        // Part name
+        assert!(xml.contains("<part-name>Tenor Saxophone</part-name>"));
+
+        // Transpose element (Bb instrument: chromatic=-2, diatonic=-1)
+        assert!(xml.contains("<transpose>"));
+        assert!(xml.contains("<chromatic>-2</chromatic>"));
+        assert!(xml.contains("<diatonic>-1</diatonic>"));
+
+        // Bass part should have no transpose (default config)
+        // Count occurrences of <transpose> — should be exactly 1 (lead only)
+        let transpose_count = xml.matches("<transpose>").count();
+        assert_eq!(transpose_count, 1, "Only the lead part should have <transpose>");
+
+        // Valid MusicXML structure
+        assert!(xml.contains("score-partwise"));
+        assert!(xml.contains("<part-name>Bass</part-name>"));
+        assert!(xml.contains("<part-name>Drums</part-name>"));
     }
 }

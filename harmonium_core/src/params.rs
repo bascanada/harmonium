@@ -46,6 +46,155 @@ impl TimeSignature {
     }
 }
 
+/// Per-track instrument configuration for note range and transposition.
+///
+/// Applies after all musical decisions, before storage in `TimelineNote`.
+/// Default is transparent: full MIDI range, no transposition.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstrumentConfig {
+    /// Lowest allowed MIDI note (inclusive)
+    pub min_note: u8,
+    /// Highest allowed MIDI note (inclusive)
+    pub max_note: u8,
+    /// Transposition in semitones. Positive = written pitch higher than concert pitch.
+    /// E.g., Bb instruments (tenor sax, trumpet) = +2.
+    pub transposition_semitones: i16,
+}
+
+impl Default for InstrumentConfig {
+    fn default() -> Self {
+        Self { min_note: 0, max_note: 127, transposition_semitones: 0 }
+    }
+}
+
+impl InstrumentConfig {
+    /// Apply transposition and range restriction to a raw MIDI note.
+    ///
+    /// 1. Adds `transposition_semitones` to the raw note
+    /// 2. Octave-folds the result into `[min_note, max_note]` (±12 until in range)
+    /// 3. Falls back to hard clamp if range < 12 semitones
+    #[must_use]
+    pub fn apply(&self, raw_note: u8) -> u8 {
+        let transposed = i16::from(raw_note) + self.transposition_semitones;
+        let mut note = transposed.clamp(0, 127) as u8;
+
+        let min = self.min_note;
+        let max = self.max_note;
+
+        if min > max || note >= min && note <= max {
+            return note;
+        }
+
+        let range = max - min;
+        if range >= 12 {
+            // Octave-fold: shift by ±12 until in range
+            while note < min {
+                note += 12;
+            }
+            while note > max {
+                note -= 12;
+            }
+            // Safety: if folding overshoots (shouldn't with range>=12), clamp
+            note.clamp(min, max)
+        } else {
+            // Range too narrow for octave folding — hard clamp
+            note.clamp(min, max)
+        }
+    }
+
+    // === Factory constructors ===
+
+    /// Tenor saxophone: Bb transposition (+2), range Ab3–F#6 (MIDI 56–90)
+    #[must_use]
+    pub const fn tenor_sax() -> Self {
+        Self { min_note: 56, max_note: 90, transposition_semitones: 2 }
+    }
+
+    /// Alto saxophone: Eb transposition (-3), range Db3–A5 (MIDI 56–90 written)
+    #[must_use]
+    pub const fn alto_sax() -> Self {
+        Self { min_note: 56, max_note: 90, transposition_semitones: -3 }
+    }
+
+    /// Soprano saxophone: Bb transposition (+2), range Ab3–F#6 (MIDI 56–90)
+    #[must_use]
+    pub const fn soprano_sax() -> Self {
+        Self { min_note: 56, max_note: 90, transposition_semitones: 2 }
+    }
+
+    /// Baritone saxophone: Eb transposition (-3), range Db3–A5 (MIDI 56–90 written)
+    #[must_use]
+    pub const fn baritone_sax() -> Self {
+        Self { min_note: 56, max_note: 90, transposition_semitones: -3 }
+    }
+
+    /// Trumpet: Bb transposition (+2), range G3–Bb5 (MIDI 55–82)
+    #[must_use]
+    pub const fn trumpet() -> Self {
+        Self { min_note: 55, max_note: 82, transposition_semitones: 2 }
+    }
+
+    /// Concert pitch instrument with custom range, no transposition
+    #[must_use]
+    pub const fn concert_pitch(min_note: u8, max_note: u8) -> Self {
+        Self { min_note, max_note, transposition_semitones: 0 }
+    }
+
+    // === MusicXML export helpers ===
+
+    /// Returns a human-readable instrument name for MusicXML part naming.
+    /// Returns `None` for default (transparent) config.
+    #[must_use]
+    pub fn instrument_name(&self) -> Option<&'static str> {
+        match (self.transposition_semitones, self.min_note, self.max_note) {
+            (2, 56, 90) => Some("Tenor Saxophone"),
+            (-3, 56, 90) => Some("Alto Saxophone"),
+            (2, 55, 82) => Some("Trumpet"),
+            (0, 0, 127) => None, // default — transparent
+            _ => Some("Transposing Instrument"),
+        }
+    }
+
+    /// Returns MusicXML `<transpose>` values: `(chromatic, diatonic)`.
+    ///
+    /// In MusicXML, notes are written at **written pitch** and `<transpose>`
+    /// tells the renderer how to convert to concert (sounding) pitch:
+    ///   concert = written + chromatic
+    ///
+    /// Returns `None` when transposition is zero (concert pitch).
+    #[must_use]
+    pub fn musicxml_transpose(&self) -> Option<(i16, i16)> {
+        if self.transposition_semitones == 0 {
+            return None;
+        }
+        // chromatic = -transposition_semitones (our convention: positive = written higher)
+        let chromatic = -self.transposition_semitones;
+        // diatonic: map absolute semitones to diatonic steps, then apply sign
+        let abs_semitones = chromatic.unsigned_abs() % 12;
+        let abs_diatonic = match abs_semitones {
+            0 => 0,
+            1 => 1,   // minor/major 2nd
+            2 => 1,   // major 2nd
+            3 => 2,   // minor 3rd
+            4 => 2,   // major 3rd
+            5 => 3,   // perfect 4th
+            6 => 3,   // tritone
+            7 => 4,   // perfect 5th
+            8 => 5,   // minor 6th
+            9 => 5,   // major 6th
+            10 => 6,  // minor 7th
+            11 => 6,  // major 7th
+            _ => 0,
+        };
+        let diatonic = if chromatic < 0 {
+            -(abs_diatonic as i16)
+        } else {
+            abs_diatonic as i16
+        };
+        Some((chromatic, diatonic))
+    }
+}
+
 /// Tension state from TRQ (Tension-Rhythmic-Quality) Matrix
 /// Maps emotional input (arousal, valence, tension) to coherent
 /// harmonic and rhythmic tension combinations.
@@ -314,6 +463,14 @@ pub struct MusicalParams {
     #[serde(default = "default_octave")]
     pub melody_octave: i32,
 
+    /// Instrument config for the lead/melody track
+    #[serde(default)]
+    pub instrument_lead: InstrumentConfig,
+
+    /// Instrument config for the bass track
+    #[serde(default)]
+    pub instrument_bass: InstrumentConfig,
+
     // ═══════════════════════════════════════════════════════════════════
     // MIXER
     // ═══════════════════════════════════════════════════════════════════
@@ -467,6 +624,8 @@ impl Default for MusicalParams {
             voicing_density: default_density(),
             voicing_tension: default_tension(),
             melody_octave: default_octave(),
+            instrument_lead: InstrumentConfig::default(),
+            instrument_bass: InstrumentConfig::default(),
 
             // Mixer
             gain_lead: default_gain_lead(),
@@ -538,6 +697,20 @@ impl MusicalParams {
         self.rhythm_mode = mode;
         self
     }
+
+    /// Builder pattern: set lead instrument config
+    #[must_use]
+    pub const fn instrument_lead(mut self, config: InstrumentConfig) -> Self {
+        self.instrument_lead = config;
+        self
+    }
+
+    /// Builder pattern: set bass instrument config
+    #[must_use]
+    pub const fn instrument_bass(mut self, config: InstrumentConfig) -> Self {
+        self.instrument_bass = config;
+        self
+    }
 }
 
 #[cfg(test)]
@@ -567,6 +740,81 @@ mod tests {
 
         assert!((params.bpm - 140.0).abs() < f32::EPSILON);
         assert_eq!(params.harmony_mode, HarmonyMode::Basic);
+    }
+
+    #[test]
+    fn test_instrument_config_default_transparent() {
+        let config = InstrumentConfig::default();
+        // Default config should return the input unchanged
+        for note in [0u8, 60, 127] {
+            assert_eq!(config.apply(note), note);
+        }
+    }
+
+    #[test]
+    fn test_instrument_config_transposition() {
+        let config = InstrumentConfig { transposition_semitones: 2, ..Default::default() };
+        assert_eq!(config.apply(60), 62); // C4 → D4
+        assert_eq!(config.apply(0), 2);
+
+        let config_neg = InstrumentConfig { transposition_semitones: -3, ..Default::default() };
+        assert_eq!(config_neg.apply(63), 60); // Eb4 → C4
+    }
+
+    #[test]
+    fn test_instrument_config_octave_fold() {
+        let config = InstrumentConfig { min_note: 56, max_note: 90, transposition_semitones: 0 };
+
+        // Note below range should fold up by octaves
+        assert_eq!(config.apply(44), 56); // 44 + 12 = 56
+        assert_eq!(config.apply(32), 56); // 32 + 12 = 44, + 12 = 56
+
+        // Note above range should fold down by octaves
+        assert_eq!(config.apply(96), 84); // 96 - 12 = 84
+        assert_eq!(config.apply(100), 88); // 100 - 12 = 88
+    }
+
+    #[test]
+    fn test_instrument_config_transposition_and_fold() {
+        let config = InstrumentConfig::tenor_sax(); // +2, 56-90
+        // 54 + 2 = 56 → in range
+        assert_eq!(config.apply(54), 56);
+        // 90 + 2 = 92 → fold down: 92 - 12 = 80 → in range
+        assert_eq!(config.apply(90), 80);
+    }
+
+    #[test]
+    fn test_instrument_config_narrow_range_clamp() {
+        // Range < 12 semitones → hard clamp
+        let config = InstrumentConfig { min_note: 60, max_note: 67, transposition_semitones: 0 };
+        assert_eq!(config.apply(50), 60);
+        assert_eq!(config.apply(80), 67);
+        assert_eq!(config.apply(64), 64);
+    }
+
+    #[test]
+    fn test_factory_constructors_valid_ranges() {
+        let configs = [
+            InstrumentConfig::tenor_sax(),
+            InstrumentConfig::alto_sax(),
+            InstrumentConfig::soprano_sax(),
+            InstrumentConfig::baritone_sax(),
+            InstrumentConfig::trumpet(),
+            InstrumentConfig::concert_pitch(48, 84),
+        ];
+        for config in &configs {
+            assert!(config.min_note <= config.max_note);
+            assert!(config.max_note <= 127);
+        }
+    }
+
+    #[test]
+    fn test_instrument_config_builder() {
+        let params = MusicalParams::default()
+            .instrument_lead(InstrumentConfig::tenor_sax())
+            .instrument_bass(InstrumentConfig::concert_pitch(28, 55));
+        assert_eq!(params.instrument_lead.transposition_semitones, 2);
+        assert_eq!(params.instrument_bass.min_note, 28);
     }
 }
 

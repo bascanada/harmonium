@@ -490,9 +490,11 @@ impl TimelineEngine {
                     log::info(&format!("Timeline export requested: {:?}", format));
                     match format {
                         harmonium_core::events::RecordFormat::MusicXml => {
-                            let xml = harmonium_core::timeline::timeline_to_musicxml(
+                            let xml = harmonium_core::timeline::timeline_to_musicxml_with_instruments(
                                 &self.writehead.timeline,
                                 "Harmonium Export",
+                                &self.musical_params.instrument_lead,
+                                &self.musical_params.instrument_bass,
                             );
                             if let Ok(()) = std::fs::write("timeline_export.musicxml", &xml) {
                                 log::info(&format!(

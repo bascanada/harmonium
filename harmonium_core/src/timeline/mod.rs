@@ -12,7 +12,7 @@ pub mod export;
 pub mod generator;
 mod pointers;
 
-pub use export::timeline_to_musicxml;
+pub use export::{timeline_to_musicxml, timeline_to_musicxml_with_instruments};
 pub use generator::TimelineGenerator;
 pub use pointers::{Playhead, Writehead};
 

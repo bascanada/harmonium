@@ -5,6 +5,8 @@
 
 use std::fmt::Write;
 
+use crate::params::InstrumentConfig;
+
 use super::{Measure, ScoreTimeline, TrackId, TimelineNote};
 
 /// MIDI note number to MusicXML pitch mapping
@@ -71,7 +73,29 @@ fn step_duration_to_type(duration_steps: usize) -> (&'static str, bool) {
 ///
 /// Generates a complete MusicXML document with separate parts for each track.
 /// Notes have explicit durations from the timeline (no reconstruction needed).
+///
+/// When `instrument_lead` or `instrument_bass` have non-zero transposition,
+/// the exported MusicXML includes `<transpose>` elements so notation software
+/// (MuseScore, Finale, etc.) renders the correct written pitch for transposing
+/// instruments (e.g., tenor sax, trumpet).
 pub fn timeline_to_musicxml(timeline: &ScoreTimeline, title: &str) -> String {
+    timeline_to_musicxml_with_instruments(
+        timeline,
+        title,
+        &InstrumentConfig::default(),
+        &InstrumentConfig::default(),
+    )
+}
+
+/// Export a ScoreTimeline to MusicXML with instrument transposition support.
+///
+/// Part names and `<transpose>` elements are derived from the configs.
+pub fn timeline_to_musicxml_with_instruments(
+    timeline: &ScoreTimeline,
+    title: &str,
+    instrument_lead: &InstrumentConfig,
+    instrument_bass: &InstrumentConfig,
+) -> String {
     let measures = timeline.measures();
     if measures.is_empty() {
         return empty_musicxml(title);
@@ -82,18 +106,22 @@ pub fn timeline_to_musicxml(timeline: &ScoreTimeline, title: &str) -> String {
     // XML header
     write_header(&mut xml, title);
 
+    // Part names (use instrument name if available)
+    let bass_name = instrument_bass.instrument_name().unwrap_or("Bass");
+    let lead_name = instrument_lead.instrument_name().unwrap_or("Lead");
+
     // Part list
     writeln!(xml, "  <part-list>").unwrap();
-    writeln!(xml, "    <score-part id=\"P1\"><part-name>Bass</part-name></score-part>").unwrap();
-    writeln!(xml, "    <score-part id=\"P2\"><part-name>Lead</part-name></score-part>").unwrap();
+    writeln!(xml, "    <score-part id=\"P1\"><part-name>{bass_name}</part-name></score-part>").unwrap();
+    writeln!(xml, "    <score-part id=\"P2\"><part-name>{lead_name}</part-name></score-part>").unwrap();
     writeln!(xml, "    <score-part id=\"P3\"><part-name>Drums</part-name></score-part>").unwrap();
     writeln!(xml, "  </part-list>").unwrap();
 
     // Bass part
-    write_part(&mut xml, "P1", measures, TrackId::Bass, false);
+    write_part(&mut xml, "P1", measures, TrackId::Bass, instrument_bass);
 
     // Lead part
-    write_part(&mut xml, "P2", measures, TrackId::Lead, false);
+    write_part(&mut xml, "P2", measures, TrackId::Lead, instrument_lead);
 
     // Drums part (combined snare + hat)
     write_drum_part(&mut xml, "P3", measures);
@@ -117,7 +145,7 @@ fn write_header(xml: &mut String, title: &str) {
     writeln!(xml, "  </identification>").unwrap();
 }
 
-fn write_part(xml: &mut String, part_id: &str, measures: &[Measure], track: TrackId, _is_percussion: bool) {
+fn write_part(xml: &mut String, part_id: &str, measures: &[Measure], track: TrackId, instrument: &InstrumentConfig) {
     writeln!(xml, "  <part id=\"{part_id}\">").unwrap();
 
     for (i, measure) in measures.iter().enumerate() {
@@ -140,6 +168,13 @@ fn write_part(xml: &mut String, part_id: &str, measures: &[Measure], track: Trac
                 writeln!(xml, "          <line>2</line>").unwrap();
             }
             writeln!(xml, "        </clef>").unwrap();
+            // Transposition for transposing instruments (e.g., tenor sax, trumpet)
+            if let Some((chromatic, diatonic)) = instrument.musicxml_transpose() {
+                writeln!(xml, "        <transpose>").unwrap();
+                writeln!(xml, "          <diatonic>{diatonic}</diatonic>").unwrap();
+                writeln!(xml, "          <chromatic>{chromatic}</chromatic>").unwrap();
+                writeln!(xml, "        </transpose>").unwrap();
+            }
             writeln!(xml, "      </attributes>").unwrap();
 
             // Tempo marking
@@ -427,6 +462,98 @@ mod tests {
         assert!(xml.contains("P1")); // Bass part
         assert!(xml.contains("P2")); // Lead part
         assert!(xml.contains("P3")); // Drums part
+    }
+
+    #[test]
+    fn test_tenor_sax_export_has_transpose() {
+        let mut timeline = ScoreTimeline::new(10);
+        let mut measure = Measure::new(1, TimeSignature::default(), 120.0, 16);
+        measure.add_note(
+            TrackId::Lead,
+            TimelineNote {
+                id: 1,
+                pitch: 62, // D4 (written pitch for tenor sax playing concert C4)
+                start_step: 0,
+                duration_steps: 4,
+                velocity: 80,
+                articulation: Articulation::Normal,
+            },
+        );
+        timeline.push_measure(measure);
+
+        let tenor = InstrumentConfig::tenor_sax();
+        let xml = timeline_to_musicxml_with_instruments(
+            &timeline,
+            "Tenor Sax Test",
+            &tenor,
+            &InstrumentConfig::default(),
+        );
+
+        // Part name should be "Tenor Saxophone"
+        assert!(xml.contains("Tenor Saxophone"), "Expected 'Tenor Saxophone' in part name");
+
+        // Should have <transpose> element with chromatic=-2 (Bb instrument)
+        assert!(xml.contains("<transpose>"), "Expected <transpose> element");
+        assert!(xml.contains("<chromatic>-2</chromatic>"), "Expected chromatic=-2 for Bb instrument");
+        assert!(xml.contains("<diatonic>-1</diatonic>"), "Expected diatonic=-1 for Bb instrument");
+
+        // The note D4 should be written as-is (written pitch)
+        assert!(xml.contains("<step>D</step>"), "Expected written pitch D");
+    }
+
+    #[test]
+    fn test_alto_sax_export_has_transpose() {
+        let mut timeline = ScoreTimeline::new(10);
+        let mut measure = Measure::new(1, TimeSignature::default(), 120.0, 16);
+        measure.add_note(
+            TrackId::Lead,
+            TimelineNote {
+                id: 1,
+                pitch: 57, // A3 (written pitch for alto sax)
+                start_step: 0,
+                duration_steps: 4,
+                velocity: 80,
+                articulation: Articulation::Normal,
+            },
+        );
+        timeline.push_measure(measure);
+
+        let alto = InstrumentConfig::alto_sax();
+        let xml = timeline_to_musicxml_with_instruments(
+            &timeline,
+            "Alto Sax Test",
+            &alto,
+            &InstrumentConfig::default(),
+        );
+
+        assert!(xml.contains("Alto Saxophone"));
+        assert!(xml.contains("<chromatic>3</chromatic>"), "Expected chromatic=3 for Eb instrument");
+        assert!(xml.contains("<diatonic>2</diatonic>"), "Expected diatonic=2 for Eb instrument (minor 3rd)");
+    }
+
+    #[test]
+    fn test_default_config_no_transpose() {
+        let mut timeline = ScoreTimeline::new(10);
+        let mut measure = Measure::new(1, TimeSignature::default(), 120.0, 16);
+        measure.add_note(
+            TrackId::Lead,
+            TimelineNote {
+                id: 1,
+                pitch: 60,
+                start_step: 0,
+                duration_steps: 4,
+                velocity: 80,
+                articulation: Articulation::Normal,
+            },
+        );
+        timeline.push_measure(measure);
+
+        let xml = timeline_to_musicxml(&timeline, "Concert Pitch Test");
+
+        // Default config: no transpose element, standard part names
+        assert!(!xml.contains("<transpose>"), "Default config should not have <transpose>");
+        assert!(xml.contains("<part-name>Lead</part-name>"));
+        assert!(xml.contains("<part-name>Bass</part-name>"));
     }
 
     #[test]

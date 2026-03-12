@@ -18,7 +18,7 @@ pub use export::{
     ChordSymbol, GitVersion, to_musicxml, to_musicxml_with_chords, write_musicxml,
     write_musicxml_with_chords,
 };
-pub use params::{EngineParams, MusicalParams};
+pub use params::{EngineParams, InstrumentConfig, MusicalParams};
 pub use report::{EngineReport, MeasureSnapshot, NoteEvent, NoteSnapshot};
 pub use sequencer::Sequencer;
 
@@ -109,6 +109,7 @@ impl MusicKernel {
                 // TODO: Future refactoring - unify kick/bass or separate into dedicated percussion channel
                 // Simple Octave pattern: Root (C2) or Octave (C3)
                 let note = if self.sequencer.current_step.is_multiple_of(8) { 36 } else { 48 };
+                let note = self.params.instrument_bass.apply(note);
                 events.push(CoreAudioEvent::NoteOff { channel: 0, note });
                 events.push(CoreAudioEvent::NoteOn { channel: 0, note, velocity });
                 self.active_notes.push((0, note, note_duration * 1.5));
@@ -122,6 +123,7 @@ impl MusicKernel {
                 // Use step index to walk through chord tones
                 let note_idx = (self.sequencer.current_step / 2) % chord_tones.len();
                 let note = chord_tones[note_idx];
+                let note = self.params.instrument_lead.apply(note);
 
                 events.push(CoreAudioEvent::NoteOff { channel: 1, note });
                 events.push(CoreAudioEvent::NoteOn { channel: 1, note, velocity });
