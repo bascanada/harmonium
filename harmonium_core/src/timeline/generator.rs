@@ -460,6 +460,19 @@ impl TimelineGenerator {
     }
 
     /// Update musical parameters (called when commands are processed)
+    /// Snap `current_state` to match `musical_params` immediately (no morphing).
+    /// Call after direct param changes to ensure newly generated measures
+    /// use the correct tempo/density/etc. right away.
+    pub fn snap_current_state(&mut self) {
+        let mp = &self.musical_params;
+        self.current_state.bpm = mp.bpm;
+        self.current_state.density = mp.rhythm_density;
+        self.current_state.tension = mp.harmony_tension;
+        self.current_state.smoothness = mp.melody_smoothness;
+        self.current_state.valence = mp.harmony_valence;
+        self.current_state.arousal = (mp.bpm - 70.0) / 110.0;
+    }
+
     pub fn update_params(&mut self, params: MusicalParams) {
         // Detect mode changes
         if self.musical_params.harmony_mode != params.harmony_mode {
