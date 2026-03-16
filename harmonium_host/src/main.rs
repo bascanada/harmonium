@@ -2,7 +2,7 @@ use std::{
     env, fs,
     net::UdpSocket,
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicBool, Ordering},
     },
     thread,
@@ -12,13 +12,13 @@ use std::{
 #[cfg(feature = "ai")]
 use harmonium::ai::EmotionEngine;
 use harmonium::{audio, audio::AudioBackendType, harmony::HarmonyMode, log};
-use harmonium_core::{EngineCommand, HarmoniumController};
+use harmonium::playback::PlaybackCommand;
 use harmonium_core::events::RecordFormat;
 use rand::Rng;
 use rosc::{OscPacket, OscType};
 
 fn perform_graceful_shutdown(
-    controller: &Arc<Mutex<HarmoniumController>>,
+    playback_cmd_tx: &mut rtrb::Producer<PlaybackCommand>,
     finished_recordings: &harmonium::FinishedRecordings,
     record_wav: &Option<String>,
     record_midi: &Option<String>,
@@ -35,12 +35,10 @@ fn perform_graceful_shutdown(
     log::info(&format!("Stopping {expected_recordings} recording(s)..."));
 
     // Step 1: Mute all channels to stop new note generation
-    if let Ok(mut ctrl) = controller.lock() {
-        for ch in 0..16u8 {
-            let _ = ctrl.send(EngineCommand::SetChannelMute { channel: ch, muted: true });
-        }
-        log::info("Muted all channels to stop new note generation");
+    for ch in 0..16u8 {
+        let _ = playback_cmd_tx.push(PlaybackCommand::SetChannelMute { channel: ch, muted: true });
     }
+    log::info("Muted all channels to stop new note generation");
 
     // Step 2: Wait for triple buffer propagation and AllNotesOff
     std::thread::sleep(Duration::from_millis(200));
@@ -50,18 +48,16 @@ fn perform_graceful_shutdown(
     std::thread::sleep(Duration::from_millis(3000));
 
     // Step 4: Stop recordings
-    if let Ok(mut ctrl) = controller.lock() {
-        if record_wav.is_some() {
-            let _ = ctrl.stop_recording(RecordFormat::Wav);
-        }
-        if record_midi.is_some() {
-            let _ = ctrl.stop_recording(RecordFormat::Midi);
-        }
-        if record_musicxml.is_some() {
-            let _ = ctrl.stop_recording(RecordFormat::MusicXml);
-        }
-        log::info("Recording stop signal sent to audio thread");
+    if record_wav.is_some() {
+        let _ = playback_cmd_tx.push(PlaybackCommand::StopRecording(RecordFormat::Wav));
     }
+    if record_midi.is_some() {
+        let _ = playback_cmd_tx.push(PlaybackCommand::StopRecording(RecordFormat::Midi));
+    }
+    if record_musicxml.is_some() {
+        let _ = playback_cmd_tx.push(PlaybackCommand::StopRecording(RecordFormat::MusicXml));
+    }
+    log::info("Recording stop signal sent to audio thread");
 
     // Step 5: Wait for backend to process stop events
     log::info("Waiting for recordings to finalize...");
@@ -297,10 +293,10 @@ fn main() {
         }
     });
 
-    // === 1. Create Audio Stream ===
+    // === 1. Create Audio Stream (decoupled architecture) ===
     log::info(&format!("Poly Steps: {poly_steps}"));
 
-    let (_stream, config, controller, _font_queue, finished_recordings) =
+    let (_stream, config, composer_mutex, mut playback_cmd_tx, _report_rx, _font_queue, finished_recordings) =
         audio::create_timeline_stream(sf2_data.as_deref(), backend_type)
     .unwrap_or_else(|e| {
         #[allow(clippy::panic)]
@@ -309,44 +305,61 @@ fn main() {
         }
     });
 
-    // Wrap controller in Arc<Mutex> for sharing across threads
-    let controller = Arc::new(Mutex::new(controller));
+    // Wrap composer in Arc for sharing across threads
+    let composer = Arc::new(composer_mutex);
 
     // === 2. Send Initial Configuration ===
-    if let Ok(mut ctrl) = controller.lock() {
-        let _ = ctrl.set_harmony_mode(harmony_mode);
-        let _ = ctrl.send(EngineCommand::SetRhythmSteps(poly_steps));
+    {
+        let mut c = composer.lock().unwrap();
+        c.use_emotion_mode();
+        c.set_harmony_mode(harmony_mode);
+        c.set_rhythm_steps(poly_steps);
         if fixed_kick {
-            let _ = ctrl.send(EngineCommand::SetFixedKick(true));
+            c.set_fixed_kick(true);
         }
-        // Route all channels to Oxisynth when SoundFont is loaded
-        if sf2_data.is_some() {
-            for ch in 0..16u8 {
-                let _ = ctrl.send(EngineCommand::SetChannelRoute { channel: ch, bank_id: 0 });
-            }
-            log::info("Routing set to Oxisynth (Bank 0) for all channels");
+        c.invalidate_future();
+    }
+
+    // Route all channels to Oxisynth when SoundFont is loaded
+    if sf2_data.is_some() {
+        for ch in 0..16u8 {
+            let _ = playback_cmd_tx.push(PlaybackCommand::SetChannelRoute { channel: ch, bank_id: 0 });
         }
+        log::info("Routing set to Oxisynth (Bank 0) for all channels");
     }
 
     // === 3. Start Recording if requested ===
     if record_wav.is_some() || record_midi.is_some() || record_musicxml.is_some() {
-        if let Ok(mut ctrl) = controller.lock() {
-            if record_wav.is_some() {
-                let _ = ctrl.start_recording(RecordFormat::Wav);
-            }
-            if record_midi.is_some() {
-                let _ = ctrl.start_recording(RecordFormat::Midi);
-            }
-            if record_musicxml.is_some() {
-                let _ = ctrl.start_recording(RecordFormat::MusicXml);
-            }
-            log::info("Recording started...");
+        if record_wav.is_some() {
+            let _ = playback_cmd_tx.push(PlaybackCommand::StartRecording(RecordFormat::Wav));
         }
+        if record_midi.is_some() {
+            let _ = playback_cmd_tx.push(PlaybackCommand::StartRecording(RecordFormat::Midi));
+        }
+        if record_musicxml.is_some() {
+            let _ = playback_cmd_tx.push(PlaybackCommand::StartRecording(RecordFormat::MusicXml));
+        }
+        log::info("Recording started...");
     }
+
+    // === 3.5. Spawn Generation Thread ===
+    let gen_composer = composer.clone();
+    let gen_shutdown = shutdown_flag.clone();
+    thread::spawn(move || {
+        loop {
+            if gen_shutdown.load(Ordering::Relaxed) {
+                break;
+            }
+            if let Ok(mut c) = gen_composer.lock() {
+                c.generate_ahead();
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+    });
 
     // === 4. OSC or Simulator Thread ===
     if use_osc {
-        let osc_controller = controller.clone();
+        let osc_composer = composer.clone();
         let osc_shutdown = shutdown_flag.clone();
 
         thread::spawn(move || {
@@ -422,13 +435,14 @@ fn main() {
                                     if let Some(engine) = &emotion_engine {
                                         match engine.predict_native(label) {
                                             Ok(predicted_params) => {
-                                                if let Ok(mut ctrl) = osc_controller.lock() {
-                                                    let _ = ctrl.set_emotions(
+                                                if let Ok(mut c) = osc_composer.lock() {
+                                                    c.set_emotions(
                                                         predicted_params.arousal,
                                                         predicted_params.valence,
                                                         predicted_params.density,
                                                         predicted_params.tension,
                                                     );
+                                                    c.invalidate_future();
                                                     log::info(&format!(
                                                         "AI UPDATE: Arousal {:.2} | Valence {:.2} | Density {:.2} | Tension {:.2}",
                                                         predicted_params.arousal,
@@ -464,8 +478,9 @@ fn main() {
                                     let density = get_float(&args[2]);
                                     let tension = get_float(&args[3]);
 
-                                    if let Ok(mut ctrl) = osc_controller.lock() {
-                                        let _ = ctrl.set_emotions(arousal, valence, density, tension);
+                                    if let Ok(mut c) = osc_composer.lock() {
+                                        c.set_emotions(arousal, valence, density, tension);
+                                        c.invalidate_future();
                                     }
                                 }
                             }
@@ -481,7 +496,7 @@ fn main() {
         log::info("OSC disabled. Use --osc to enable external control.");
 
         // Simulator thread: random emotion changes every 5 seconds
-        let simulator_controller = controller.clone();
+        let simulator_composer = composer.clone();
         let simulator_shutdown = shutdown_flag.clone();
 
         thread::spawn(move || {
@@ -514,13 +529,13 @@ fn main() {
                 let density = rng.gen_range(0.15..0.95);
                 let tension = rng.gen_range(0.0..1.0);
 
-                if let Ok(mut ctrl) = simulator_controller.lock() {
+                if let Ok(mut c) = simulator_composer.lock() {
                     if simulator_shutdown.load(Ordering::Relaxed) {
                         break;
                     }
-                    let _ = ctrl.set_emotions(arousal, valence, density, tension);
-                    // Compute approximate BPM from arousal
-                    let bpm = 70.0 + arousal * (180.0 - 70.0);
+                    c.set_emotions(arousal, valence, density, tension);
+                    c.invalidate_future();
+                    let bpm = c.musical_params().bpm;
                     log::info(&format!(
                         "EMOTION CHANGE: Arousal {arousal:.2} (-> {bpm:.0} BPM) | Valence {valence:.2} | Density {density:.2} | Tension {tension:.2}"
                     ));
@@ -545,7 +560,7 @@ fn main() {
         if shutdown_flag.load(Ordering::Relaxed) {
             log::info("Received interrupt signal, saving recordings...");
             let success = perform_graceful_shutdown(
-                &controller,
+                &mut playback_cmd_tx,
                 &finished_recordings,
                 &record_wav,
                 &record_midi,
@@ -562,7 +577,7 @@ fn main() {
         if duration_secs > 0 && start_time.elapsed().as_secs() >= duration_secs {
             log::info("Duration reached. Stopping recording...");
             let success = perform_graceful_shutdown(
-                &controller,
+                &mut playback_cmd_tx,
                 &finished_recordings,
                 &record_wav,
                 &record_midi,

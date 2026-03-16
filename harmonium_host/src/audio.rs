@@ -1,3 +1,4 @@
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -6,9 +7,10 @@ use harmonium_audio::backend::odin2_backend::Odin2Backend;
 use harmonium_audio::backend::{
     AudioRenderer, recorder::RecorderBackend, synth_backend::SynthBackend,
 };
-use harmonium_core::{log, HarmoniumController};
+use harmonium_core::{log, timeline::Measure};
 
-use crate::timeline_engine::TimelineEngine;
+use crate::composer::MusicComposer;
+use crate::playback::{PlaybackCommand, PlaybackEngine};
 use harmonium_core::params::SessionConfig;
 
 /// Available audio backend types
@@ -22,11 +24,195 @@ pub enum AudioBackendType {
     Odin2,
 }
 
-/// Create a timeline-based audio stream for real-time playback.
+/// Create a decoupled timeline stream for real-time playback.
 ///
-/// Uses the Writehead/Playhead separation for seekable, replayable output.
+/// Returns:
+/// - `cpal::Stream` — audio output stream
+/// - `SessionConfig` — session key/scale/bpm
+/// - `Mutex<MusicComposer>` — main-thread composer (direct calls, no queue)
+/// - `rtrb::Producer<PlaybackCommand>` — send commands to playback engine
+/// - `rtrb::Consumer<EngineReport>` — receive reports from playback engine
+/// - `FontQueue` — SoundFont loading queue
+/// - `FinishedRecordings` — completed recordings
 #[allow(clippy::type_complexity)]
 pub fn create_timeline_stream(
+    sf2_bytes: Option<&[u8]>,
+    backend_type: AudioBackendType,
+) -> Result<
+    (
+        cpal::Stream,
+        SessionConfig,
+        Mutex<MusicComposer>,
+        rtrb::Producer<PlaybackCommand>,
+        rtrb::Consumer<harmonium_core::EngineReport>,
+        crate::FontQueue,
+        crate::FinishedRecordings,
+    ),
+    String,
+> {
+    let host = cpal::default_host();
+    let device = host.default_output_device()
+        .ok_or_else(|| "No output device found".to_string())?;
+
+    let config = device.default_output_config().map_err(|e| e.to_string())?;
+    let sample_rate = config.sample_rate().0 as f64;
+    let channels = config.channels() as usize;
+
+    log::info(&format!(
+        "Decoupled Engine - Sample rate: {}, Channels: {}",
+        sample_rate, channels
+    ));
+
+    // Ring buffers
+    let (measure_tx, measure_rx) = rtrb::RingBuffer::<Measure>::new(64);
+    let (playback_cmd_tx, playback_cmd_rx) = rtrb::RingBuffer::<PlaybackCommand>::new(256);
+    let (report_tx, report_rx) = rtrb::RingBuffer::<harmonium_core::EngineReport>::new(256);
+
+    // Shared playhead position
+    let playhead_bar = Arc::new(AtomicUsize::new(1));
+
+    // Font queue (shared between NativeHandle and PlaybackEngine)
+    let font_queue = Arc::new(std::sync::Mutex::new(Vec::new()));
+
+    // Create renderer
+    // Route to Oxisynth only when a SoundFont is loaded; otherwise use FundSP
+    let default_routing = if sf2_bytes.is_some() {
+        vec![0, 1, 2, 3]
+    } else {
+        vec![-1, -1, -1, -1]
+    };
+    let inner_backend: Box<dyn AudioRenderer> = match backend_type {
+        AudioBackendType::FundSP => {
+            Box::new(SynthBackend::new(sample_rate, sf2_bytes, &default_routing))
+        }
+        #[cfg(feature = "odin2")]
+        AudioBackendType::Odin2 => {
+            Box::new(Odin2Backend::new(sample_rate))
+        }
+    };
+
+    let finished_recordings = Arc::new(Mutex::new(Vec::new()));
+    let recorder_backend = Box::new(RecorderBackend::new(
+        inner_backend,
+        finished_recordings.clone(),
+        sample_rate as u32,
+    ));
+
+    // Create composer (main thread)
+    let mut composer = MusicComposer::new(
+        sample_rate,
+        measure_tx,
+        playhead_bar.clone(),
+        font_queue.clone(),
+    );
+    let session_config = composer.config.clone();
+
+    // Pre-generate initial bars (synchronous — no audio stream needed)
+    composer.generate_bars(8);
+
+    // Create playback engine (will be moved into CPAL closure)
+    let mut playback = PlaybackEngine::new(
+        sample_rate,
+        recorder_backend,
+        measure_rx,
+        playback_cmd_rx,
+        report_tx,
+        playhead_bar,
+    );
+
+    let err_fn = |err| log::error(&format!("an error occurred on stream: {}", err));
+
+    let stream = device
+        .build_output_stream(
+            &config.into(),
+            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                playback.process_buffer(data, channels);
+            },
+            err_fn,
+            None,
+        )
+        .map_err(|e| e.to_string())?;
+
+    stream.play().map_err(|e| e.to_string())?;
+
+    let composer_mutex = Mutex::new(composer);
+
+    Ok((stream, session_config, composer_mutex, playback_cmd_tx, report_rx, font_queue, finished_recordings))
+}
+
+/// Create a timeline engine for offline (non-realtime) rendering.
+///
+/// No audio device is opened. The caller drives `playback.process_buffer()`
+/// in a tight loop to render as fast as possible.
+#[allow(clippy::type_complexity)]
+pub fn create_offline_engine(
+    sf2_bytes: Option<&[u8]>,
+    backend_type: AudioBackendType,
+    sample_rate: f64,
+) -> Result<
+    (
+        MusicComposer,
+        PlaybackEngine,
+        rtrb::Producer<PlaybackCommand>,
+        rtrb::Consumer<harmonium_core::EngineReport>,
+        crate::FinishedRecordings,
+    ),
+    String,
+> {
+    let (measure_tx, measure_rx) = rtrb::RingBuffer::<Measure>::new(64);
+    let (playback_cmd_tx, playback_cmd_rx) = rtrb::RingBuffer::<PlaybackCommand>::new(256);
+    let (report_tx, report_rx) = rtrb::RingBuffer::<harmonium_core::EngineReport>::new(256);
+
+    let playhead_bar = Arc::new(AtomicUsize::new(1));
+    let font_queue = Arc::new(std::sync::Mutex::new(Vec::new()));
+
+    let default_routing = if sf2_bytes.is_some() {
+        vec![0, 1, 2, 3]
+    } else {
+        vec![-1, -1, -1, -1]
+    };
+    let inner_backend: Box<dyn AudioRenderer> = match backend_type {
+        AudioBackendType::FundSP => {
+            Box::new(SynthBackend::new(sample_rate, sf2_bytes, &default_routing))
+        }
+        #[cfg(feature = "odin2")]
+        AudioBackendType::Odin2 => {
+            Box::new(Odin2Backend::new(sample_rate))
+        }
+    };
+
+    let finished_recordings = Arc::new(Mutex::new(Vec::new()));
+    let recorder_backend = Box::new(RecorderBackend::new(
+        inner_backend,
+        finished_recordings.clone(),
+        sample_rate as u32,
+    ));
+
+    let composer = MusicComposer::new(
+        sample_rate,
+        measure_tx,
+        playhead_bar.clone(),
+        font_queue,
+    );
+
+    let playback = PlaybackEngine::new(
+        sample_rate,
+        recorder_backend,
+        measure_rx,
+        playback_cmd_rx,
+        report_tx,
+        playhead_bar,
+    );
+
+    Ok((composer, playback, playback_cmd_tx, report_rx, finished_recordings))
+}
+
+/// Legacy timeline stream (uses old TimelineEngine + HarmoniumController).
+///
+/// Used by the WASM Handle and CLI. Will be removed once they're migrated
+/// to the decoupled MusicComposer + PlaybackEngine architecture.
+#[allow(clippy::type_complexity)]
+pub fn create_timeline_stream_legacy(
     sf2_bytes: Option<&[u8]>,
     backend_type: AudioBackendType,
 ) -> Result<
@@ -48,7 +234,7 @@ pub fn create_timeline_stream(
     let channels = config.channels() as usize;
 
     log::info(&format!(
-        "Timeline Engine - Sample rate: {}, Channels: {}",
+        "Legacy Timeline Engine - Sample rate: {}, Channels: {}",
         sample_rate, channels
     ));
 
@@ -74,11 +260,13 @@ pub fn create_timeline_stream(
         sample_rate as u32,
     ));
 
-    let mut engine = TimelineEngine::new(sample_rate, command_rx, report_tx, recorder_backend);
+    let mut engine = crate::timeline_engine::TimelineEngine::new(
+        sample_rate, command_rx, report_tx, recorder_backend,
+    );
     let session_config = engine.config.clone();
     let font_queue = engine.font_queue.clone();
 
-    let controller = HarmoniumController::new(command_tx, report_rx);
+    let controller = harmonium_core::HarmoniumController::new(command_tx, report_rx);
 
     let err_fn = |err| log::error(&format!("an error occurred on stream: {}", err));
 
@@ -98,18 +286,17 @@ pub fn create_timeline_stream(
     Ok((stream, session_config, controller, font_queue, finished_recordings))
 }
 
-/// Create a timeline engine for offline (non-realtime) rendering.
+/// Legacy offline engine (uses old TimelineEngine + HarmoniumController).
 ///
-/// No audio device is opened. The caller drives `engine.process_buffer()`
-/// in a tight loop to render as fast as possible.
+/// Used by harmonium_cli. Will be removed once migrated to the decoupled architecture.
 #[allow(clippy::type_complexity)]
-pub fn create_offline_engine(
+pub fn create_offline_engine_legacy(
     sf2_bytes: Option<&[u8]>,
     backend_type: AudioBackendType,
     sample_rate: f64,
 ) -> Result<
     (
-        TimelineEngine,
+        crate::timeline_engine::TimelineEngine,
         harmonium_core::HarmoniumController,
         crate::FinishedRecordings,
     ),
@@ -137,9 +324,46 @@ pub fn create_offline_engine(
         sample_rate as u32,
     ));
 
-    let mut engine = TimelineEngine::new(sample_rate, command_rx, report_tx, recorder_backend);
+    let mut engine = crate::timeline_engine::TimelineEngine::new(
+        sample_rate, command_rx, report_tx, recorder_backend,
+    );
     engine.set_offline(true);
-    let controller = HarmoniumController::new(command_tx, report_rx);
+    let controller = harmonium_core::HarmoniumController::new(command_tx, report_rx);
 
     Ok((engine, controller, finished_recordings))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_decoupled_engine_produces_audio() {
+        let sample_rate = 44100.0;
+        let channels = 2;
+
+        let (mut composer, mut playback, mut _cmd_tx, mut _report_rx, _recordings) =
+            create_offline_engine(None, AudioBackendType::FundSP, sample_rate)
+                .expect("create_offline_engine failed");
+
+        // Pre-generate bars
+        composer.set_writehead_lookahead(16);
+        composer.generate_bars(8);
+
+        // Process audio buffers
+        let mut buffer = vec![0.0f32; 1024 * channels];
+        let mut total_energy = 0.0f64;
+
+        for _ in 0..500 {
+            composer.generate_ahead();
+            for s in buffer.iter_mut() { *s = 0.0; }
+            playback.process_buffer(&mut buffer, channels);
+            total_energy += buffer.iter().map(|s| (*s as f64) * (*s as f64)).sum::<f64>();
+        }
+
+        assert!(
+            total_energy > 0.0,
+            "Decoupled engine produced zero audio output after 500 buffers"
+        );
+    }
 }

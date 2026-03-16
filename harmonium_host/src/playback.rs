@@ -1,0 +1,402 @@
+//! PlaybackEngine - Audio-thread playback, decoupled from music generation.
+//!
+//! Minimal audio-thread component: reads pre-generated measures from a ring buffer,
+//! ticks the playhead, renders audio events. No generation, no allocations in steady state.
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
+use arrayvec::ArrayString;
+use harmonium_audio::backend::AudioRenderer;
+use harmonium_core::{
+    events::AudioEvent,
+    log,
+    params::MusicalParams,
+    timeline::{Measure, Playhead},
+};
+
+/// Commands sent from the main thread to the PlaybackEngine (audio thread).
+pub enum PlaybackCommand {
+    SetChannelGain { channel: u8, gain: f32 },
+    SetChannelMute { channel: u8, muted: bool },
+    SetChannelRoute { channel: u8, bank_id: i32 },
+    SetVelocityBase { channel: u8, velocity: u8 },
+    SetOutputMute(bool),
+    SetMasterVolume(f32),
+    Seek(usize),
+    SeekPlayhead(usize),
+    SetLoop { start_bar: usize, end_bar: usize },
+    ClearLoop,
+    StartRecording(harmonium_core::events::RecordFormat),
+    StopRecording(harmonium_core::events::RecordFormat),
+    MixerGains { lead: f32, bass: f32, snare: f32, hat: f32 },
+    LoadFont { id: u32, bytes: Vec<u8> },
+    /// Notify playback that params changed — drain ring buffer so composer can refill
+    InvalidateBuffer,
+    /// Update the muted channels mask from the composer's musical params
+    SetMutedChannels(Vec<bool>),
+    /// Update musical params snapshot for recording/reporting
+    UpdateMusicalParams(Box<MusicalParams>),
+}
+
+/// PlaybackEngine runs on the audio thread inside the CPAL closure.
+///
+/// It reads measures from the ring buffer, ticks the playhead, and renders audio.
+/// Generation is NOT done here — that's MusicComposer's job.
+pub struct PlaybackEngine {
+    // Playhead
+    playhead: Playhead,
+
+    // Audio renderer
+    renderer: Box<dyn AudioRenderer>,
+    sample_rate: f64,
+
+    // Timing
+    sample_counter: usize,
+    samples_per_step: usize,
+
+    // Measure ring buffer (Composer → Playback)
+    measure_rx: rtrb::Consumer<Measure>,
+
+    // Command ring buffer (main thread → audio thread)
+    cmd_rx: rtrb::Consumer<PlaybackCommand>,
+
+    // Report ring buffer (audio thread → main thread)
+    report_tx: rtrb::Producer<harmonium_core::EngineReport>,
+
+    // Shared playhead bar (audio thread writes, composer reads)
+    playhead_bar: Arc<AtomicUsize>,
+
+    // Mute state
+    output_muted: bool,
+    muted_channels: Vec<bool>,
+    #[allow(dead_code)]
+    last_muted_channels: Vec<bool>,
+
+    // Loop region
+    loop_region: Option<(usize, usize)>,
+
+    // Recording state
+    is_recording_wav: bool,
+    is_recording_midi: bool,
+    is_recording_musicxml: bool,
+
+    // Mixer gains (cached for reporting)
+    gain_lead: f32,
+    gain_bass: f32,
+    gain_snare: f32,
+    gain_hat: f32,
+
+    // Musical params snapshot for reports
+    musical_params: MusicalParams,
+
+    // Report cache
+    last_chord_name: ArrayString<64>,
+    last_chord_root_offset: i32,
+    last_chord_is_minor: bool,
+}
+
+impl PlaybackEngine {
+    /// Create a new PlaybackEngine.
+    pub fn new(
+        sample_rate: f64,
+        mut renderer: Box<dyn AudioRenderer>,
+        measure_rx: rtrb::Consumer<Measure>,
+        cmd_rx: rtrb::Consumer<PlaybackCommand>,
+        report_tx: rtrb::Producer<harmonium_core::EngineReport>,
+        playhead_bar: Arc<AtomicUsize>,
+    ) -> Self {
+        let bpm = 120.0;
+        let samples_per_step = (sample_rate * 60.0 / (bpm as f64) / 4.0) as usize;
+        renderer.handle_event(AudioEvent::TimingUpdate { samples_per_step });
+
+        Self {
+            playhead: Playhead::new(sample_rate, 4),
+            renderer,
+            sample_rate,
+            sample_counter: 0,
+            samples_per_step,
+            measure_rx,
+            cmd_rx,
+            report_tx,
+            playhead_bar,
+            output_muted: false,
+            muted_channels: vec![false; 16],
+            last_muted_channels: vec![false; 16],
+            loop_region: None,
+            is_recording_wav: false,
+            is_recording_midi: false,
+            is_recording_musicxml: false,
+            gain_lead: 1.0,
+            gain_bass: 0.6,
+            gain_snare: 0.5,
+            gain_hat: 0.4,
+            musical_params: MusicalParams::default(),
+            last_chord_name: ArrayString::from("I").unwrap_or_default(),
+            last_chord_root_offset: 0,
+            last_chord_is_minor: false,
+        }
+    }
+
+    /// Audio thread: process a buffer of audio samples.
+    pub fn process_buffer(&mut self, output: &mut [f32], channels: usize) {
+        // Process commands first (outside rt context)
+        self.process_commands();
+
+        let total_samples = output.len() / channels;
+        let mut processed = 0;
+
+        while processed < total_samples {
+            let remaining = total_samples - processed;
+            let samples_until_tick = if self.samples_per_step > self.sample_counter {
+                self.samples_per_step - self.sample_counter
+            } else {
+                1
+            };
+
+            let chunk_size = std::cmp::min(remaining, samples_until_tick);
+            let start_idx = processed * channels;
+            let end_idx = (processed + chunk_size) * channels;
+            let chunk = &mut output[start_idx..end_idx];
+
+            self.renderer.process_buffer(chunk, channels);
+            self.sample_counter += chunk_size;
+            processed += chunk_size;
+
+            if self.sample_counter >= self.samples_per_step {
+                self.sample_counter = 0;
+                self.tick();
+            }
+        }
+
+        // Zero output when muted
+        if self.output_muted {
+            for sample in output.iter_mut() {
+                *sample = 0.0;
+            }
+        }
+    }
+
+    /// Tick: read from playhead and emit events.
+    fn tick(&mut self) {
+        // Check loop region
+        if let Some((start_bar, end_bar)) = self.loop_region {
+            if self.playhead.current_bar() > end_bar {
+                for ch in 0..4u8 {
+                    self.renderer.handle_event(AudioEvent::AllNotesOff { channel: ch });
+                }
+                self.playhead.seek_to_bar(start_bar);
+                // Drain ring buffer
+                while self.measure_rx.pop().is_ok() {}
+                // Update shared playhead position
+                self.playhead_bar.store(start_bar, Ordering::Relaxed);
+            }
+        }
+
+        // If playhead needs a new measure, read from ring buffer
+        if self.playhead.needs_measure() {
+            if let Ok(measure) = self.measure_rx.pop() {
+                // Update timing from measure tempo (tempo flows through measures)
+                let steps_per_beat = 4.0f64;
+                let new_sps = (self.sample_rate * 60.0 / (measure.tempo as f64) / steps_per_beat) as usize;
+                if new_sps != self.samples_per_step {
+                    self.samples_per_step = new_sps;
+                    self.renderer.handle_event(AudioEvent::TimingUpdate {
+                        samples_per_step: new_sps,
+                    });
+                }
+
+                // Update chord info for reports
+                self.last_chord_name = ArrayString::from(&measure.chord_context.chord_name)
+                    .unwrap_or_default();
+                self.last_chord_root_offset = measure.chord_context.root_offset;
+                self.last_chord_is_minor = measure.chord_context.is_minor;
+
+                self.playhead.load_measure(measure);
+            } else {
+                return; // Underflow
+            }
+        }
+
+        // Tick the playhead
+        let events = self.playhead.tick();
+
+        // Forward events to renderer, filtering muted channels
+        for event in events {
+            if let AudioEvent::NoteOn { channel, .. } = &event {
+                if self.muted_channels.get(*channel as usize).copied().unwrap_or(false) {
+                    continue;
+                }
+            }
+            self.renderer.handle_event(event.clone());
+        }
+
+        // Update shared playhead position
+        self.playhead_bar.store(self.playhead.current_bar(), Ordering::Relaxed);
+
+        // Send report periodically
+        let current_step = self.playhead.position.step_in_bar(4);
+        if current_step.is_multiple_of(4) {
+            self.send_report();
+        }
+    }
+
+    fn process_commands(&mut self) {
+        while let Ok(cmd) = self.cmd_rx.pop() {
+            match cmd {
+                PlaybackCommand::SetChannelGain { channel, gain } => {
+                    let gain = gain.clamp(0.0, 1.0);
+                    match channel {
+                        0 => self.gain_bass = gain,
+                        1 => self.gain_lead = gain,
+                        2 => self.gain_snare = gain,
+                        3 => self.gain_hat = gain,
+                        _ => {}
+                    }
+                    self.renderer.handle_event(AudioEvent::SetMixerGains {
+                        lead: self.gain_lead,
+                        bass: self.gain_bass,
+                        snare: self.gain_snare,
+                        hat: self.gain_hat,
+                    });
+                }
+                PlaybackCommand::SetChannelMute { channel, muted } => {
+                    if (channel as usize) < self.muted_channels.len() {
+                        self.muted_channels[channel as usize] = muted;
+                        if muted {
+                            self.renderer.handle_event(AudioEvent::AllNotesOff { channel });
+                        }
+                    }
+                }
+                PlaybackCommand::SetChannelRoute { channel, bank_id } => {
+                    if (channel as usize) < 16 {
+                        self.renderer.handle_event(AudioEvent::SetChannelRoute {
+                            channel,
+                            bank: bank_id,
+                        });
+                    }
+                }
+                PlaybackCommand::SetVelocityBase { .. } => {
+                    // Velocity base is handled in generation, not playback
+                }
+                PlaybackCommand::SetOutputMute(muted) => {
+                    self.output_muted = muted;
+                    if muted {
+                        for ch in 0..4u8 {
+                            self.renderer.handle_event(AudioEvent::AllNotesOff { channel: ch });
+                        }
+                    }
+                }
+                PlaybackCommand::SetMasterVolume(_volume) => {
+                    // Master volume is applied during rendering
+                }
+                PlaybackCommand::Seek(bar) => {
+                    let target_bar = bar.max(1);
+                    log::info(&format!("Seeking to bar {target_bar}"));
+                    for ch in 0..4u8 {
+                        self.renderer.handle_event(AudioEvent::AllNotesOff { channel: ch });
+                    }
+                    self.playhead.seek_to_bar(target_bar);
+                    while self.measure_rx.pop().is_ok() {}
+                    self.playhead_bar.store(target_bar, Ordering::Relaxed);
+                }
+                PlaybackCommand::SeekPlayhead(bar) => {
+                    let target_bar = bar.max(1);
+                    log::info(&format!("SeekPlayhead to bar {target_bar}"));
+                    for ch in 0..4u8 {
+                        self.renderer.handle_event(AudioEvent::AllNotesOff { channel: ch });
+                    }
+                    self.playhead.seek_to_bar(target_bar);
+                    while self.measure_rx.pop().is_ok() {}
+                    self.playhead_bar.store(target_bar, Ordering::Relaxed);
+                }
+                PlaybackCommand::SetLoop { start_bar, end_bar } => {
+                    let start = start_bar.max(1);
+                    let end = end_bar.max(start);
+                    log::info(&format!("Loop set: bars {start}-{end}"));
+                    self.loop_region = Some((start, end));
+                }
+                PlaybackCommand::ClearLoop => {
+                    log::info("Loop cleared");
+                    self.loop_region = None;
+                }
+                PlaybackCommand::StartRecording(format) => {
+                    match format {
+                        harmonium_core::events::RecordFormat::Wav => self.is_recording_wav = true,
+                        harmonium_core::events::RecordFormat::Midi => self.is_recording_midi = true,
+                        harmonium_core::events::RecordFormat::MusicXml => {
+                            self.is_recording_musicxml = true;
+                            self.renderer.handle_event(AudioEvent::UpdateMusicalParams {
+                                params: Box::new(self.musical_params.clone()),
+                            });
+                        }
+                    }
+                    self.renderer.handle_event(AudioEvent::StartRecording { format });
+                }
+                PlaybackCommand::StopRecording(format) => {
+                    match format {
+                        harmonium_core::events::RecordFormat::Wav => self.is_recording_wav = false,
+                        harmonium_core::events::RecordFormat::Midi => self.is_recording_midi = false,
+                        harmonium_core::events::RecordFormat::MusicXml => self.is_recording_musicxml = false,
+                    }
+                    self.renderer.handle_event(AudioEvent::StopRecording { format });
+                }
+                PlaybackCommand::MixerGains { lead, bass, snare, hat } => {
+                    self.gain_lead = lead;
+                    self.gain_bass = bass;
+                    self.gain_snare = snare;
+                    self.gain_hat = hat;
+                    self.renderer.handle_event(AudioEvent::SetMixerGains { lead, bass, snare, hat });
+                }
+                PlaybackCommand::LoadFont { id, bytes } => {
+                    self.renderer.handle_event(AudioEvent::LoadFont { id, bytes });
+                }
+                PlaybackCommand::InvalidateBuffer => {
+                    for ch in 0..4u8 {
+                        self.renderer.handle_event(AudioEvent::AllNotesOff { channel: ch });
+                    }
+                    while self.measure_rx.pop().is_ok() {}
+                }
+                PlaybackCommand::SetMutedChannels(channels) => {
+                    for (i, &muted) in channels.iter().enumerate() {
+                        if i < self.muted_channels.len() {
+                            if muted && !self.muted_channels[i] {
+                                self.renderer.handle_event(AudioEvent::AllNotesOff { channel: i as u8 });
+                            }
+                            self.muted_channels[i] = muted;
+                        }
+                    }
+                }
+                PlaybackCommand::UpdateMusicalParams(params) => {
+                    self.musical_params = *params;
+                }
+            }
+        }
+    }
+
+    fn send_report(&mut self) {
+        use harmonium_core::EngineReport;
+
+        let mut report = EngineReport::new();
+
+        report.current_bar = self.playhead.current_bar();
+        report.current_beat = self.playhead.position.beat;
+        report.current_step = self.playhead.position.step_in_bar(4);
+        report.time_signature = self.musical_params.time_signature;
+
+        report.current_chord = self.last_chord_name;
+        report.chord_root_offset = self.last_chord_root_offset;
+        report.chord_is_minor = self.last_chord_is_minor;
+        report.harmony_mode = self.musical_params.harmony_mode;
+
+        report.rhythm_mode = self.musical_params.rhythm_mode;
+        report.primary_steps = self.musical_params.rhythm_steps;
+        report.primary_pulses = self.musical_params.rhythm_pulses;
+        report.secondary_steps = self.musical_params.rhythm_secondary_steps;
+        report.secondary_pulses = self.musical_params.rhythm_secondary_pulses;
+
+        report.musical_params = self.musical_params.clone();
+
+        let _ = self.report_tx.push(report);
+    }
+}

@@ -1,0 +1,422 @@
+//! MusicComposer - Main-thread music generation, decoupled from audio playback.
+//!
+//! Extracts the generation side of TimelineEngine: writehead, generator, musical params,
+//! emotion mapping, and measure snapshots. Callable directly (no audio stream needed).
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
+use arrayvec::ArrayString;
+use harmonium_core::{
+    harmony::{HarmonicDriver, HarmonyNavigator},
+    log,
+    params::{CurrentState, EngineParams, MusicalParams, SessionConfig, TimeSignature},
+    sequencer::Sequencer,
+    timeline::{Measure, TimelineGenerator, Writehead},
+};
+use crate::mapper::EmotionMapper;
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
+use rust_music_theory::{note::PitchSymbol, scale::ScaleType};
+
+/// Main-thread music composer. Generates measures synchronously.
+///
+/// This struct owns the generation pipeline: TimelineGenerator, Writehead,
+/// MusicalParams, EmotionMapper, and the measure ring buffer producer.
+/// It reads `playhead_bar` via an `Arc<AtomicUsize>` shared with PlaybackEngine.
+pub struct MusicComposer {
+    pub config: SessionConfig,
+
+    // Generation
+    generator: TimelineGenerator,
+    writehead: Writehead,
+
+    // Measure ring buffer (Composer → PlaybackEngine)
+    measure_tx: rtrb::Producer<Measure>,
+
+    // State
+    musical_params: MusicalParams,
+    rng: ChaCha8Rng,
+    sample_rate: f64,
+
+    // Emotion mode
+    emotion_mapper: EmotionMapper,
+    emotion_mode: bool,
+    cached_emotions: EngineParams,
+
+    // Report cache (chord info from last generated measure)
+    last_chord_name: ArrayString<64>,
+    last_chord_root_offset: i32,
+    last_chord_is_minor: bool,
+
+    // Pending measure snapshots for the frontend
+    pending_measure_snapshots: Vec<harmonium_core::report::MeasureSnapshot>,
+
+    // Shared playhead position (written by PlaybackEngine, read here)
+    playhead_bar: Arc<AtomicUsize>,
+
+    // Font queue (shared with PlaybackEngine via NativeHandle)
+    pub font_queue: crate::FontQueue,
+}
+
+impl MusicComposer {
+    /// Create a new MusicComposer.
+    ///
+    /// Returns `(composer, measure_rx, playhead_bar)` — the consumer and atomic
+    /// are handed to PlaybackEngine.
+    #[allow(clippy::type_complexity)]
+    pub fn new(
+        sample_rate: f64,
+        measure_tx: rtrb::Producer<Measure>,
+        playhead_bar: Arc<AtomicUsize>,
+        font_queue: crate::FontQueue,
+    ) -> Self {
+        use rand::Rng;
+        let session_seed: u64 = rand::thread_rng().r#gen();
+        Self::new_with_seed(sample_rate, measure_tx, playhead_bar, font_queue, session_seed)
+    }
+
+    /// Create with explicit seed for deterministic output.
+    pub fn new_with_seed(
+        sample_rate: f64,
+        measure_tx: rtrb::Producer<Measure>,
+        playhead_bar: Arc<AtomicUsize>,
+        font_queue: crate::FontQueue,
+        session_seed: u64,
+    ) -> Self {
+        use rand::Rng;
+        let mut rng = ChaCha8Rng::seed_from_u64(session_seed);
+
+        let bpm = 120.0;
+        let steps = 16;
+        let initial_pulses = 4;
+
+        let keys = [
+            PitchSymbol::C, PitchSymbol::D, PitchSymbol::E, PitchSymbol::F,
+            PitchSymbol::G, PitchSymbol::A, PitchSymbol::B,
+        ];
+        let scales = [ScaleType::PentatonicMinor, ScaleType::PentatonicMajor];
+        let random_key = keys[rng.gen_range(0..keys.len())];
+        let random_scale = scales[rng.gen_range(0..scales.len())];
+
+        let config = SessionConfig {
+            bpm,
+            key: format!("{}", random_key),
+            scale: format!("{:?}", random_scale),
+            pulses: initial_pulses,
+            steps,
+        };
+
+        log::info(&format!(
+            "MusicComposer - Session: {} {} | BPM: {:.1}",
+            config.key, config.scale, bpm
+        ));
+
+        let sequencer_primary = Sequencer::new(steps, initial_pulses, bpm);
+        let default_density = 0.4;
+        let secondary_pulses = std::cmp::min((default_density * 8.0) as usize + 1, 12);
+        let sequencer_secondary = Sequencer::new_with_rotation(12, secondary_pulses, bpm, 0);
+
+        let harmony = HarmonyNavigator::new(random_key, random_scale, 4);
+        let key_pc = match random_key {
+            PitchSymbol::C => 0, PitchSymbol::D => 2, PitchSymbol::E => 4,
+            PitchSymbol::F => 5, PitchSymbol::G => 7, PitchSymbol::A => 9,
+            PitchSymbol::B => 11, _ => 0,
+        };
+        let harmonic_driver = Some(HarmonicDriver::new(key_pc));
+
+        let musical_params = MusicalParams::default();
+
+        let initial_state = CurrentState {
+            bpm,
+            density: musical_params.rhythm_density,
+            tension: musical_params.rhythm_tension,
+            smoothness: musical_params.melody_smoothness,
+            ..CurrentState::default()
+        };
+
+        let generator = TimelineGenerator::new(
+            sequencer_primary,
+            sequencer_secondary,
+            harmony,
+            harmonic_driver,
+            musical_params.clone(),
+            initial_state,
+        );
+
+        let writehead = Writehead::new(sample_rate, 4);
+
+        Self {
+            config,
+            generator,
+            writehead,
+            measure_tx,
+            musical_params,
+            rng,
+            sample_rate,
+            emotion_mapper: EmotionMapper::new(),
+            emotion_mode: false,
+            cached_emotions: EngineParams::default(),
+            last_chord_name: ArrayString::from("I").unwrap_or_default(),
+            last_chord_root_offset: 0,
+            last_chord_is_minor: false,
+            pending_measure_snapshots: Vec::new(),
+            playhead_bar,
+            font_queue,
+        }
+    }
+
+    /// Generate a specific number of bars synchronously.
+    /// No audio stream needed — called directly on the main thread.
+    pub fn generate_bars(&mut self, count: usize) {
+        let old_lookahead = self.writehead.lookahead;
+        self.writehead.lookahead = count;
+        self.generate_ahead();
+        self.writehead.lookahead = old_lookahead;
+    }
+
+    /// Generate measures ahead of the playhead, pushing to the ring buffer.
+    pub fn generate_ahead(&mut self) {
+        let playhead_bar = self.playhead_bar.load(Ordering::Relaxed);
+
+        while self.writehead.needs_generation(playhead_bar) {
+            let bar_idx = self.writehead.current_bar;
+
+            // If this bar already exists in the timeline (e.g. after SeekPlayhead),
+            // re-push the existing measure instead of generating a new one.
+            if let Some(existing) = self.writehead.timeline.get_measure(bar_idx) {
+                if self.measure_tx.push(existing.clone()).is_err() {
+                    break; // Ring buffer full
+                }
+                self.pending_measure_snapshots.push(
+                    harmonium_core::report::MeasureSnapshot::from_measure(&existing),
+                );
+                self.writehead.current_bar = bar_idx + 1;
+                continue;
+            }
+
+            let measure = self.generator.generate_measure(bar_idx, &mut self.rng);
+
+            // Update report cache
+            self.last_chord_name = ArrayString::from(&measure.chord_context.chord_name)
+                .unwrap_or_default();
+            self.last_chord_root_offset = measure.chord_context.root_offset;
+            self.last_chord_is_minor = measure.chord_context.is_minor;
+
+            match self.measure_tx.push(measure.clone()) {
+                Ok(()) => {}
+                Err(_) => break, // Ring buffer full
+            }
+
+            self.pending_measure_snapshots.push(
+                harmonium_core::report::MeasureSnapshot::from_measure(&measure),
+            );
+
+            self.writehead.commit_measure(measure);
+        }
+    }
+
+    /// Drain pending measure snapshots (called by NativeHandle).
+    pub fn take_snapshots(&mut self) -> Vec<harmonium_core::report::MeasureSnapshot> {
+        std::mem::take(&mut self.pending_measure_snapshots)
+    }
+
+    /// Invalidate future measures and regenerate from the next bar.
+    /// Called when musical params change.
+    pub fn invalidate_future(&mut self) {
+        let playhead_bar = self.playhead_bar.load(Ordering::Relaxed);
+        let regen_from = if playhead_bar == 0 { 1 } else { playhead_bar + 1 };
+
+        self.writehead.timeline.invalidate_from(regen_from);
+        self.writehead.current_bar = regen_from;
+
+        // Sync generator with updated params and snap current_state
+        // so new measures use the correct tempo/density immediately
+        self.generator.update_params(self.musical_params.clone());
+        self.generator.snap_current_state();
+    }
+
+    /// Reset to defaults, clear timeline.
+    pub fn reset(&mut self) {
+        self.musical_params = MusicalParams::default();
+        self.writehead.reset();
+        self.generator.update_params(self.musical_params.clone());
+    }
+
+    /// Seek the writehead to a specific bar.
+    pub fn seek_writehead(&mut self, bar: usize) {
+        self.writehead.current_bar = bar;
+    }
+
+    /// Refill ring buffer from committed timeline measures (for SeekPlayhead).
+    pub fn refill_from_timeline(&mut self, from_bar: usize, count: usize) {
+        let end_bar = (from_bar + count).min(self.writehead.current_bar);
+        for b in from_bar..end_bar {
+            if let Some(measure) = self.writehead.timeline.get_measure(b) {
+                if self.measure_tx.push(measure.clone()).is_err() {
+                    // Reset writehead to continue from where we stopped
+                    self.writehead.current_bar = b;
+                    return;
+                }
+            }
+        }
+        self.writehead.current_bar = end_bar;
+    }
+
+    // === Parameter setters (called directly, no command queue) ===
+
+    pub fn set_bpm(&mut self, bpm: f32) {
+        self.musical_params.bpm = bpm.clamp(70.0, 180.0);
+    }
+
+    pub fn set_time_signature(&mut self, numerator: usize, denominator: usize) {
+        self.musical_params.time_signature = TimeSignature { numerator, denominator };
+    }
+
+    pub fn enable_rhythm(&mut self, e: bool) { self.musical_params.enable_rhythm = e; }
+    pub fn enable_harmony(&mut self, e: bool) { self.musical_params.enable_harmony = e; }
+    pub fn enable_melody(&mut self, e: bool) { self.musical_params.enable_melody = e; }
+    pub fn enable_voicing(&mut self, e: bool) { self.musical_params.enable_voicing = e; }
+
+    pub fn set_rhythm_mode(&mut self, m: harmonium_core::sequencer::RhythmMode) { self.musical_params.rhythm_mode = m; }
+    pub fn set_rhythm_steps(&mut self, s: usize) { self.musical_params.rhythm_steps = s; }
+    pub fn set_rhythm_pulses(&mut self, p: usize) { self.musical_params.rhythm_pulses = p; }
+    pub fn set_rhythm_rotation(&mut self, r: usize) { self.musical_params.rhythm_rotation = r; }
+    pub fn set_rhythm_density(&mut self, d: f32) { self.musical_params.rhythm_density = d.clamp(0.0, 1.0); }
+    pub fn set_rhythm_tension(&mut self, t: f32) { self.musical_params.rhythm_tension = t.clamp(0.0, 1.0); }
+    pub fn set_rhythm_secondary(&mut self, steps: usize, pulses: usize, rotation: usize) {
+        self.musical_params.rhythm_secondary_steps = steps;
+        self.musical_params.rhythm_secondary_pulses = pulses;
+        self.musical_params.rhythm_secondary_rotation = rotation;
+    }
+    pub fn set_fixed_kick(&mut self, f: bool) { self.musical_params.fixed_kick = f; }
+
+    pub fn set_harmony_mode(&mut self, m: harmonium_core::harmony::HarmonyMode) { self.musical_params.harmony_mode = m; }
+    pub fn set_harmony_strategy(&mut self, s: harmonium_core::params::HarmonyStrategy) { self.musical_params.harmony_strategy = s; }
+    pub fn set_harmony_tension(&mut self, t: f32) { self.musical_params.harmony_tension = t.clamp(0.0, 1.0); }
+    pub fn set_harmony_valence(&mut self, v: f32) { self.musical_params.harmony_valence = v.clamp(-1.0, 1.0); }
+    pub fn set_harmony_measures_per_chord(&mut self, m: usize) { self.musical_params.harmony_measures_per_chord = m; }
+    pub fn set_key_root(&mut self, r: u8) { self.musical_params.key_root = r % 12; }
+
+    pub fn set_melody_smoothness(&mut self, s: f32) { self.musical_params.melody_smoothness = s.clamp(0.0, 1.0); }
+    pub fn set_melody_octave(&mut self, o: i32) { self.musical_params.melody_octave = o.clamp(3, 6); }
+    pub fn set_voicing_density(&mut self, d: f32) { self.musical_params.voicing_density = d.clamp(0.0, 1.0); }
+    pub fn set_voicing_tension(&mut self, t: f32) { self.musical_params.voicing_tension = t.clamp(0.0, 1.0); }
+
+    pub fn set_all_rhythm_params(
+        &mut self,
+        mode: harmonium_core::sequencer::RhythmMode,
+        steps: usize, pulses: usize, rotation: usize,
+        density: f32, tension: f32,
+        secondary_steps: usize, secondary_pulses: usize, secondary_rotation: usize,
+    ) {
+        self.musical_params.rhythm_mode = mode;
+        self.musical_params.rhythm_steps = steps;
+        self.musical_params.rhythm_pulses = pulses;
+        self.musical_params.rhythm_rotation = rotation;
+        self.musical_params.rhythm_density = density.clamp(0.0, 1.0);
+        self.musical_params.rhythm_tension = tension.clamp(0.0, 1.0);
+        self.musical_params.rhythm_secondary_steps = secondary_steps;
+        self.musical_params.rhythm_secondary_pulses = secondary_pulses;
+        self.musical_params.rhythm_secondary_rotation = secondary_rotation;
+    }
+
+    // === Emotion mode ===
+
+    pub fn use_emotion_mode(&mut self) {
+        self.emotion_mode = true;
+        log::info("MusicComposer: switched to Emotion mode");
+    }
+
+    pub fn use_direct_mode(&mut self) {
+        self.emotion_mode = false;
+        log::info("MusicComposer: switched to Direct mode");
+    }
+
+    pub fn is_emotion_mode(&self) -> bool {
+        self.emotion_mode
+    }
+
+    pub fn set_emotions(&mut self, arousal: f32, valence: f32, density: f32, tension: f32) {
+        if !self.emotion_mode {
+            return;
+        }
+
+        self.cached_emotions.arousal = arousal;
+        self.cached_emotions.valence = valence;
+        self.cached_emotions.density = density;
+        self.cached_emotions.tension = tension;
+
+        let mapped = self.emotion_mapper.map(&self.cached_emotions);
+
+        // Preserve runtime state that shouldn't be overwritten by the mapper
+        let mut new_params = mapped;
+        new_params.enable_rhythm = self.musical_params.enable_rhythm;
+        new_params.enable_harmony = self.musical_params.enable_harmony;
+        new_params.enable_melody = self.musical_params.enable_melody;
+        new_params.enable_voicing = self.musical_params.enable_voicing;
+        new_params.record_wav = self.musical_params.record_wav;
+        new_params.record_midi = self.musical_params.record_midi;
+        new_params.record_musicxml = self.musical_params.record_musicxml;
+        new_params.muted_channels = self.musical_params.muted_channels.clone();
+        new_params.channel_routing = self.musical_params.channel_routing.clone();
+        new_params.gain_lead = self.musical_params.gain_lead;
+        new_params.gain_bass = self.musical_params.gain_bass;
+        new_params.gain_snare = self.musical_params.gain_snare;
+        new_params.gain_hat = self.musical_params.gain_hat;
+
+        self.generator.update_params(new_params.clone());
+        self.musical_params = new_params;
+
+        log::info(&format!(
+            "Emotion mapped: arousal={:.2} valence={:.2} density={:.2} tension={:.2} → bpm={:.0} strategy={:?}",
+            arousal, valence, density, tension,
+            self.musical_params.bpm, self.musical_params.harmony_strategy
+        ));
+    }
+
+    // === Writehead controls ===
+
+    pub fn set_writehead_lookahead(&mut self, n: usize) {
+        self.writehead.lookahead = n.max(4);
+    }
+
+    /// Sync generator with current musical params (call after batch param changes).
+    pub fn sync_generator(&mut self) {
+        self.generator.update_params(self.musical_params.clone());
+    }
+
+    /// Export timeline to MusicXML.
+    pub fn export_timeline(&self, format: harmonium_core::events::RecordFormat) {
+        match format {
+            harmonium_core::events::RecordFormat::MusicXml => {
+                let xml = harmonium_core::timeline::timeline_to_musicxml_with_instruments(
+                    &self.writehead.timeline,
+                    "Harmonium Export",
+                    &self.musical_params.instrument_lead,
+                    &self.musical_params.instrument_bass,
+                );
+                if let Ok(()) = std::fs::write("timeline_export.musicxml", &xml) {
+                    log::info(&format!(
+                        "Timeline exported to timeline_export.musicxml ({} bytes)",
+                        xml.len()
+                    ));
+                }
+            }
+            _ => {
+                log::warn(&format!(
+                    "Timeline export only supports MusicXML, got {:?}",
+                    format
+                ));
+            }
+        }
+    }
+
+    // === Getters for report building ===
+
+    pub fn last_chord_name(&self) -> &ArrayString<64> { &self.last_chord_name }
+    pub fn last_chord_root_offset(&self) -> i32 { self.last_chord_root_offset }
+    pub fn last_chord_is_minor(&self) -> bool { self.last_chord_is_minor }
+    pub fn musical_params(&self) -> &MusicalParams { &self.musical_params }
+    pub fn sample_rate(&self) -> f64 { self.sample_rate }
+}

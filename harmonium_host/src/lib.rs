@@ -5,6 +5,12 @@ use wasm_bindgen::prelude::*;
 
 pub mod timeline_engine;
 
+// Decoupled architecture: MusicComposer (main thread) + PlaybackEngine (audio thread)
+#[cfg(feature = "standalone")]
+pub mod composer;
+#[cfg(feature = "standalone")]
+pub mod playback;
+
 // Re-exports from workspace crates
 #[cfg(feature = "ai")]
 pub use harmonium_ai::ai;
@@ -1011,7 +1017,7 @@ pub fn start_with_backend(sf2_bytes: Option<Box<[u8]>>, backend: &str) -> Result
     };
 
     let (stream, config, controller, font_queue, finished_recordings) =
-        audio::create_timeline_stream(sf2_bytes.as_deref(), backend_type)
+        audio::create_timeline_stream_legacy(sf2_bytes.as_deref(), backend_type)
             .map_err(|e| JsValue::from_str(&e))?;
 
     Ok(Handle {
