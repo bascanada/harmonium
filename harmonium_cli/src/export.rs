@@ -2,10 +2,12 @@
 //!
 //! Drives the engine in a tight loop without any audio device, rendering
 //! the requested duration as fast as the CPU allows.
+//! Uses the decoupled MusicComposer + PlaybackEngine architecture.
 
 use anyhow::Result;
 use harmonium::audio;
-use harmonium_core::{events::RecordFormat, EngineCommand};
+use harmonium::playback::PlaybackCommand;
+use harmonium_core::events::RecordFormat;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -23,23 +25,27 @@ pub fn run(
     record_musicxml: Option<String>,
     record_truth: Option<String>,
 ) -> Result<()> {
-    let (mut engine, mut controller, finished_recordings) =
+    let (mut composer, mut playback, mut playback_cmd_tx, mut report_rx, finished_recordings) =
         audio::create_offline_engine(sf2_bytes, backend_type, SAMPLE_RATE)
             .map_err(|e| anyhow::anyhow!(e))?;
+
+    // Pre-generate bars into the ring buffer
+    composer.set_writehead_lookahead(64);
+    composer.generate_bars(32);
 
     let has_recordings = record_wav.is_some()
         || record_midi.is_some()
         || record_musicxml.is_some();
 
-    // Start recordings via the command queue
+    // Start recordings via playback command queue
     if record_wav.is_some() {
-        let _ = controller.send(EngineCommand::StartRecording(RecordFormat::Wav));
+        let _ = playback_cmd_tx.push(PlaybackCommand::StartRecording(RecordFormat::Wav));
     }
     if record_midi.is_some() {
-        let _ = controller.send(EngineCommand::StartRecording(RecordFormat::Midi));
+        let _ = playback_cmd_tx.push(PlaybackCommand::StartRecording(RecordFormat::Midi));
     }
     if record_musicxml.is_some() {
-        let _ = controller.send(EngineCommand::StartRecording(RecordFormat::MusicXml));
+        let _ = playback_cmd_tx.push(PlaybackCommand::StartRecording(RecordFormat::MusicXml));
     }
 
     if has_recordings {
@@ -54,6 +60,7 @@ pub fn run(
     let mut truth_snapshots: Vec<serde_json::Value> = Vec::new();
     let snapshot_interval_samples = (SAMPLE_RATE * 0.5) as usize; // every 500ms of audio
     let mut samples_since_snapshot = 0usize;
+    let mut cached_report: Option<harmonium_core::EngineReport> = None;
 
     let wall_start = Instant::now();
     let mut last_progress_sec = 0u64;
@@ -61,6 +68,9 @@ pub fn run(
     println!("Offline rendering {}s of audio...", duration_secs);
 
     while rendered_samples < total_samples {
+        // Keep the ring buffer fed
+        composer.generate_ahead();
+
         let remaining = total_samples - rendered_samples;
         let chunk_samples = remaining.min(BUFFER_SIZE);
         let chunk_len = chunk_samples * CHANNELS;
@@ -70,18 +80,20 @@ pub fn run(
             *s = 0.0;
         }
 
-        // Drive the engine
-        engine.process_buffer(&mut buffer[..chunk_len], CHANNELS);
+        // Drive the playback engine
+        playback.process_buffer(&mut buffer[..chunk_len], CHANNELS);
         rendered_samples += chunk_samples;
 
-        // Poll reports so controller state stays fresh
-        let _ = controller.poll_reports();
+        // Poll reports
+        while let Ok(report) = report_rx.pop() {
+            cached_report = Some(report);
+        }
 
         // Truth snapshots at regular audio-time intervals
         samples_since_snapshot += chunk_samples;
         if record_truth.is_some() && samples_since_snapshot >= snapshot_interval_samples {
             samples_since_snapshot = 0;
-            if let Some(report) = controller.get_state() {
+            if let Some(report) = &cached_report {
                 let audio_time_ms = (rendered_samples as f64 / SAMPLE_RATE * 1000.0) as u64;
                 let snapshot = serde_json::json!({
                     "timestamp_ms": audio_time_ms,
@@ -127,19 +139,18 @@ pub fn run(
 
     // Stop recordings
     if record_wav.is_some() {
-        let _ = controller.send(EngineCommand::StopRecording(RecordFormat::Wav));
+        let _ = playback_cmd_tx.push(PlaybackCommand::StopRecording(RecordFormat::Wav));
     }
     if record_midi.is_some() {
-        let _ = controller.send(EngineCommand::StopRecording(RecordFormat::Midi));
+        let _ = playback_cmd_tx.push(PlaybackCommand::StopRecording(RecordFormat::Midi));
     }
     if record_musicxml.is_some() {
-        let _ = controller.send(EngineCommand::StopRecording(RecordFormat::MusicXml));
+        let _ = playback_cmd_tx.push(PlaybackCommand::StopRecording(RecordFormat::MusicXml));
     }
 
     // The engine needs one more process_buffer call to handle the stop commands
     buffer.fill(0.0);
-    engine.process_buffer(&mut buffer, CHANNELS);
-    let _ = controller.poll_reports();
+    playback.process_buffer(&mut buffer, CHANNELS);
 
     // Collect finished recordings
     save_recordings(&finished_recordings, &record_wav, &record_midi, &record_musicxml);

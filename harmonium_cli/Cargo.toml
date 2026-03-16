@@ -22,6 +22,9 @@ rustyline = "14.0"  # Interactive line editing with history
 clap = { version = "4.5", features = ["derive", "cargo"] }
 colored = "2.1"     # Colored terminal output
 
+# Ring buffer for decoupled architecture
+rtrb = "0.3"
+
 # Utilities
 anyhow = "1.0"      # Error handling
 serde = { version = "1.0", features = ["derive"] }

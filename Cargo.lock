@@ -4110,6 +4110,7 @@ dependencies = [
  "harmonium_ai",
  "harmonium_audio",
  "harmonium_core",
+ "rtrb",
  "rustyline",
  "serde",
  "serde_json",

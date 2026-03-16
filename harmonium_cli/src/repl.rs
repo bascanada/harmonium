@@ -1,9 +1,15 @@
 //! REPL (Read-Eval-Print Loop) for Harmonium CLI
+//!
+//! Uses the decoupled MusicComposer + PlaybackEngine architecture.
+//! Generation commands go to the composer directly; playback commands
+//! go to the PlaybackEngine via a lock-free ring buffer.
 
 use anyhow::Result;
 use colored::Colorize;
-use harmonium_ai::mapper::EmotionMapper;
-use harmonium_core::{params::EngineParams, HarmoniumController, EngineCommand};
+use harmonium::composer::MusicComposer;
+use harmonium::playback::PlaybackCommand;
+use harmonium_core::{EngineCommand, EngineReport};
+use harmonium_core::events::RecordFormat;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use std::sync::{Arc, Mutex};
@@ -29,16 +35,55 @@ impl Default for EmotionState {
     }
 }
 
+/// REPL state wrapping all engine handles
+struct ReplState {
+    composer: Arc<Mutex<MusicComposer>>,
+    playback_cmd_tx: rtrb::Producer<PlaybackCommand>,
+    report_rx: rtrb::Consumer<EngineReport>,
+    cached_state: Option<EngineReport>,
+    emotion_state: EmotionState,
+    finished_recordings: Arc<Mutex<Vec<(RecordFormat, Vec<u8>)>>>,
+}
+
+impl ReplState {
+    fn poll_reports(&mut self) {
+        while let Ok(report) = self.report_rx.pop() {
+            self.cached_state = Some(report);
+        }
+    }
+
+    fn get_state(&self) -> Option<&EngineReport> {
+        self.cached_state.as_ref()
+    }
+
+    /// Send InvalidateBuffer to playback to drain stale measures,
+    /// and sync the composer's musical params to the playback engine for reporting.
+    fn send_invalidate(&mut self) {
+        let _ = self.playback_cmd_tx.push(PlaybackCommand::InvalidateBuffer);
+        // Sync musical params so PlaybackEngine reports show current values
+        if let Ok(c) = self.composer.lock() {
+            let _ = self.playback_cmd_tx.push(
+                PlaybackCommand::UpdateMusicalParams(Box::new(c.musical_params().clone()))
+            );
+        }
+    }
+}
+
 /// Run the interactive REPL
 pub fn run(
-    mut controller: HarmoniumController,
-    finished_recordings: Arc<Mutex<Vec<(harmonium_core::events::RecordFormat, Vec<u8>)>>>,
+    composer: Arc<Mutex<MusicComposer>>,
+    playback_cmd_tx: rtrb::Producer<PlaybackCommand>,
+    report_rx: rtrb::Consumer<EngineReport>,
+    finished_recordings: Arc<Mutex<Vec<(RecordFormat, Vec<u8>)>>>,
 ) -> Result<()> {
-    // Track emotion state for relative adjustments
-    let mut emotion_state = EmotionState::default();
-
-    // Create EmotionMapper for translating emotions to musical params
-    let emotion_mapper = EmotionMapper::new();
+    let mut state = ReplState {
+        composer,
+        playback_cmd_tx,
+        report_rx,
+        cached_state: None,
+        emotion_state: EmotionState::default(),
+        finished_recordings,
+    };
 
     // Create readline editor with autocomplete
     let helper = HarmoniumCompleter::new();
@@ -62,15 +107,15 @@ pub fn run(
     // Main REPL loop
     loop {
         // Poll for reports from engine
-        let _ = controller.poll_reports();
+        state.poll_reports();
 
         // Poll for finished recordings and save them
-        if let Ok(mut queue) = finished_recordings.lock() {
+        if let Ok(mut queue) = state.finished_recordings.lock() {
             while let Some((format, data)) = queue.pop() {
                 let filename = match format {
-                    harmonium_core::events::RecordFormat::Wav => "output.wav",
-                    harmonium_core::events::RecordFormat::Midi => "output.mid",
-                    harmonium_core::events::RecordFormat::MusicXml => "output.musicxml",
+                    RecordFormat::Wav => "output.wav",
+                    RecordFormat::Midi => "output.mid",
+                    RecordFormat::MusicXml => "output.musicxml",
                 };
 
                 match std::fs::write(filename, &data) {
@@ -91,7 +136,7 @@ pub fn run(
         }
 
         // Create prompt with current state
-        let prompt = create_prompt(&controller);
+        let prompt = create_prompt(&state);
 
         // Read line
         match rl.readline(&prompt) {
@@ -100,7 +145,7 @@ pub fn run(
                 let _ = rl.add_history_entry(line.trim());
 
                 // Handle command
-                match handle_command(&line, &mut controller, &mut emotion_state, &emotion_mapper) {
+                match handle_command(&line, &mut state) {
                     Ok(should_continue) => {
                         if !should_continue {
                             break; // User requested quit
@@ -113,7 +158,6 @@ pub fn run(
             }
 
             Err(ReadlineError::Interrupted) => {
-                // Quit immediately on Ctrl+C
                 break;
             }
 
@@ -141,18 +185,14 @@ pub fn run(
 /// Handle a single command
 fn handle_command(
     line: &str,
-    controller: &mut HarmoniumController,
-    emotion_state: &mut EmotionState,
-    emotion_mapper: &EmotionMapper,
+    state: &mut ReplState,
 ) -> Result<bool> {
     let line = line.trim();
 
-    // Empty line
     if line.is_empty() {
         return Ok(true);
     }
 
-    // Special cases (help and quit)
     let tokens: Vec<&str> = line.split_whitespace().collect();
 
     match tokens[0] {
@@ -166,33 +206,31 @@ fn handle_command(
         }
 
         "quit" | "exit" => {
-            return Ok(false); // Signal to quit
+            return Ok(false);
         }
 
         "state" | "show" | "status" => {
-            print_state(controller);
+            print_state(state);
             return Ok(true);
         }
 
         "stop" => {
-            // Stop specific format or all recordings
             if tokens.len() > 1 {
                 let format = match tokens[1].to_lowercase().as_str() {
-                    "wav" => harmonium_core::events::RecordFormat::Wav,
-                    "midi" | "mid" => harmonium_core::events::RecordFormat::Midi,
-                    "musicxml" | "xml" => harmonium_core::events::RecordFormat::MusicXml,
+                    "wav" => RecordFormat::Wav,
+                    "midi" | "mid" => RecordFormat::Midi,
+                    "musicxml" | "xml" => RecordFormat::MusicXml,
                     _ => {
                         println!("{} Unknown format: {}. Use: wav, midi, musicxml", "[ERROR]".red().bold(), tokens[1]);
                         return Ok(true);
                     }
                 };
-                let _ = controller.send(EngineCommand::StopRecording(format));
+                let _ = state.playback_cmd_tx.push(PlaybackCommand::StopRecording(format));
                 println!("{} Recording {:?} stopped", "[OK]".green().bold(), format);
             } else {
-                // Stop all recording formats
-                let _ = controller.send(EngineCommand::StopRecording(harmonium_core::events::RecordFormat::Wav));
-                let _ = controller.send(EngineCommand::StopRecording(harmonium_core::events::RecordFormat::Midi));
-                let _ = controller.send(EngineCommand::StopRecording(harmonium_core::events::RecordFormat::MusicXml));
+                let _ = state.playback_cmd_tx.push(PlaybackCommand::StopRecording(RecordFormat::Wav));
+                let _ = state.playback_cmd_tx.push(PlaybackCommand::StopRecording(RecordFormat::Midi));
+                let _ = state.playback_cmd_tx.push(PlaybackCommand::StopRecording(RecordFormat::MusicXml));
                 println!("{} All recordings stopped", "[OK]".green().bold());
             }
             return Ok(true);
@@ -201,8 +239,16 @@ fn handle_command(
         "seek" => {
             if tokens.len() > 1 {
                 if let Ok(bar) = tokens[1].parse::<usize>() {
-                    let _ = controller.seek(bar);
-                    println!("{} Seeking to bar {bar}", "[OK]".green().bold());
+                    let target_bar = bar.max(1);
+                    if let Ok(mut c) = state.composer.lock() {
+                        c.seek_writehead(target_bar);
+                    }
+                    let _ = state.playback_cmd_tx.push(PlaybackCommand::Seek(target_bar));
+                    // Pre-generate bars at the new position
+                    if let Ok(mut c) = state.composer.lock() {
+                        c.generate_bars(8);
+                    }
+                    println!("{} Seeking to bar {target_bar}", "[OK]".green().bold());
                 } else {
                     println!("{} Usage: seek <bar_number>", "[ERROR]".red().bold());
                 }
@@ -215,13 +261,13 @@ fn handle_command(
         "loop" => {
             if tokens.len() > 2 {
                 if let (Ok(start), Ok(end)) = (tokens[1].parse::<usize>(), tokens[2].parse::<usize>()) {
-                    let _ = controller.set_loop(start, end);
+                    let _ = state.playback_cmd_tx.push(PlaybackCommand::SetLoop { start_bar: start, end_bar: end });
                     println!("{} Loop set: bars {start}-{end}", "[OK]".green().bold());
                 } else {
                     println!("{} Usage: loop <start_bar> <end_bar>", "[ERROR]".red().bold());
                 }
             } else if tokens.len() > 1 && tokens[1] == "off" {
-                let _ = controller.clear_loop();
+                let _ = state.playback_cmd_tx.push(PlaybackCommand::ClearLoop);
                 println!("{} Loop cleared", "[OK]".green().bold());
             } else {
                 println!("{} Usage: loop <start> <end> | loop off", "[ERROR]".red().bold());
@@ -231,33 +277,18 @@ fn handle_command(
 
         // Handle relative emotion adjustments
         "emotion" if tokens.len() > 1 && has_relative_values(&tokens[1..]) => {
-            return handle_relative_emotion(controller, emotion_state, emotion_mapper, &tokens[1..]);
+            return handle_relative_emotion(state, &tokens[1..]);
         }
 
         _ => {}
     }
 
-    // Parse command
+    // Parse command via existing parser (returns EngineCommand)
     match parser::parse_command(line) {
         Ok(cmd) => {
-            // Handle emotion commands specially - apply mapper
-            if let EngineCommand::SetEmotionParams { arousal, valence, density, tension } = &cmd {
-                return apply_emotions(controller, emotion_state, emotion_mapper, *arousal, *valence, *density, *tension);
-            }
-
-            // Send other commands directly to engine
-            match controller.send(cmd.clone()) {
-                Ok(_) => {
-                    // Success feedback
-                    print_success(&cmd);
-                }
-                Err(e) => {
-                    println!("{} {:?}", "[ERROR]".red().bold(), e);
-                }
-            }
+            dispatch_command(state, cmd)?;
         }
         Err(e) => {
-            // Check if it's a special error (help/quit/stop already handled)
             let msg = e.to_string();
             if msg != "help" && msg != "quit" && msg != "stop" {
                 println!("{} {}", "[ERROR]".red().bold(), e);
@@ -268,74 +299,331 @@ fn handle_command(
     Ok(true)
 }
 
+/// Route an EngineCommand to the appropriate target (composer or playback).
+fn dispatch_command(state: &mut ReplState, cmd: EngineCommand) -> Result<()> {
+    match cmd {
+        // === Emotion handling ===
+        EngineCommand::SetEmotionParams { arousal, valence, density, tension } => {
+            state.emotion_state.arousal = arousal;
+            state.emotion_state.valence = valence;
+            state.emotion_state.density = density;
+            state.emotion_state.tension = tension;
+
+            if let Ok(mut c) = state.composer.lock() {
+                c.use_emotion_mode();
+                c.set_emotions(arousal, valence, density, tension);
+                let bpm = c.musical_params().bpm;
+                let density_mapped = c.musical_params().rhythm_density;
+                c.invalidate_future();
+                println!("{} A={:.2} V={:.2} D={:.2} T={:.2} → BPM={:.0} Density={:.2}",
+                    "[OK]".green().bold(), arousal, valence, density, tension, bpm, density_mapped);
+            }
+            state.send_invalidate();
+        }
+
+        EngineCommand::UseEmotionMode => {
+            if let Ok(mut c) = state.composer.lock() { c.use_emotion_mode(); }
+            print_success_msg("Switched to Emotion mode");
+        }
+
+        EngineCommand::UseDirectMode => {
+            if let Ok(mut c) = state.composer.lock() { c.use_direct_mode(); }
+            print_success_msg("Switched to Direct mode");
+        }
+
+        // === Generation params → composer ===
+        EngineCommand::SetBpm(bpm) => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.set_bpm(bpm);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("BPM set to {}", bpm));
+        }
+
+        EngineCommand::SetTimeSignature { numerator, denominator } => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.set_time_signature(numerator, denominator);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Time signature set to {}/{}", numerator, denominator));
+        }
+
+        EngineCommand::SetRhythmMode(mode) => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.set_rhythm_mode(mode);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Rhythm mode set to {:?}", mode));
+        }
+
+        EngineCommand::SetRhythmSteps(steps) => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.set_rhythm_steps(steps);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Steps set to {}", steps));
+        }
+
+        EngineCommand::SetRhythmPulses(pulses) => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.set_rhythm_pulses(pulses);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Pulses set to {}", pulses));
+        }
+
+        EngineCommand::SetRhythmRotation(rotation) => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.set_rhythm_rotation(rotation);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Rotation set to {}", rotation));
+        }
+
+        EngineCommand::SetRhythmDensity(density) => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.set_rhythm_density(density);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Density set to {:.2}", density));
+        }
+
+        EngineCommand::SetRhythmTension(tension) => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.set_rhythm_tension(tension);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Rhythm tension set to {:.2}", tension));
+        }
+
+        EngineCommand::SetHarmonyMode(mode) => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.set_harmony_mode(mode);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Harmony mode set to {:?}", mode));
+        }
+
+        EngineCommand::SetHarmonyTension(tension) => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.set_harmony_tension(tension);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Harmony tension set to {:.2}", tension));
+        }
+
+        EngineCommand::SetHarmonyValence(valence) => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.set_harmony_valence(valence);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Harmony valence set to {:.2}", valence));
+        }
+
+        EngineCommand::SetHarmonyStrategy(strategy) => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.set_harmony_strategy(strategy);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Harmony strategy set to {:?}", strategy));
+        }
+
+        EngineCommand::SetMelodySmoothness(smoothness) => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.set_melody_smoothness(smoothness);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Smoothness set to {:.2}", smoothness));
+        }
+
+        EngineCommand::SetMelodyOctave(octave) => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.set_melody_octave(octave);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Octave set to {}", octave));
+        }
+
+        EngineCommand::SetVoicingDensity(density) => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.set_voicing_density(density);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Voicing density set to {:.2}", density));
+        }
+
+        EngineCommand::SetVoicingTension(tension) => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.set_voicing_tension(tension);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Voicing tension set to {:.2}", tension));
+        }
+
+        EngineCommand::EnableRhythm(enabled) => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.enable_rhythm(enabled);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Rhythm {}", if enabled { "enabled" } else { "disabled" }));
+        }
+
+        EngineCommand::EnableHarmony(enabled) => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.enable_harmony(enabled);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Harmony {}", if enabled { "enabled" } else { "disabled" }));
+        }
+
+        EngineCommand::EnableMelody(enabled) => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.enable_melody(enabled);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Melody {}", if enabled { "enabled" } else { "disabled" }));
+        }
+
+        EngineCommand::EnableVoicing(enabled) => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.enable_voicing(enabled);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Voicing {}", if enabled { "enabled" } else { "disabled" }));
+        }
+
+        EngineCommand::SetFixedKick(fixed) => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.set_fixed_kick(fixed);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Fixed kick {}", if fixed { "ON" } else { "OFF" }));
+        }
+
+        EngineCommand::SetAllRhythmParams {
+            mode, steps, pulses, rotation,
+            density, tension,
+            secondary_steps, secondary_pulses, secondary_rotation,
+        } => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.set_all_rhythm_params(
+                    mode, steps, pulses, rotation,
+                    density, tension,
+                    secondary_steps, secondary_pulses, secondary_rotation,
+                );
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg("All rhythm params updated");
+        }
+
+        EngineCommand::SetRhythmSecondary { steps, pulses, rotation } => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.set_rhythm_secondary(steps, pulses, rotation);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Secondary rhythm: {steps}s/{pulses}p/r{rotation}"));
+        }
+
+        EngineCommand::SetKeyRoot(root) => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.set_key_root(root);
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg(&format!("Key root set to {}", root));
+        }
+
+        EngineCommand::Reset => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.reset();
+            }
+            state.send_invalidate();
+            print_success_msg("Engine reset to defaults");
+        }
+
+        // === Playback commands → audio thread ===
+        EngineCommand::SetChannelGain { channel, gain } => {
+            let _ = state.playback_cmd_tx.push(PlaybackCommand::SetChannelGain { channel, gain });
+            print_success_msg(&format!("Channel {} gain set to {:.2}", channel, gain));
+        }
+
+        EngineCommand::SetChannelMute { channel, muted } => {
+            let _ = state.playback_cmd_tx.push(PlaybackCommand::SetChannelMute { channel, muted });
+            print_success_msg(&format!("Channel {} {}", channel, if muted { "muted" } else { "unmuted" }));
+        }
+
+        EngineCommand::SetChannelRoute { channel, bank_id } => {
+            let _ = state.playback_cmd_tx.push(PlaybackCommand::SetChannelRoute { channel, bank_id });
+            print_success_msg(&format!("Channel {} routed to bank {}", channel, bank_id));
+        }
+
+        EngineCommand::SetVelocityBase { channel, velocity } => {
+            let _ = state.playback_cmd_tx.push(PlaybackCommand::SetVelocityBase { channel, velocity });
+            print_success_msg(&format!("Channel {} velocity base set to {}", channel, velocity));
+        }
+
+        EngineCommand::SetMasterVolume(volume) => {
+            let _ = state.playback_cmd_tx.push(PlaybackCommand::SetMasterVolume(volume));
+            print_success_msg(&format!("Master volume set to {:.2}", volume));
+        }
+
+        EngineCommand::StartRecording(format) => {
+            let _ = state.playback_cmd_tx.push(PlaybackCommand::StartRecording(format));
+            print_success_msg(&format!("Recording {:?} started", format));
+        }
+
+        EngineCommand::StopRecording(format) => {
+            let _ = state.playback_cmd_tx.push(PlaybackCommand::StopRecording(format));
+            print_success_msg(&format!("Recording {:?} stopped", format));
+        }
+
+        // Ignored / no-op commands
+        EngineCommand::GetState => {
+            print_state(state);
+        }
+
+        _ => {
+            println!("{} Unhandled command: {:?}", "[WARN]".yellow().bold(), cmd);
+        }
+    }
+
+    Ok(())
+}
+
 /// Check if tokens contain relative value syntax (+/-)
 fn has_relative_values(tokens: &[&str]) -> bool {
     tokens.iter().any(|t| t.contains('+') || t.contains('-'))
 }
 
-/// Apply emotion parameters using the EmotionMapper
-fn apply_emotions(
-    controller: &mut HarmoniumController,
-    emotion_state: &mut EmotionState,
-    emotion_mapper: &EmotionMapper,
-    arousal: f32,
-    valence: f32,
-    density: f32,
-    tension: f32,
-) -> Result<bool> {
-    // Update emotion state
-    emotion_state.arousal = arousal;
-    emotion_state.valence = valence;
-    emotion_state.density = density;
-    emotion_state.tension = tension;
-
-    // Create EngineParams from emotions
-    let engine_params = EngineParams {
-        arousal,
-        valence,
-        density,
-        tension,
-        ..EngineParams::default()
-    };
-
-    // Apply EmotionMapper to get MusicalParams
-    let musical_params = emotion_mapper.map(&engine_params);
-
-    // Send individual commands for each parameter
-    let _ = controller.send(EngineCommand::SetBpm(musical_params.bpm));
-    let _ = controller.send(EngineCommand::SetRhythmMode(musical_params.rhythm_mode));
-    let _ = controller.send(EngineCommand::SetRhythmDensity(musical_params.rhythm_density));
-    let _ = controller.send(EngineCommand::SetRhythmTension(musical_params.rhythm_tension));
-    let _ = controller.send(EngineCommand::SetRhythmSteps(musical_params.rhythm_steps));
-    let _ = controller.send(EngineCommand::SetRhythmPulses(musical_params.rhythm_pulses));
-    let _ = controller.send(EngineCommand::SetRhythmRotation(musical_params.rhythm_rotation));
-
-    let _ = controller.send(EngineCommand::SetHarmonyMode(musical_params.harmony_mode));
-    let _ = controller.send(EngineCommand::SetHarmonyStrategy(musical_params.harmony_strategy));
-    let _ = controller.send(EngineCommand::SetHarmonyTension(musical_params.harmony_tension));
-    let _ = controller.send(EngineCommand::SetHarmonyValence(musical_params.harmony_valence));
-
-    let _ = controller.send(EngineCommand::SetMelodySmoothness(musical_params.melody_smoothness));
-    let _ = controller.send(EngineCommand::SetMelodyOctave(musical_params.melody_octave));
-    let _ = controller.send(EngineCommand::SetVoicingDensity(musical_params.voicing_density));
-
-    println!("{} A={:.2} V={:.2} D={:.2} T={:.2} → BPM={:.0} Density={:.2}",
-        "[OK]".green().bold(),
-        arousal, valence, density, tension,
-        musical_params.bpm, musical_params.rhythm_density);
-
-    Ok(true)
-}
-
 /// Handle relative emotion adjustments (e.g., "emotion a+0.1 v-0.2")
 fn handle_relative_emotion(
-    controller: &mut HarmoniumController,
-    emotion_state: &mut EmotionState,
-    emotion_mapper: &EmotionMapper,
+    state: &mut ReplState,
     tokens: &[&str],
 ) -> Result<bool> {
     for token in tokens {
-        // Parse format: a+0.1, v-0.2, d+5, t-10
         if token.len() < 2 {
             continue;
         }
@@ -343,36 +631,45 @@ fn handle_relative_emotion(
         let param = token.chars().next().unwrap().to_lowercase().to_string();
         let value_part = &token[1..];
 
-        // Parse the value (could be +0.1, -0.2, +5, -10)
         let delta = if value_part.starts_with('+') || value_part.starts_with('-') {
             value_part.parse::<f32>().unwrap_or(0.0)
         } else {
-            // Absolute value
             continue;
         };
 
-        // Apply delta to appropriate parameter
         match param.as_str() {
-            "a" => emotion_state.arousal = (emotion_state.arousal + delta).clamp(0.0, 1.0),
-            "v" => emotion_state.valence = (emotion_state.valence + delta).clamp(-1.0, 1.0),
-            "d" => emotion_state.density = (emotion_state.density + delta).clamp(0.0, 1.0),
-            "t" => emotion_state.tension = (emotion_state.tension + delta).clamp(0.0, 1.0),
+            "a" => state.emotion_state.arousal = (state.emotion_state.arousal + delta).clamp(0.0, 1.0),
+            "v" => state.emotion_state.valence = (state.emotion_state.valence + delta).clamp(-1.0, 1.0),
+            "d" => state.emotion_state.density = (state.emotion_state.density + delta).clamp(0.0, 1.0),
+            "t" => state.emotion_state.tension = (state.emotion_state.tension + delta).clamp(0.0, 1.0),
             _ => {
                 println!("{} Unknown emotion parameter: {}", "[WARN]".yellow().bold(), param);
             }
         }
     }
 
-    // Apply the updated emotions using the mapper
-    apply_emotions(
-        controller,
-        emotion_state,
-        emotion_mapper,
-        emotion_state.arousal,
-        emotion_state.valence,
-        emotion_state.density,
-        emotion_state.tension,
-    )
+    // Apply updated emotions via the composer
+    let a = state.emotion_state.arousal;
+    let v = state.emotion_state.valence;
+    let d = state.emotion_state.density;
+    let t = state.emotion_state.tension;
+
+    if let Ok(mut c) = state.composer.lock() {
+        c.use_emotion_mode();
+        c.set_emotions(a, v, d, t);
+        let bpm = c.musical_params().bpm;
+        let density_mapped = c.musical_params().rhythm_density;
+        c.invalidate_future();
+        println!("{} A={:.2} V={:.2} D={:.2} T={:.2} → BPM={:.0} Density={:.2}",
+            "[OK]".green().bold(), a, v, d, t, bpm, density_mapped);
+    }
+    state.send_invalidate();
+
+    Ok(true)
+}
+
+fn print_success_msg(msg: &str) {
+    println!("{} {}", "[OK]".green().bold(), msg);
 }
 
 /// Print welcome message
@@ -390,15 +687,11 @@ fn print_welcome() {
 }
 
 /// Create prompt string with current state
-fn create_prompt(controller: &HarmoniumController) -> String {
-    // Get current state
-    let state = controller.get_state();
-
-    if let Some(report) = state {
-        // Show BPM and current chord
+fn create_prompt(state: &ReplState) -> String {
+    if let Some(report) = state.get_state() {
         let bpm = report.musical_params.bpm;
         let chord = &report.current_chord;
-        let bar = report.current_bar + 1; // 1-indexed for display
+        let bar = report.current_bar + 1;
 
         format!(
             "{} {} {} {} ",
@@ -408,52 +701,15 @@ fn create_prompt(controller: &HarmoniumController) -> String {
             format!("[bar:{}]", bar).dimmed(),
         )
     } else {
-        // No state yet
         format!("{} ", "harmonium".cyan().bold())
     }
 }
 
-/// Print success message for a command
-fn print_success(cmd: &EngineCommand) {
-    let msg = match cmd {
-        EngineCommand::SetBpm(bpm) => format!("BPM set to {}", bpm),
-        EngineCommand::SetRhythmMode(mode) => format!("Rhythm mode set to {:?}", mode),
-        EngineCommand::SetRhythmSteps(steps) => format!("Steps set to {}", steps),
-        EngineCommand::SetRhythmPulses(pulses) => format!("Pulses set to {}", pulses),
-        EngineCommand::SetRhythmRotation(rotation) => format!("Rotation set to {}", rotation),
-        EngineCommand::SetRhythmDensity(density) => format!("Density set to {:.2}", density),
-        EngineCommand::SetHarmonyMode(mode) => format!("Harmony mode set to {:?}", mode),
-        EngineCommand::SetHarmonyValence(valence) => format!("Valence set to {:.2}", valence),
-        EngineCommand::SetMelodySmoothness(smoothness) => format!("Smoothness set to {:.2}", smoothness),
-        EngineCommand::EnableRhythm(enabled) => format!("Rhythm {}", if *enabled { "enabled" } else { "disabled" }),
-        EngineCommand::EnableHarmony(enabled) => format!("Harmony {}", if *enabled { "enabled" } else { "disabled" }),
-        EngineCommand::EnableMelody(enabled) => format!("Melody {}", if *enabled { "enabled" } else { "disabled" }),
-        EngineCommand::EnableVoicing(enabled) => format!("Voicing {}", if *enabled { "enabled" } else { "disabled" }),
-        EngineCommand::SetEmotionParams { arousal, valence, density, tension } => {
-            format!("Emotions set: A={:.2} V={:.2} D={:.2} T={:.2}", arousal, valence, density, tension)
-        }
-        EngineCommand::UseEmotionMode => "Switched to Emotion mode".to_string(),
-        EngineCommand::UseDirectMode => "Switched to Direct mode".to_string(),
-        EngineCommand::StartRecording(format) => {
-            format!("Recording {:?} started", format)
-        }
-        EngineCommand::StopRecording(format) => {
-            format!("Recording {:?} stopped", format)
-        }
-        _ => format!("{:?}", cmd),
-    };
-
-    println!("{} {}", "[OK]".green().bold(), msg);
-}
-
 /// Print current engine state
-fn print_state(controller: &mut HarmoniumController) {
-    // Poll for latest state
-    let _ = controller.poll_reports();
+fn print_state(state: &mut ReplState) {
+    state.poll_reports();
 
-    let state = controller.get_state();
-
-    if let Some(report) = state {
+    if let Some(report) = state.get_state() {
         println!();
         println!("{}", "╔══════════════════════════════════════════════════╗".cyan());
         println!("{}", "║              ENGINE STATE                        ║".cyan().bold());
