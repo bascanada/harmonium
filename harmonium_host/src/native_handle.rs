@@ -96,6 +96,14 @@ impl NativeHandle {
         }
     }
 
+    /// Generate ahead of the playhead (incremental). Call this periodically
+    /// during playback to keep the ring buffer fed.
+    pub fn generate_ahead(&self) {
+        if let Ok(mut composer) = self.composer.lock() {
+            composer.generate_ahead();
+        }
+    }
+
     /// Reset composer and clear timeline.
     pub fn reset_composer(&mut self) {
         if let Ok(mut composer) = self.composer.lock() {
