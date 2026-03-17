@@ -110,6 +110,10 @@ impl TimelineGenerator {
     ) -> Measure {
         self.current_bar = bar_index;
 
+        // Snap current_state to match musical_params first —
+        // params affect the writehead directly, next bar uses new values.
+        self.snap_current_state();
+
         let time_sig = self.musical_params.time_signature;
         let steps = time_sig.steps_per_bar(self.sequencer_primary.ticks_per_beat);
 
@@ -122,9 +126,6 @@ impl TimelineGenerator {
 
         // === BARLINE LOGIC (replicates tick() bar_crossed branch) ===
         self.handle_barline(bar_index, rng);
-
-        // Apply morphing once per bar (simplified from per-buffer morphing)
-        self.apply_morphing();
 
         // Snapshot state at generation time
         measure.state_snapshot = StateSnapshot::from(&self.current_state);
@@ -399,24 +400,7 @@ impl TimelineGenerator {
         }
     }
 
-    /// Apply exponential morphing to current_state (same as engine.rs morph_factor=0.03)
-    fn apply_morphing(&mut self) {
-        let morph_factor = 0.03;
-        let mp = &self.musical_params;
-
-        self.current_state.bpm += (mp.bpm - self.current_state.bpm) * morph_factor;
-        self.current_state.density +=
-            (mp.rhythm_density - self.current_state.density) * morph_factor;
-        self.current_state.tension +=
-            (mp.harmony_tension - self.current_state.tension) * morph_factor;
-        self.current_state.smoothness +=
-            (mp.melody_smoothness - self.current_state.smoothness) * morph_factor;
-        self.current_state.valence +=
-            (mp.harmony_valence - self.current_state.valence) * morph_factor;
-        let arousal_from_bpm = (mp.bpm - 70.0) / 110.0;
-        self.current_state.arousal +=
-            (arousal_from_bpm - self.current_state.arousal) * morph_factor;
-    }
+    // apply_morphing removed — writehead uses params directly via snap_current_state
 
     /// Standard note durations in steps (for ticks_per_beat=4).
     /// These map 1:1 to VexFlow glyphs: 16=w, 12=hd, 8=h, 6=qd, 4=q, 3=8d, 2=8, 1=16

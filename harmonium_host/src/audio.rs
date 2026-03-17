@@ -7,7 +7,7 @@ use harmonium_audio::backend::odin2_backend::Odin2Backend;
 use harmonium_audio::backend::{
     AudioRenderer, recorder::RecorderBackend, synth_backend::SynthBackend,
 };
-use harmonium_core::{log, timeline::Measure};
+use harmonium_core::log;
 
 use crate::composer::MusicComposer;
 use crate::playback::{PlaybackCommand, PlaybackEngine};
@@ -63,10 +63,12 @@ pub fn create_timeline_stream(
         sample_rate, channels
     ));
 
-    // Ring buffers
-    let (measure_tx, measure_rx) = rtrb::RingBuffer::<Measure>::new(64);
+    // Command/report ring buffers (lock-free for audio thread)
     let (playback_cmd_tx, playback_cmd_rx) = rtrb::RingBuffer::<PlaybackCommand>::new(256);
     let (report_tx, report_rx) = rtrb::RingBuffer::<harmonium_core::EngineReport>::new(256);
+
+    // Shared pages: composer writes by index, playback reads by index
+    let shared_pages: crate::SharedPages = Arc::new(Mutex::new(Vec::with_capacity(64)));
 
     // Shared playhead position
     let playhead_bar = Arc::new(AtomicUsize::new(1));
@@ -99,22 +101,23 @@ pub fn create_timeline_stream(
     ));
 
     // Create composer (main thread)
-    let mut composer = MusicComposer::new(
+    let composer = MusicComposer::new(
         sample_rate,
-        measure_tx,
+        shared_pages.clone(),
         playhead_bar.clone(),
         font_queue.clone(),
     );
     let session_config = composer.config.clone();
 
-    // Pre-generate initial bars (synchronous — no audio stream needed)
-    composer.generate_bars(8);
+    // NOTE: No pre-generation here. The caller (NativeHandle::start → initialize_with_config)
+    // sets params first, then generates. Pre-generating with defaults would produce
+    // bars that don't match the user's saved settings.
 
     // Create playback engine (will be moved into CPAL closure)
     let mut playback = PlaybackEngine::new(
         sample_rate,
         recorder_backend,
-        measure_rx,
+        shared_pages,
         playback_cmd_rx,
         report_tx,
         playhead_bar,
@@ -159,10 +162,10 @@ pub fn create_offline_engine(
     ),
     String,
 > {
-    let (measure_tx, measure_rx) = rtrb::RingBuffer::<Measure>::new(64);
     let (playback_cmd_tx, playback_cmd_rx) = rtrb::RingBuffer::<PlaybackCommand>::new(256);
     let (report_tx, report_rx) = rtrb::RingBuffer::<harmonium_core::EngineReport>::new(256);
 
+    let shared_pages: crate::SharedPages = Arc::new(Mutex::new(Vec::with_capacity(64)));
     let playhead_bar = Arc::new(AtomicUsize::new(1));
     let font_queue = Arc::new(std::sync::Mutex::new(Vec::new()));
 
@@ -190,7 +193,7 @@ pub fn create_offline_engine(
 
     let composer = MusicComposer::new(
         sample_rate,
-        measure_tx,
+        shared_pages.clone(),
         playhead_bar.clone(),
         font_queue,
     );
@@ -198,7 +201,7 @@ pub fn create_offline_engine(
     let playback = PlaybackEngine::new(
         sample_rate,
         recorder_backend,
-        measure_rx,
+        shared_pages,
         playback_cmd_rx,
         report_tx,
         playhead_bar,
@@ -365,5 +368,59 @@ mod tests {
             total_energy > 0.0,
             "Decoupled engine produced zero audio output after 500 buffers"
         );
+    }
+
+    #[test]
+    fn test_invalidate_after_preview_preserves_bars() {
+        let sample_rate = 44100.0;
+
+        let (mut composer, _playback, mut _cmd_tx, mut _report_rx, _recordings) =
+            create_offline_engine(None, AudioBackendType::FundSP, sample_rate)
+                .expect("create_offline_engine failed");
+
+        // Generate 8 bars with default params
+        composer.set_writehead_lookahead(16);
+        composer.generate_bars(8);
+
+        // Snapshot the first 4 bars (preview window) from the timeline
+        let preview_bars: Vec<_> = (1..=4)
+            .map(|i| composer.timeline_measure(i).expect("bar should exist").clone())
+            .collect();
+
+        // Change BPM significantly (default is 120, change to 180)
+        composer.set_bpm(180.0);
+
+        // Invalidate after 4 bars of preview (playhead is at bar 1 = default AtomicUsize)
+        // This should keep bars 1-4 and regenerate 5+
+        composer.invalidate_after_preview(4);
+
+        // Verify preview bars are exactly the same
+        for (i, original) in preview_bars.iter().enumerate() {
+            let bar_idx = i + 1;
+            let current = composer.timeline_measure(bar_idx)
+                .expect("preview bar should still exist");
+            assert_eq!(
+                original.index, current.index,
+                "Preview bar {} index changed", bar_idx
+            );
+            assert_eq!(
+                original.tempo, current.tempo,
+                "Preview bar {} tempo should be unchanged (still old BPM)", bar_idx
+            );
+        }
+
+        // Generate new bars beyond the preview (lookahead is still 16 from earlier)
+        composer.generate_ahead();
+
+        // Verify post-preview bars use new BPM (180)
+        for bar_idx in 5..=8 {
+            let measure = composer.timeline_measure(bar_idx)
+                .expect("post-preview bar should exist");
+            assert!(
+                (measure.tempo - 180.0).abs() < 1.0,
+                "Post-preview bar {} should have new BPM ~180, got {}",
+                bar_idx, measure.tempo
+            );
+        }
     }
 }

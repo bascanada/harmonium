@@ -31,8 +31,8 @@ pub struct MusicComposer {
     generator: TimelineGenerator,
     writehead: Writehead,
 
-    // Measure ring buffer (Composer → PlaybackEngine)
-    measure_tx: rtrb::Producer<Measure>,
+    // Shared pages (Composer writes by index, PlaybackEngine reads by index)
+    shared_pages: crate::SharedPages,
 
     // State
     musical_params: MusicalParams,
@@ -61,25 +61,22 @@ pub struct MusicComposer {
 
 impl MusicComposer {
     /// Create a new MusicComposer.
-    ///
-    /// Returns `(composer, measure_rx, playhead_bar)` — the consumer and atomic
-    /// are handed to PlaybackEngine.
     #[allow(clippy::type_complexity)]
     pub fn new(
         sample_rate: f64,
-        measure_tx: rtrb::Producer<Measure>,
+        shared_pages: crate::SharedPages,
         playhead_bar: Arc<AtomicUsize>,
         font_queue: crate::FontQueue,
     ) -> Self {
         use rand::Rng;
         let session_seed: u64 = rand::thread_rng().r#gen();
-        Self::new_with_seed(sample_rate, measure_tx, playhead_bar, font_queue, session_seed)
+        Self::new_with_seed(sample_rate, shared_pages, playhead_bar, font_queue, session_seed)
     }
 
     /// Create with explicit seed for deterministic output.
     pub fn new_with_seed(
         sample_rate: f64,
-        measure_tx: rtrb::Producer<Measure>,
+        shared_pages: crate::SharedPages,
         playhead_bar: Arc<AtomicUsize>,
         font_queue: crate::FontQueue,
         session_seed: u64,
@@ -150,7 +147,7 @@ impl MusicComposer {
             config,
             generator,
             writehead,
-            measure_tx,
+            shared_pages,
             musical_params,
             rng,
             sample_rate,
@@ -175,19 +172,17 @@ impl MusicComposer {
         self.writehead.lookahead = old_lookahead;
     }
 
-    /// Generate measures ahead of the playhead, pushing to the ring buffer.
+    /// Generate measures ahead of the playhead, publishing to shared pages.
     pub fn generate_ahead(&mut self) {
         let playhead_bar = self.playhead_bar.load(Ordering::Relaxed);
 
         while self.writehead.needs_generation(playhead_bar) {
             let bar_idx = self.writehead.current_bar;
 
-            // If this bar already exists in the timeline (e.g. after SeekPlayhead),
-            // re-push the existing measure instead of generating a new one.
+            // If this bar already exists in the timeline (e.g. after seek),
+            // ensure it's in shared pages and advance.
             if let Some(existing) = self.writehead.timeline.get_measure(bar_idx) {
-                if self.measure_tx.push(existing.clone()).is_err() {
-                    break; // Ring buffer full
-                }
+                self.publish_measure(existing.clone());
                 self.pending_measure_snapshots.push(
                     harmonium_core::report::MeasureSnapshot::from_measure(&existing),
                 );
@@ -203,16 +198,24 @@ impl MusicComposer {
             self.last_chord_root_offset = measure.chord_context.root_offset;
             self.last_chord_is_minor = measure.chord_context.is_minor;
 
-            match self.measure_tx.push(measure.clone()) {
-                Ok(()) => {}
-                Err(_) => break, // Ring buffer full
-            }
-
             self.pending_measure_snapshots.push(
                 harmonium_core::report::MeasureSnapshot::from_measure(&measure),
             );
 
+            self.publish_measure(measure.clone());
             self.writehead.commit_measure(measure);
+        }
+    }
+
+    /// Write a measure into shared pages by index (insert or replace).
+    fn publish_measure(&self, measure: Measure) {
+        if let Ok(mut pages) = self.shared_pages.lock() {
+            let idx = measure.index;
+            if let Some(existing) = pages.iter_mut().find(|m| m.index == idx) {
+                *existing = measure;
+            } else {
+                pages.push(measure);
+            }
         }
     }
 
@@ -230,37 +233,51 @@ impl MusicComposer {
         self.writehead.timeline.invalidate_from(regen_from);
         self.writehead.current_bar = regen_from;
 
+        // Clear shared pages beyond invalidation point
+        if let Ok(mut pages) = self.shared_pages.lock() {
+            pages.retain(|m| m.index < regen_from);
+        }
+
         // Sync generator with updated params and snap current_state
         // so new measures use the correct tempo/density immediately
         self.generator.update_params(self.musical_params.clone());
         self.generator.snap_current_state();
     }
 
-    /// Reset to defaults, clear timeline.
+    /// Invalidate measures beyond a preview window, preserving N bars ahead of playhead.
+    ///
+    /// Preview bars stay in both timeline and shared pages.
+    /// The playback engine reads directly by index — no refill needed.
+    pub fn invalidate_after_preview(&mut self, preview_bars: usize) {
+        let playhead_bar = self.playhead_bar.load(Ordering::Relaxed);
+        let keep_until = if playhead_bar == 0 { 1 + preview_bars } else { playhead_bar + preview_bars };
+
+        // Invalidate timeline from keep_until onward (preview bars stay intact)
+        self.writehead.timeline.invalidate_from(keep_until);
+        self.writehead.current_bar = keep_until;
+
+        // Clear shared pages beyond preview window
+        if let Ok(mut pages) = self.shared_pages.lock() {
+            pages.retain(|m| m.index < keep_until);
+        }
+
+        // Update generator with new params
+        self.generator.update_params(self.musical_params.clone());
+    }
+
+    /// Reset to defaults, clear timeline and shared pages.
     pub fn reset(&mut self) {
         self.musical_params = MusicalParams::default();
         self.writehead.reset();
         self.generator.update_params(self.musical_params.clone());
+        if let Ok(mut pages) = self.shared_pages.lock() {
+            pages.clear();
+        }
     }
 
     /// Seek the writehead to a specific bar.
     pub fn seek_writehead(&mut self, bar: usize) {
         self.writehead.current_bar = bar;
-    }
-
-    /// Refill ring buffer from committed timeline measures (for SeekPlayhead).
-    pub fn refill_from_timeline(&mut self, from_bar: usize, count: usize) {
-        let end_bar = (from_bar + count).min(self.writehead.current_bar);
-        for b in from_bar..end_bar {
-            if let Some(measure) = self.writehead.timeline.get_measure(b) {
-                if self.measure_tx.push(measure.clone()).is_err() {
-                    // Reset writehead to continue from where we stopped
-                    self.writehead.current_bar = b;
-                    return;
-                }
-            }
-        }
-        self.writehead.current_bar = end_bar;
     }
 
     // === Parameter setters (called directly, no command queue) ===
@@ -365,7 +382,9 @@ impl MusicComposer {
         new_params.gain_snare = self.musical_params.gain_snare;
         new_params.gain_hat = self.musical_params.gain_hat;
 
-        self.generator.update_params(new_params.clone());
+        // Only store params — do NOT sync the generator here.
+        // The generator gets synced explicitly by invalidate_after_preview()
+        // or invalidate_future() so that already-generated bars are preserved.
         self.musical_params = new_params;
 
         log::info(&format!(
@@ -413,6 +432,21 @@ impl MusicComposer {
     }
 
     // === Getters for report building ===
+
+    /// Current writehead position (next bar to generate).
+    pub fn writehead_position(&self) -> usize {
+        self.writehead.current_bar
+    }
+
+    /// Current playhead bar (from the shared atomic, written by PlaybackEngine).
+    pub fn playhead_bar(&self) -> usize {
+        self.playhead_bar.load(Ordering::Relaxed)
+    }
+
+    /// Get a reference to a measure from the timeline by bar index.
+    pub fn timeline_measure(&self, bar: usize) -> Option<&harmonium_core::timeline::Measure> {
+        self.writehead.timeline.get_measure(bar)
+    }
 
     pub fn last_chord_name(&self) -> &ArrayString<64> { &self.last_chord_name }
     pub fn last_chord_root_offset(&self) -> i32 { self.last_chord_root_offset }

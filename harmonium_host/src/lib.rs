@@ -93,6 +93,8 @@ impl RecordedData {
 // Type aliases for complex types
 pub type FontQueue = Arc<Mutex<Vec<(u32, Vec<u8>)>>>;
 pub type FinishedRecordings = Arc<Mutex<Vec<(events::RecordFormat, Vec<u8>)>>>;
+/// Shared measure pages: Composer writes by index, PlaybackEngine reads by index.
+pub type SharedPages = Arc<Mutex<Vec<harmonium_core::timeline::Measure>>>;
 
 // Handle and WASM bindings only available with wasm feature
 // TODO: Phase 3 - Rebuild this API to use controller properly

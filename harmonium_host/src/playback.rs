@@ -12,7 +12,7 @@ use harmonium_core::{
     events::AudioEvent,
     log,
     params::MusicalParams,
-    timeline::{Measure, Playhead},
+    timeline::Playhead,
 };
 
 /// Commands sent from the main thread to the PlaybackEngine (audio thread).
@@ -31,8 +31,6 @@ pub enum PlaybackCommand {
     StopRecording(harmonium_core::events::RecordFormat),
     MixerGains { lead: f32, bass: f32, snare: f32, hat: f32 },
     LoadFont { id: u32, bytes: Vec<u8> },
-    /// Notify playback that params changed — drain ring buffer so composer can refill
-    InvalidateBuffer,
     /// Update the muted channels mask from the composer's musical params
     SetMutedChannels(Vec<bool>),
     /// Update musical params snapshot for recording/reporting
@@ -55,8 +53,8 @@ pub struct PlaybackEngine {
     sample_counter: usize,
     samples_per_step: usize,
 
-    // Measure ring buffer (Composer → Playback)
-    measure_rx: rtrb::Consumer<Measure>,
+    // Shared pages (Composer writes by index, Playback reads by index)
+    shared_pages: crate::SharedPages,
 
     // Command ring buffer (main thread → audio thread)
     cmd_rx: rtrb::Consumer<PlaybackCommand>,
@@ -101,7 +99,7 @@ impl PlaybackEngine {
     pub fn new(
         sample_rate: f64,
         mut renderer: Box<dyn AudioRenderer>,
-        measure_rx: rtrb::Consumer<Measure>,
+        shared_pages: crate::SharedPages,
         cmd_rx: rtrb::Consumer<PlaybackCommand>,
         report_tx: rtrb::Producer<harmonium_core::EngineReport>,
         playhead_bar: Arc<AtomicUsize>,
@@ -116,7 +114,7 @@ impl PlaybackEngine {
             sample_rate,
             sample_counter: 0,
             samples_per_step,
-            measure_rx,
+            shared_pages,
             cmd_rx,
             report_tx,
             playhead_bar,
@@ -186,17 +184,21 @@ impl PlaybackEngine {
                     self.renderer.handle_event(AudioEvent::AllNotesOff { channel: ch });
                 }
                 self.playhead.seek_to_bar(start_bar);
-                // Drain ring buffer
-                while self.measure_rx.pop().is_ok() {}
-                // Update shared playhead position
                 self.playhead_bar.store(start_bar, Ordering::Relaxed);
             }
         }
 
-        // If playhead needs a new measure, read from ring buffer
+        // If playhead needs a new measure, read from shared pages by index
         if self.playhead.needs_measure() {
-            if let Ok(measure) = self.measure_rx.pop() {
-                // Update timing from measure tempo (tempo flows through measures)
+            let bar = self.playhead.current_bar();
+            let measure_opt = if let Ok(pages) = self.shared_pages.lock() {
+                pages.iter().find(|m| m.index == bar).cloned()
+            } else {
+                None
+            };
+
+            if let Some(measure) = measure_opt {
+                // Update timing from measure tempo
                 let steps_per_beat = 4.0f64;
                 let new_sps = (self.sample_rate * 60.0 / (measure.tempo as f64) / steps_per_beat) as usize;
                 if new_sps != self.samples_per_step {
@@ -214,7 +216,7 @@ impl PlaybackEngine {
 
                 self.playhead.load_measure(measure);
             } else {
-                return; // Underflow
+                return; // Underflow — measure not yet generated
             }
         }
 
@@ -297,7 +299,6 @@ impl PlaybackEngine {
                         self.renderer.handle_event(AudioEvent::AllNotesOff { channel: ch });
                     }
                     self.playhead.seek_to_bar(target_bar);
-                    while self.measure_rx.pop().is_ok() {}
                     self.playhead_bar.store(target_bar, Ordering::Relaxed);
                 }
                 PlaybackCommand::SeekPlayhead(bar) => {
@@ -307,7 +308,6 @@ impl PlaybackEngine {
                         self.renderer.handle_event(AudioEvent::AllNotesOff { channel: ch });
                     }
                     self.playhead.seek_to_bar(target_bar);
-                    while self.measure_rx.pop().is_ok() {}
                     self.playhead_bar.store(target_bar, Ordering::Relaxed);
                 }
                 PlaybackCommand::SetLoop { start_bar, end_bar } => {
@@ -350,12 +350,6 @@ impl PlaybackEngine {
                 }
                 PlaybackCommand::LoadFont { id, bytes } => {
                     self.renderer.handle_event(AudioEvent::LoadFont { id, bytes });
-                }
-                PlaybackCommand::InvalidateBuffer => {
-                    for ch in 0..4u8 {
-                        self.renderer.handle_event(AudioEvent::AllNotesOff { channel: ch });
-                    }
-                    while self.measure_rx.pop().is_ok() {}
                 }
                 PlaybackCommand::SetMutedChannels(channels) => {
                     for (i, &muted) in channels.iter().enumerate() {

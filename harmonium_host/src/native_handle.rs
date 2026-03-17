@@ -97,29 +97,53 @@ impl NativeHandle {
     }
 
     /// Generate ahead of the playhead (incremental). Call this periodically
-    /// during playback to keep the ring buffer fed.
+    /// during playback to keep shared pages populated.
     pub fn generate_ahead(&self) {
         if let Ok(mut composer) = self.composer.lock() {
             composer.generate_ahead();
         }
     }
 
-    /// Reset composer and clear timeline.
+    /// Reset composer and clear timeline + shared pages.
     pub fn reset_composer(&mut self) {
         if let Ok(mut composer) = self.composer.lock() {
             composer.reset();
         }
-        let _ = self.playback_cmd_tx.push(PlaybackCommand::InvalidateBuffer);
     }
 
     /// Invalidate future measures and regenerate with current params.
     pub fn invalidate_and_regenerate(&mut self, bars: usize) {
         if let Ok(mut composer) = self.composer.lock() {
             composer.invalidate_future();
-        }
-        let _ = self.playback_cmd_tx.push(PlaybackCommand::InvalidateBuffer);
-        if let Ok(mut composer) = self.composer.lock() {
             composer.generate_bars(bars);
+        }
+    }
+
+    /// Full reset + regenerate. Shared pages are updated in-place.
+    pub fn reset_and_regenerate(&mut self, bars: usize) {
+        if let Ok(mut composer) = self.composer.lock() {
+            composer.reset();
+            composer.generate_bars(bars);
+        }
+        self.measures_buffer.clear();
+    }
+
+    /// Read the current playhead bar (from the shared atomic).
+    pub fn playhead_bar(&self) -> usize {
+        if let Ok(composer) = self.composer.lock() {
+            composer.playhead_bar()
+        } else {
+            1
+        }
+    }
+
+    /// Apply param changes while preserving the preview window.
+    ///
+    /// Preview bars stay intact in both timeline and shared pages.
+    /// Bars beyond are invalidated for regeneration with new params.
+    pub fn apply_params_preserving_preview(&mut self, preview_bars: usize) {
+        if let Ok(mut composer) = self.composer.lock() {
+            composer.invalidate_after_preview(preview_bars);
         }
     }
 
@@ -278,13 +302,11 @@ impl NativeHandle {
         let _ = self.playback_cmd_tx.push(PlaybackCommand::Seek(target_bar));
     }
 
-    /// Seek playhead without resetting writehead; refill from timeline.
+    /// Seek playhead without resetting writehead.
+    /// Shared pages already have the measures — playback reads by index.
     pub fn seek_playhead(&mut self, bar: usize) {
         let target_bar = bar.max(1);
         let _ = self.playback_cmd_tx.push(PlaybackCommand::SeekPlayhead(target_bar));
-        if let Ok(mut composer) = self.composer.lock() {
-            composer.refill_from_timeline(target_bar, 8);
-        }
     }
 
     pub fn set_loop(&mut self, start_bar: usize, end_bar: usize) {
