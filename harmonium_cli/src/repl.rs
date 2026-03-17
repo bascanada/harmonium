@@ -56,12 +56,11 @@ impl ReplState {
         self.cached_state.as_ref()
     }
 
-    /// Send InvalidateBuffer to playback to drain stale measures,
-    /// and sync the composer's musical params to the playback engine for reporting.
+    /// After param changes: generate 1 bar ahead into shared pages,
+    /// and sync musical params to the playback engine for reporting.
     fn send_invalidate(&mut self) {
-        let _ = self.playback_cmd_tx.push(PlaybackCommand::InvalidateBuffer);
-        // Sync musical params so PlaybackEngine reports show current values
-        if let Ok(c) = self.composer.lock() {
+        if let Ok(mut c) = self.composer.lock() {
+            c.generate_bars(1);
             let _ = self.playback_cmd_tx.push(
                 PlaybackCommand::UpdateMusicalParams(Box::new(c.musical_params().clone()))
             );
