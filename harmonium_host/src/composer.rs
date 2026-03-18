@@ -407,6 +407,16 @@ impl MusicComposer {
         self.musical_params.rhythm_secondary_rotation = secondary_rotation;
     }
 
+    // === Instrument config ===
+
+    pub fn set_instrument_lead(&mut self, config: harmonium_core::params::InstrumentConfig) {
+        self.musical_params.instrument_lead = config;
+    }
+
+    pub fn set_instrument_bass(&mut self, config: harmonium_core::params::InstrumentConfig) {
+        self.musical_params.instrument_bass = config;
+    }
+
     // === Emotion mode ===
 
     pub fn use_emotion_mode(&mut self) {
@@ -451,6 +461,8 @@ impl MusicComposer {
         new_params.gain_bass = self.musical_params.gain_bass;
         new_params.gain_snare = self.musical_params.gain_snare;
         new_params.gain_hat = self.musical_params.gain_hat;
+        new_params.instrument_lead = self.musical_params.instrument_lead;
+        new_params.instrument_bass = self.musical_params.instrument_bass;
 
         // Only store params — do NOT sync the generator here.
         // The generator gets synced explicitly by invalidate_after_preview()

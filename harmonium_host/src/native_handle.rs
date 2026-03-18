@@ -316,6 +316,18 @@ impl NativeHandle {
         }
     }
 
+    pub fn set_instrument_lead(&self, config: harmonium_core::params::InstrumentConfig) {
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_instrument_lead(config);
+        }
+    }
+
+    pub fn set_instrument_bass(&self, config: harmonium_core::params::InstrumentConfig) {
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_instrument_bass(config);
+        }
+    }
+
     pub fn set_writehead_lookahead(&self, bars: usize) {
         if let Ok(mut c) = self.composer.lock() {
             c.set_writehead_lookahead(bars);
