@@ -3,11 +3,7 @@
 //! Parses user input into EngineCommand variants
 
 use anyhow::{anyhow, Result};
-use harmonium_core::{
-    harmony::HarmonyMode,
-    sequencer::RhythmMode,
-    EngineCommand,
-};
+use harmonium_core::{harmony::HarmonyMode, sequencer::RhythmMode, EngineCommand};
 
 /// Parse a command line into an EngineCommand
 pub fn parse_command(line: &str) -> Result<EngineCommand> {
@@ -43,7 +39,7 @@ pub fn parse_command(line: &str) -> Result<EngineCommand> {
         // === HELP ===
         "help" | "?" => Err(anyhow!("help")), // Special case handled by REPL
         "quit" | "exit" => Err(anyhow!("quit")), // Special case handled by REPL
-        "stop" => Err(anyhow!("stop")), // Special case handled by REPL
+        "stop" => Err(anyhow!("stop")),       // Special case handled by REPL
 
         _ => Err(anyhow!("Unknown command: {}. Type 'help' for available commands.", tokens[0])),
     }
@@ -61,14 +57,13 @@ fn parse_set_command(tokens: &[&str]) -> Result<EngineCommand> {
     match param {
         // === GLOBAL ===
         "bpm" => {
-            let bpm = value.parse::<f32>()
-                .map_err(|_| anyhow!("Invalid BPM value: {}", value))?;
+            let bpm = value.parse::<f32>().map_err(|_| anyhow!("Invalid BPM value: {}", value))?;
             Ok(EngineCommand::SetBpm(bpm))
         }
 
         "volume" | "master_volume" => {
-            let volume = value.parse::<f32>()
-                .map_err(|_| anyhow!("Invalid volume value: {}", value))?;
+            let volume =
+                value.parse::<f32>().map_err(|_| anyhow!("Invalid volume value: {}", value))?;
             Ok(EngineCommand::SetMasterVolume(volume))
         }
 
@@ -77,9 +72,11 @@ fn parse_set_command(tokens: &[&str]) -> Result<EngineCommand> {
             if parts.len() != 2 {
                 return Err(anyhow!("Invalid time signature format. Use: 4/4"));
             }
-            let numerator = parts[0].parse::<usize>()
+            let numerator = parts[0]
+                .parse::<usize>()
                 .map_err(|_| anyhow!("Invalid numerator: {}", parts[0]))?;
-            let denominator = parts[1].parse::<usize>()
+            let denominator = parts[1]
+                .parse::<usize>()
                 .map_err(|_| anyhow!("Invalid denominator: {}", parts[1]))?;
             Ok(EngineCommand::SetTimeSignature { numerator, denominator })
         }
@@ -88,40 +85,47 @@ fn parse_set_command(tokens: &[&str]) -> Result<EngineCommand> {
         "rhythm_mode" | "rhythm-mode" => {
             let mode = match value.to_lowercase().as_str() {
                 "euclidean" | "e" => RhythmMode::Euclidean,
-                "perfect" | "perfectbalance" | "perfect_balance" | "pb" => RhythmMode::PerfectBalance,
+                "perfect" | "perfectbalance" | "perfect_balance" | "pb" => {
+                    RhythmMode::PerfectBalance
+                }
                 "classic" | "classicgroove" | "classic_groove" | "cg" => RhythmMode::ClassicGroove,
-                _ => return Err(anyhow!("Unknown rhythm mode: {}. Use: euclidean, perfect, classic", value)),
+                _ => {
+                    return Err(anyhow!(
+                        "Unknown rhythm mode: {}. Use: euclidean, perfect, classic",
+                        value
+                    ))
+                }
             };
             Ok(EngineCommand::SetRhythmMode(mode))
         }
 
         "rhythm_steps" | "rhythm-steps" | "steps" => {
-            let steps = value.parse::<usize>()
-                .map_err(|_| anyhow!("Invalid steps value: {}", value))?;
+            let steps =
+                value.parse::<usize>().map_err(|_| anyhow!("Invalid steps value: {}", value))?;
             Ok(EngineCommand::SetRhythmSteps(steps))
         }
 
         "rhythm_pulses" | "rhythm-pulses" | "pulses" => {
-            let pulses = value.parse::<usize>()
-                .map_err(|_| anyhow!("Invalid pulses value: {}", value))?;
+            let pulses =
+                value.parse::<usize>().map_err(|_| anyhow!("Invalid pulses value: {}", value))?;
             Ok(EngineCommand::SetRhythmPulses(pulses))
         }
 
         "rhythm_rotation" | "rhythm-rotation" | "rotation" => {
-            let rotation = value.parse::<usize>()
-                .map_err(|_| anyhow!("Invalid rotation value: {}", value))?;
+            let rotation =
+                value.parse::<usize>().map_err(|_| anyhow!("Invalid rotation value: {}", value))?;
             Ok(EngineCommand::SetRhythmRotation(rotation))
         }
 
         "rhythm_density" | "rhythm-density" | "density" => {
-            let density = value.parse::<f32>()
-                .map_err(|_| anyhow!("Invalid density value: {}", value))?;
+            let density =
+                value.parse::<f32>().map_err(|_| anyhow!("Invalid density value: {}", value))?;
             Ok(EngineCommand::SetRhythmDensity(density))
         }
 
         "rhythm_tension" | "rhythm-tension" => {
-            let tension = value.parse::<f32>()
-                .map_err(|_| anyhow!("Invalid tension value: {}", value))?;
+            let tension =
+                value.parse::<f32>().map_err(|_| anyhow!("Invalid tension value: {}", value))?;
             Ok(EngineCommand::SetRhythmTension(tension))
         }
 
@@ -136,40 +140,40 @@ fn parse_set_command(tokens: &[&str]) -> Result<EngineCommand> {
         }
 
         "harmony_tension" | "harmony-tension" => {
-            let tension = value.parse::<f32>()
-                .map_err(|_| anyhow!("Invalid tension value: {}", value))?;
+            let tension =
+                value.parse::<f32>().map_err(|_| anyhow!("Invalid tension value: {}", value))?;
             Ok(EngineCommand::SetHarmonyTension(tension))
         }
 
         "harmony_valence" | "harmony-valence" | "valence" => {
-            let valence = value.parse::<f32>()
-                .map_err(|_| anyhow!("Invalid valence value: {}", value))?;
+            let valence =
+                value.parse::<f32>().map_err(|_| anyhow!("Invalid valence value: {}", value))?;
             Ok(EngineCommand::SetHarmonyValence(valence))
         }
 
         // === MELODY ===
         "melody_smoothness" | "melody-smoothness" | "smoothness" => {
-            let smoothness = value.parse::<f32>()
-                .map_err(|_| anyhow!("Invalid smoothness value: {}", value))?;
+            let smoothness =
+                value.parse::<f32>().map_err(|_| anyhow!("Invalid smoothness value: {}", value))?;
             Ok(EngineCommand::SetMelodySmoothness(smoothness))
         }
 
         "melody_octave" | "melody-octave" | "octave" => {
-            let octave = value.parse::<i32>()
-                .map_err(|_| anyhow!("Invalid octave value: {}", value))?;
+            let octave =
+                value.parse::<i32>().map_err(|_| anyhow!("Invalid octave value: {}", value))?;
             Ok(EngineCommand::SetMelodyOctave(octave))
         }
 
         // === VOICING ===
         "voicing_density" | "voicing-density" => {
-            let density = value.parse::<f32>()
-                .map_err(|_| anyhow!("Invalid voicing density: {}", value))?;
+            let density =
+                value.parse::<f32>().map_err(|_| anyhow!("Invalid voicing density: {}", value))?;
             Ok(EngineCommand::SetVoicingDensity(density))
         }
 
         "voicing_tension" | "voicing-tension" => {
-            let tension = value.parse::<f32>()
-                .map_err(|_| anyhow!("Invalid voicing tension: {}", value))?;
+            let tension =
+                value.parse::<f32>().map_err(|_| anyhow!("Invalid voicing tension: {}", value))?;
             Ok(EngineCommand::SetVoicingTension(tension))
         }
 
@@ -177,26 +181,25 @@ fn parse_set_command(tokens: &[&str]) -> Result<EngineCommand> {
         "gain" => {
             let channel = tokens.get(1).ok_or_else(|| anyhow!("Missing channel number"))?;
             let gain_value = tokens.get(2).ok_or_else(|| anyhow!("Missing gain value"))?;
-            let ch = channel.parse::<u8>()
-                .map_err(|_| anyhow!("Invalid channel: {}", channel))?;
-            let g = gain_value.parse::<f32>()
-                .map_err(|_| anyhow!("Invalid gain: {}", gain_value))?;
+            let ch = channel.parse::<u8>().map_err(|_| anyhow!("Invalid channel: {}", channel))?;
+            let g =
+                gain_value.parse::<f32>().map_err(|_| anyhow!("Invalid gain: {}", gain_value))?;
             Ok(EngineCommand::SetChannelGain { channel: ch, gain: g })
         }
 
         "mute" => {
-            let channel = value.parse::<u8>()
-                .map_err(|_| anyhow!("Invalid channel: {}", value))?;
+            let channel = value.parse::<u8>().map_err(|_| anyhow!("Invalid channel: {}", value))?;
             Ok(EngineCommand::SetChannelMute { channel, muted: true })
         }
 
         "unmute" => {
-            let channel = value.parse::<u8>()
-                .map_err(|_| anyhow!("Invalid channel: {}", value))?;
+            let channel = value.parse::<u8>().map_err(|_| anyhow!("Invalid channel: {}", value))?;
             Ok(EngineCommand::SetChannelMute { channel, muted: false })
         }
 
-        _ => Err(anyhow!("Unknown parameter: {}. Type 'help set' for available parameters.", param)),
+        _ => {
+            Err(anyhow!("Unknown parameter: {}. Type 'help set' for available parameters.", param))
+        }
     }
 }
 
@@ -212,14 +215,14 @@ fn parse_emotion_command(tokens: &[&str]) -> Result<EngineCommand> {
         return Err(anyhow!("Usage: emotion <arousal> <valence> <density> <tension>"));
     }
 
-    let arousal = tokens[0].parse::<f32>()
-        .map_err(|_| anyhow!("Invalid arousal: {}", tokens[0]))?;
-    let valence = tokens[1].parse::<f32>()
-        .map_err(|_| anyhow!("Invalid valence: {}", tokens[1]))?;
-    let density = tokens[2].parse::<f32>()
-        .map_err(|_| anyhow!("Invalid density: {}", tokens[2]))?;
-    let tension = tokens[3].parse::<f32>()
-        .map_err(|_| anyhow!("Invalid tension: {}", tokens[3]))?;
+    let arousal =
+        tokens[0].parse::<f32>().map_err(|_| anyhow!("Invalid arousal: {}", tokens[0]))?;
+    let valence =
+        tokens[1].parse::<f32>().map_err(|_| anyhow!("Invalid valence: {}", tokens[1]))?;
+    let density =
+        tokens[2].parse::<f32>().map_err(|_| anyhow!("Invalid density: {}", tokens[2]))?;
+    let tension =
+        tokens[3].parse::<f32>().map_err(|_| anyhow!("Invalid tension: {}", tokens[3]))?;
 
     Ok(EngineCommand::SetEmotionParams { arousal, valence, density, tension })
 }

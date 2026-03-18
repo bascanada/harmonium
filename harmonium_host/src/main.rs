@@ -11,8 +11,9 @@ use std::{
 
 #[cfg(feature = "ai")]
 use harmonium::ai::EmotionEngine;
-use harmonium::{audio, audio::AudioBackendType, harmony::HarmonyMode, log};
-use harmonium::playback::PlaybackCommand;
+use harmonium::{
+    audio, audio::AudioBackendType, harmony::HarmonyMode, log, playback::PlaybackCommand,
+};
 use harmonium_core::events::RecordFormat;
 use rand::Rng;
 use rosc::{OscPacket, OscType};
@@ -80,7 +81,9 @@ fn perform_graceful_shutdown(
                 let filename = match fmt {
                     RecordFormat::Wav => record_wav.as_deref().unwrap_or("output.wav"),
                     RecordFormat::Midi => record_midi.as_deref().unwrap_or("output.mid"),
-                    RecordFormat::MusicXml => record_musicxml.as_deref().unwrap_or("output.musicxml"),
+                    RecordFormat::MusicXml => {
+                        record_musicxml.as_deref().unwrap_or("output.musicxml")
+                    }
                 };
 
                 log::info(&format!(
@@ -296,9 +299,15 @@ fn main() {
     // === 1. Create Audio Stream (decoupled architecture) ===
     log::info(&format!("Poly Steps: {poly_steps}"));
 
-    let (_stream, config, composer_mutex, mut playback_cmd_tx, _report_rx, _font_queue, finished_recordings) =
-        audio::create_timeline_stream(sf2_data.as_deref(), backend_type)
-    .unwrap_or_else(|e| {
+    let (
+        _stream,
+        config,
+        composer_mutex,
+        mut playback_cmd_tx,
+        _report_rx,
+        _font_queue,
+        finished_recordings,
+    ) = audio::create_timeline_stream(sf2_data.as_deref(), backend_type).unwrap_or_else(|e| {
         #[allow(clippy::panic)]
         {
             panic!("Failed to create audio stream: {}", e);
@@ -323,7 +332,8 @@ fn main() {
     // Route all channels to Oxisynth when SoundFont is loaded
     if sf2_data.is_some() {
         for ch in 0..16u8 {
-            let _ = playback_cmd_tx.push(PlaybackCommand::SetChannelRoute { channel: ch, bank_id: 0 });
+            let _ =
+                playback_cmd_tx.push(PlaybackCommand::SetChannelRoute { channel: ch, bank_id: 0 });
         }
         log::info("Routing set to Oxisynth (Bank 0) for all channels");
     }
@@ -598,7 +608,9 @@ fn main() {
                 let filename = match fmt {
                     RecordFormat::Wav => record_wav.as_deref().unwrap_or("output.wav"),
                     RecordFormat::Midi => record_midi.as_deref().unwrap_or("output.mid"),
-                    RecordFormat::MusicXml => record_musicxml.as_deref().unwrap_or("output.musicxml"),
+                    RecordFormat::MusicXml => {
+                        record_musicxml.as_deref().unwrap_or("output.musicxml")
+                    }
                 };
                 log::info(&format!("Saving recording to {} ({} bytes)", filename, data.len()));
                 if let Err(e) = fs::write(filename, &data) {

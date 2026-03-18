@@ -174,11 +174,17 @@ impl Sequencer {
                     .enumerate()
                     .map(|(i, b)| StepTrigger {
                         kick: b,
-                        snare: false,  // Will be set below
-                        hat: b,        // Layering simple
-                        bass: b,       // Sync bass with kick in Euclidean mode
+                        snare: false, // Will be set below
+                        hat: b,       // Layering simple
+                        bass: b,      // Sync bass with kick in Euclidean mode
                         lead: b,
-                        velocity: if i == 0 { 1.0 } else if b { 0.85 } else { 0.0 },
+                        velocity: if i == 0 {
+                            1.0
+                        } else if b {
+                            0.85
+                        } else {
+                            0.0
+                        },
                     })
                     .collect();
 
@@ -218,7 +224,12 @@ impl Sequencer {
             }
             RhythmMode::PerfectBalance => {
                 // Mode XronoMorph : Polygones réguliers superposés - Now meter-aware
-                generate_balanced_layers(self.density, self.tension, self.time_signature, self.ticks_per_beat)
+                generate_balanced_layers(
+                    self.density,
+                    self.tension,
+                    self.time_signature,
+                    self.ticks_per_beat,
+                )
             }
             RhythmMode::ClassicGroove => {
                 // Mode groove réaliste : Patterns de batterie avec ghost notes
@@ -255,11 +266,17 @@ impl Sequencer {
                     .enumerate()
                     .map(|(i, b)| StepTrigger {
                         kick: b,
-                        snare: false,  // Will be set below
-                        hat: b,        // Layering simple
-                        bass: b,       // Sync bass with kick in Euclidean mode
+                        snare: false, // Will be set below
+                        hat: b,       // Layering simple
+                        bass: b,      // Sync bass with kick in Euclidean mode
                         lead: b,
-                        velocity: if i == 0 { 1.0 } else if b { 0.85 } else { 0.0 },
+                        velocity: if i == 0 {
+                            1.0
+                        } else if b {
+                            0.85
+                        } else {
+                            0.0
+                        },
                     })
                     .collect();
 
@@ -297,9 +314,12 @@ impl Sequencer {
 
                 pattern
             }
-            RhythmMode::PerfectBalance => {
-                generate_balanced_layers(self.density, self.tension, self.time_signature, self.ticks_per_beat)
-            }
+            RhythmMode::PerfectBalance => generate_balanced_layers(
+                self.density,
+                self.tension,
+                self.time_signature,
+                self.ticks_per_beat,
+            ),
             RhythmMode::ClassicGroove => {
                 generate_classic_groove(self.steps, self.density, self.tension, self.time_signature)
             }
@@ -741,7 +761,8 @@ pub fn generate_classic_groove(
         let max_interval = beat.max(1);
         let min_interval = eighth.max(1);
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let interval = (max_interval as f32 * (1.0 - density) + min_interval as f32 * density).round() as usize;
+        let interval = (max_interval as f32 * (1.0 - density) + min_interval as f32 * density)
+            .round() as usize;
         interval.max(1)
     };
     for i in (0..steps).step_by(melody_interval) {
@@ -867,13 +888,8 @@ pub fn count_equal_bipartitions(pattern: &[bool]) -> usize {
 
     // Try all possible rotation points as bipartition splits
     for split_point in 0..n {
-        let first_half_onsets: usize = pattern
-            .iter()
-            .cycle()
-            .skip(split_point)
-            .take(n / 2)
-            .filter(|&&x| x)
-            .count();
+        let first_half_onsets: usize =
+            pattern.iter().cycle().skip(split_point).take(n / 2).filter(|&&x| x).count();
 
         if first_half_onsets == target_onsets {
             count += 1;
@@ -907,11 +923,8 @@ pub fn generate_euclidean_with_target_oddity(n: usize, target_oddity: usize) -> 
     for pulses in 1..=n {
         let pattern = generate_euclidean_bools(n, pulses);
         let oddity = antipodal_distance_sum(&pattern);
-        let diff = if oddity > target_oddity {
-            oddity - target_oddity
-        } else {
-            target_oddity - oddity
-        };
+        let diff =
+            if oddity > target_oddity { oddity - target_oddity } else { target_oddity - oddity };
 
         if diff < best_diff {
             best_diff = diff;
@@ -959,22 +972,13 @@ mod tests {
         );
 
         // Snare should NOT be on beats 1 or 2
-        assert!(
-            !seq.pattern[0].snare,
-            "Snare should NOT be on beat 1 in 3/4 time"
-        );
+        assert!(!seq.pattern[0].snare, "Snare should NOT be on beat 1 in 3/4 time");
         if beat < seq.pattern.len() {
-            assert!(
-                !seq.pattern[beat].snare,
-                "Snare should NOT be on beat 2 in 3/4 time"
-            );
+            assert!(!seq.pattern[beat].snare, "Snare should NOT be on beat 2 in 3/4 time");
         }
 
         // Velocity accent on beat 1
-        assert_eq!(
-            seq.pattern[0].velocity, 1.0,
-            "Beat 1 should have velocity accent"
-        );
+        assert_eq!(seq.pattern[0].velocity, 1.0, "Beat 1 should have velocity accent");
     }
 
     /// Test Phase 3: Euclidean mode respects 4/4 time signature
@@ -1009,23 +1013,14 @@ mod tests {
         );
 
         // Snare should NOT be on beats 1 or 3
-        assert!(
-            !seq.pattern[0].snare,
-            "Snare should NOT be on beat 1 in 4/4 time"
-        );
+        assert!(!seq.pattern[0].snare, "Snare should NOT be on beat 1 in 4/4 time");
         let beat_3 = 2 * beat;
         if beat_3 < seq.pattern.len() {
-            assert!(
-                !seq.pattern[beat_3].snare,
-                "Snare should NOT be on beat 3 in 4/4 time"
-            );
+            assert!(!seq.pattern[beat_3].snare, "Snare should NOT be on beat 3 in 4/4 time");
         }
 
         // Velocity accent on beat 1
-        assert_eq!(
-            seq.pattern[0].velocity, 1.0,
-            "Beat 1 should have velocity accent"
-        );
+        assert_eq!(seq.pattern[0].velocity, 1.0, "Beat 1 should have velocity accent");
     }
 
     /// Test Phase 3: Euclidean mode constrains pattern to bar length
@@ -1038,29 +1033,18 @@ mod tests {
         seq.ticks_per_beat = 4;
         seq.regenerate_pattern();
 
-        assert_eq!(
-            seq.pattern.len(),
-            16,
-            "Pattern should be 16 steps for 4/4"
-        );
+        assert_eq!(seq.pattern.len(), 16, "Pattern should be 16 steps for 4/4");
 
         // Change to 3/4 (should become 12 steps)
         seq.time_signature = TimeSignature::new(3, 4);
         seq.regenerate_pattern();
 
-        assert_eq!(
-            seq.pattern.len(),
-            12,
-            "Pattern should be constrained to 12 steps for 3/4"
-        );
+        assert_eq!(seq.pattern.len(), 12, "Pattern should be constrained to 12 steps for 3/4");
 
         // Verify snare is on beat 3 in the new meter
         let beat = 12 / 3; // = 4
         let beat_3 = 2 * beat; // = 8
-        assert!(
-            seq.pattern[beat_3].snare,
-            "Snare should be on beat 3 after changing to 3/4"
-        );
+        assert!(seq.pattern[beat_3].snare, "Snare should be on beat 3 after changing to 3/4");
     }
 
     // ═════════════════════════════════════════════════════════════════════
@@ -1078,11 +1062,7 @@ mod tests {
         seq.regenerate_pattern();
 
         // Pattern should be constrained to 12 steps (3 beats * 4 ticks)
-        assert_eq!(
-            seq.pattern.len(),
-            12,
-            "Pattern should be 12 steps for 3/4"
-        );
+        assert_eq!(seq.pattern.len(), 12, "Pattern should be 12 steps for 3/4");
 
         // Calculate beat positions
         let beat = 12 / 3; // = 4 steps per beat
@@ -1096,14 +1076,8 @@ mod tests {
         );
 
         // Snare should NOT be on beats 1 or 2
-        assert!(
-            !seq.pattern[0].snare,
-            "Snare should NOT be on beat 1 in 3/4 time"
-        );
-        assert!(
-            !seq.pattern[beat].snare,
-            "Snare should NOT be on beat 2 in 3/4 time"
-        );
+        assert!(!seq.pattern[0].snare, "Snare should NOT be on beat 1 in 3/4 time");
+        assert!(!seq.pattern[beat].snare, "Snare should NOT be on beat 2 in 3/4 time");
     }
 
     /// Test Phase 4: PerfectBalance mode respects 5/4 time signature
@@ -1117,11 +1091,7 @@ mod tests {
         seq.regenerate_pattern();
 
         // Pattern should be constrained to 20 steps (5 beats * 4 ticks)
-        assert_eq!(
-            seq.pattern.len(),
-            20,
-            "Pattern should be 20 steps for 5/4"
-        );
+        assert_eq!(seq.pattern.len(), 20, "Pattern should be 20 steps for 5/4");
 
         // Calculate beat positions
         let beat = 20 / 5; // = 4 steps per beat
@@ -1135,14 +1105,8 @@ mod tests {
         );
 
         // Snare should NOT be on other beats
-        assert!(
-            !seq.pattern[0].snare,
-            "Snare should NOT be on beat 1 in 5/4 time"
-        );
-        assert!(
-            !seq.pattern[beat].snare,
-            "Snare should NOT be on beat 2 in 5/4 time"
-        );
+        assert!(!seq.pattern[0].snare, "Snare should NOT be on beat 1 in 5/4 time");
+        assert!(!seq.pattern[beat].snare, "Snare should NOT be on beat 2 in 5/4 time");
     }
 
     /// Test Phase 4: Kick polygons align with bar length
@@ -1156,31 +1120,19 @@ mod tests {
         seq.density = 0.5;
         seq.regenerate_pattern();
 
-        assert_eq!(
-            seq.pattern.len(),
-            16,
-            "4/4 pattern should be 16 steps"
-        );
+        assert_eq!(seq.pattern.len(), 16, "4/4 pattern should be 16 steps");
 
         // Test 3/4
         seq.time_signature = TimeSignature::new(3, 4);
         seq.regenerate_pattern();
 
-        assert_eq!(
-            seq.pattern.len(),
-            12,
-            "3/4 pattern should be 12 steps"
-        );
+        assert_eq!(seq.pattern.len(), 12, "3/4 pattern should be 12 steps");
 
         // Test 5/4
         seq.time_signature = TimeSignature::new(5, 4);
         seq.regenerate_pattern();
 
-        assert_eq!(
-            seq.pattern.len(),
-            20,
-            "5/4 pattern should be 20 steps"
-        );
+        assert_eq!(seq.pattern.len(), 20, "5/4 pattern should be 20 steps");
 
         // Test 7/8 (7 beats, denominator 8, but with 4 ticks per beat it's 14 steps)
         seq.time_signature = TimeSignature::new(7, 8);
@@ -1245,16 +1197,12 @@ mod tests {
     fn test_antipodal_distance_sum_gahu() {
         // Gahu/Bell: x..x.x.x.x.x..x. (16-pulse) - Standard West African bell pattern
         let gahu = vec![
-            true, false, false, true, false, true, false, true,
-            false, true, false, true, false, false, true, false,
+            true, false, false, true, false, true, false, true, false, true, false, true, false,
+            false, true, false,
         ];
 
         let oddity = antipodal_distance_sum(&gahu);
-        assert_eq!(
-            oddity, 5,
-            "Gahu/Bell pattern should have oddity score of 5, got {}",
-            oddity
-        );
+        assert_eq!(oddity, 5, "Gahu/Bell pattern should have oddity score of 5, got {}", oddity);
     }
 
     /// Test Phase 2: Antipodal distance sum for Rumba (Cuban rumba clave)
@@ -1263,16 +1211,12 @@ mod tests {
     fn test_antipodal_distance_sum_rumba() {
         // Rumba: x..x..x..x..x... (16-pulse) - Cuban 3-2 rumba clave
         let rumba = vec![
-            true, false, false, true, false, false, true, false,
-            false, true, false, false, true, false, false, false,
+            true, false, false, true, false, false, true, false, false, true, false, false, true,
+            false, false, false,
         ];
 
         let oddity = antipodal_distance_sum(&rumba);
-        assert_eq!(
-            oddity, 6,
-            "Rumba clave pattern should have oddity score of 6, got {}",
-            oddity
-        );
+        assert_eq!(oddity, 6, "Rumba clave pattern should have oddity score of 6, got {}", oddity);
     }
 
     /// Test Phase 2: Antipodal distance sum for Clave Son (Cuban son clave)
@@ -1281,16 +1225,12 @@ mod tests {
     fn test_antipodal_distance_sum_clave_son() {
         // Clave Son: x..x..x...x.x... (16-pulse)
         let clave_son = vec![
-            true, false, false, true, false, false, true, false,
-            false, false, true, false, true, false, false, false,
+            true, false, false, true, false, false, true, false, false, false, true, false, true,
+            false, false, false,
         ];
 
         let oddity = antipodal_distance_sum(&clave_son);
-        assert_eq!(
-            oddity, 7,
-            "Clave Son pattern should have oddity score of 7, got {}",
-            oddity
-        );
+        assert_eq!(oddity, 7, "Clave Son pattern should have oddity score of 7, got {}", oddity);
     }
 
     /// Test Phase 2: Generate Euclidean pattern with target oddity
@@ -1318,11 +1258,7 @@ mod tests {
         // Test targeting high oddity (7+)
         let high_oddity_pattern = generate_euclidean_with_target_oddity(16, 7);
         let high_oddity = antipodal_distance_sum(&high_oddity_pattern);
-        assert!(
-            high_oddity >= 6,
-            "High oddity pattern should be >= 6, got {}",
-            high_oddity
-        );
+        assert!(high_oddity >= 6, "High oddity pattern should be >= 6, got {}", high_oddity);
 
         // Verify patterns are valid Euclidean rhythms
         assert!(!low_oddity_pattern.is_empty());

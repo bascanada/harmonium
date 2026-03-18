@@ -13,18 +13,17 @@ use arrayvec::ArrayString;
 use harmonium_audio::backend::AudioRenderer;
 use harmonium_core::{
     events::AudioEvent,
-    harmony::{
-        HarmonicDriver, HarmonyNavigator,
-    },
+    harmony::{HarmonicDriver, HarmonyNavigator},
     log,
     params::{CurrentState, EngineParams, MusicalParams, SessionConfig, TimeSignature},
     sequencer::Sequencer,
     timeline::{Measure, Playhead, TimelineGenerator, Writehead},
 };
-use crate::mapper::EmotionMapper;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use rust_music_theory::{note::PitchSymbol, scale::ScaleType};
+
+use crate::mapper::EmotionMapper;
 
 /// Timeline-based engine that separates music generation from audio playback.
 ///
@@ -122,8 +121,13 @@ impl TimelineEngine {
         let initial_pulses = 4;
 
         let keys = [
-            PitchSymbol::C, PitchSymbol::D, PitchSymbol::E, PitchSymbol::F,
-            PitchSymbol::G, PitchSymbol::A, PitchSymbol::B,
+            PitchSymbol::C,
+            PitchSymbol::D,
+            PitchSymbol::E,
+            PitchSymbol::F,
+            PitchSymbol::G,
+            PitchSymbol::A,
+            PitchSymbol::B,
         ];
         let scales = [ScaleType::PentatonicMinor, ScaleType::PentatonicMajor];
         let random_key = keys[rng.gen_range(0..keys.len())];
@@ -151,9 +155,14 @@ impl TimelineEngine {
         // Initialize harmony
         let harmony = HarmonyNavigator::new(random_key, random_scale, 4);
         let key_pc = match random_key {
-            PitchSymbol::C => 0, PitchSymbol::D => 2, PitchSymbol::E => 4,
-            PitchSymbol::F => 5, PitchSymbol::G => 7, PitchSymbol::A => 9,
-            PitchSymbol::B => 11, _ => 0,
+            PitchSymbol::C => 0,
+            PitchSymbol::D => 2,
+            PitchSymbol::E => 4,
+            PitchSymbol::F => 5,
+            PitchSymbol::G => 7,
+            PitchSymbol::A => 9,
+            PitchSymbol::B => 11,
+            _ => 0,
         };
         let harmonic_driver = Some(HarmonicDriver::new(key_pc));
 
@@ -240,9 +249,8 @@ impl TimelineEngine {
                     break; // Ring buffer full
                 }
                 // Snapshot re-pushed bars so poll_measures() sees them
-                self.pending_measure_snapshots.push(
-                    harmonium_core::report::MeasureSnapshot::from_measure(&existing),
-                );
+                self.pending_measure_snapshots
+                    .push(harmonium_core::report::MeasureSnapshot::from_measure(&existing));
                 self.writehead.current_bar = bar_idx + 1;
                 continue;
             }
@@ -250,8 +258,8 @@ impl TimelineEngine {
             let measure = self.generator.generate_measure(bar_idx, &mut self.rng);
 
             // Update report cache from generated measure
-            self.last_chord_name = ArrayString::from(&measure.chord_context.chord_name)
-                .unwrap_or_default();
+            self.last_chord_name =
+                ArrayString::from(&measure.chord_context.chord_name).unwrap_or_default();
             self.last_chord_root_offset = measure.chord_context.root_offset;
             self.last_chord_is_minor = measure.chord_context.is_minor;
 
@@ -265,9 +273,8 @@ impl TimelineEngine {
             }
 
             // Only snapshot AFTER successful ring buffer push (prevents duplicates)
-            self.pending_measure_snapshots.push(
-                harmonium_core::report::MeasureSnapshot::from_measure(&measure),
-            );
+            self.pending_measure_snapshots
+                .push(harmonium_core::report::MeasureSnapshot::from_measure(&measure));
 
             // Store in master timeline
             self.writehead.commit_measure(measure);
@@ -356,12 +363,12 @@ impl TimelineEngine {
             if let Ok(measure) = self.measure_rx.pop() {
                 // Update timing from measure tempo
                 let steps_per_beat = 4.0f64;
-                let new_sps = (self.sample_rate * 60.0 / (measure.tempo as f64) / steps_per_beat) as usize;
+                let new_sps =
+                    (self.sample_rate * 60.0 / (measure.tempo as f64) / steps_per_beat) as usize;
                 if new_sps != self.samples_per_step {
                     self.samples_per_step = new_sps;
-                    self.renderer.handle_event(AudioEvent::TimingUpdate {
-                        samples_per_step: new_sps,
-                    });
+                    self.renderer
+                        .handle_event(AudioEvent::TimingUpdate { samples_per_step: new_sps });
                 }
 
                 self.playhead.load_measure(measure);
@@ -377,7 +384,13 @@ impl TimelineEngine {
         // Forward events to renderer, filtering out NoteOn for muted channels
         for event in events {
             if let AudioEvent::NoteOn { channel, .. } = &event {
-                if self.musical_params.muted_channels.get(*channel as usize).copied().unwrap_or(false) {
+                if self
+                    .musical_params
+                    .muted_channels
+                    .get(*channel as usize)
+                    .copied()
+                    .unwrap_or(false)
+                {
                     continue;
                 }
             }
@@ -400,10 +413,13 @@ impl TimelineEngine {
                 EngineCommand::SetBpm(bpm) => {
                     self.musical_params.bpm = bpm.clamp(70.0, 180.0);
                     let steps_per_beat = 4.0f64;
-                    let new_sps = (self.sample_rate * 60.0 / (self.musical_params.bpm as f64) / steps_per_beat) as usize;
+                    let new_sps = (self.sample_rate * 60.0
+                        / (self.musical_params.bpm as f64)
+                        / steps_per_beat) as usize;
                     if new_sps != self.samples_per_step {
                         self.samples_per_step = new_sps;
-                        self.renderer.handle_event(AudioEvent::TimingUpdate { samples_per_step: new_sps });
+                        self.renderer
+                            .handle_event(AudioEvent::TimingUpdate { samples_per_step: new_sps });
                     }
                     self.params_dirty = true;
                 }
@@ -414,42 +430,103 @@ impl TimelineEngine {
                     self.musical_params.time_signature = TimeSignature { numerator, denominator };
                     self.params_dirty = true;
                 }
-                EngineCommand::EnableRhythm(e) => { self.musical_params.enable_rhythm = e; self.params_dirty = true; }
-                EngineCommand::EnableHarmony(e) => { self.musical_params.enable_harmony = e; self.params_dirty = true; }
-                EngineCommand::EnableMelody(e) => { self.musical_params.enable_melody = e; self.params_dirty = true; }
-                EngineCommand::EnableVoicing(e) => { self.musical_params.enable_voicing = e; self.params_dirty = true; }
-                EngineCommand::SetRhythmMode(m) => { self.musical_params.rhythm_mode = m; self.params_dirty = true; }
-                EngineCommand::SetRhythmSteps(s) => { self.musical_params.rhythm_steps = s; self.params_dirty = true; }
-                EngineCommand::SetRhythmPulses(p) => { self.musical_params.rhythm_pulses = p; self.params_dirty = true; }
-                EngineCommand::SetRhythmRotation(r) => { self.musical_params.rhythm_rotation = r; self.params_dirty = true; }
-                EngineCommand::SetRhythmDensity(d) => { self.musical_params.rhythm_density = d.clamp(0.0, 1.0); self.params_dirty = true; }
-                EngineCommand::SetRhythmTension(t) => { self.musical_params.rhythm_tension = t.clamp(0.0, 1.0); self.params_dirty = true; }
+                EngineCommand::EnableRhythm(e) => {
+                    self.musical_params.enable_rhythm = e;
+                    self.params_dirty = true;
+                }
+                EngineCommand::EnableHarmony(e) => {
+                    self.musical_params.enable_harmony = e;
+                    self.params_dirty = true;
+                }
+                EngineCommand::EnableMelody(e) => {
+                    self.musical_params.enable_melody = e;
+                    self.params_dirty = true;
+                }
+                EngineCommand::EnableVoicing(e) => {
+                    self.musical_params.enable_voicing = e;
+                    self.params_dirty = true;
+                }
+                EngineCommand::SetRhythmMode(m) => {
+                    self.musical_params.rhythm_mode = m;
+                    self.params_dirty = true;
+                }
+                EngineCommand::SetRhythmSteps(s) => {
+                    self.musical_params.rhythm_steps = s;
+                    self.params_dirty = true;
+                }
+                EngineCommand::SetRhythmPulses(p) => {
+                    self.musical_params.rhythm_pulses = p;
+                    self.params_dirty = true;
+                }
+                EngineCommand::SetRhythmRotation(r) => {
+                    self.musical_params.rhythm_rotation = r;
+                    self.params_dirty = true;
+                }
+                EngineCommand::SetRhythmDensity(d) => {
+                    self.musical_params.rhythm_density = d.clamp(0.0, 1.0);
+                    self.params_dirty = true;
+                }
+                EngineCommand::SetRhythmTension(t) => {
+                    self.musical_params.rhythm_tension = t.clamp(0.0, 1.0);
+                    self.params_dirty = true;
+                }
                 EngineCommand::SetRhythmSecondary { steps, pulses, rotation } => {
                     self.musical_params.rhythm_secondary_steps = steps;
                     self.musical_params.rhythm_secondary_pulses = pulses;
                     self.musical_params.rhythm_secondary_rotation = rotation;
                     self.params_dirty = true;
                 }
-                EngineCommand::SetFixedKick(f) => { self.musical_params.fixed_kick = f; self.params_dirty = true; }
-                EngineCommand::SetHarmonyMode(m) => { self.musical_params.harmony_mode = m; self.params_dirty = true; }
-                EngineCommand::SetHarmonyStrategy(s) => { self.musical_params.harmony_strategy = s; self.params_dirty = true; }
-                EngineCommand::SetHarmonyTension(t) => { self.musical_params.harmony_tension = t.clamp(0.0, 1.0); self.params_dirty = true; }
-                EngineCommand::SetHarmonyValence(v) => { self.musical_params.harmony_valence = v.clamp(-1.0, 1.0); self.params_dirty = true; }
-                EngineCommand::SetHarmonyMeasuresPerChord(m) => { self.musical_params.harmony_measures_per_chord = m; self.params_dirty = true; }
-                EngineCommand::SetKeyRoot(r) => { self.musical_params.key_root = r % 12; self.params_dirty = true; }
-                EngineCommand::SetMelodySmoothness(s) => { self.musical_params.melody_smoothness = s.clamp(0.0, 1.0); self.params_dirty = true; }
-                EngineCommand::SetMelodyOctave(o) => { self.musical_params.melody_octave = o.clamp(3, 6); self.params_dirty = true; }
-                EngineCommand::SetVoicingDensity(d) => { self.musical_params.voicing_density = d.clamp(0.0, 1.0); self.params_dirty = true; }
-                EngineCommand::SetVoicingTension(t) => { self.musical_params.voicing_tension = t.clamp(0.0, 1.0); self.params_dirty = true; }
-                EngineCommand::SetChannelGain { channel, gain } => {
-                    match channel {
-                        0 => self.musical_params.gain_bass = gain.clamp(0.0, 1.0),
-                        1 => self.musical_params.gain_lead = gain.clamp(0.0, 1.0),
-                        2 => self.musical_params.gain_snare = gain.clamp(0.0, 1.0),
-                        3 => self.musical_params.gain_hat = gain.clamp(0.0, 1.0),
-                        _ => {}
-                    }
+                EngineCommand::SetFixedKick(f) => {
+                    self.musical_params.fixed_kick = f;
+                    self.params_dirty = true;
                 }
+                EngineCommand::SetHarmonyMode(m) => {
+                    self.musical_params.harmony_mode = m;
+                    self.params_dirty = true;
+                }
+                EngineCommand::SetHarmonyStrategy(s) => {
+                    self.musical_params.harmony_strategy = s;
+                    self.params_dirty = true;
+                }
+                EngineCommand::SetHarmonyTension(t) => {
+                    self.musical_params.harmony_tension = t.clamp(0.0, 1.0);
+                    self.params_dirty = true;
+                }
+                EngineCommand::SetHarmonyValence(v) => {
+                    self.musical_params.harmony_valence = v.clamp(-1.0, 1.0);
+                    self.params_dirty = true;
+                }
+                EngineCommand::SetHarmonyMeasuresPerChord(m) => {
+                    self.musical_params.harmony_measures_per_chord = m;
+                    self.params_dirty = true;
+                }
+                EngineCommand::SetKeyRoot(r) => {
+                    self.musical_params.key_root = r % 12;
+                    self.params_dirty = true;
+                }
+                EngineCommand::SetMelodySmoothness(s) => {
+                    self.musical_params.melody_smoothness = s.clamp(0.0, 1.0);
+                    self.params_dirty = true;
+                }
+                EngineCommand::SetMelodyOctave(o) => {
+                    self.musical_params.melody_octave = o.clamp(3, 6);
+                    self.params_dirty = true;
+                }
+                EngineCommand::SetVoicingDensity(d) => {
+                    self.musical_params.voicing_density = d.clamp(0.0, 1.0);
+                    self.params_dirty = true;
+                }
+                EngineCommand::SetVoicingTension(t) => {
+                    self.musical_params.voicing_tension = t.clamp(0.0, 1.0);
+                    self.params_dirty = true;
+                }
+                EngineCommand::SetChannelGain { channel, gain } => match channel {
+                    0 => self.musical_params.gain_bass = gain.clamp(0.0, 1.0),
+                    1 => self.musical_params.gain_lead = gain.clamp(0.0, 1.0),
+                    2 => self.musical_params.gain_snare = gain.clamp(0.0, 1.0),
+                    3 => self.musical_params.gain_hat = gain.clamp(0.0, 1.0),
+                    _ => {}
+                },
                 EngineCommand::SetChannelMute { channel, muted } => {
                     if (channel as usize) < self.musical_params.muted_channels.len() {
                         self.musical_params.muted_channels[channel as usize] = muted;
@@ -460,27 +537,33 @@ impl TimelineEngine {
                         self.musical_params.channel_routing[channel as usize] = bank_id;
                     }
                 }
-                EngineCommand::SetVelocityBase { channel, velocity } => {
-                    match channel {
-                        0 => self.musical_params.vel_base_bass = velocity,
-                        2 => self.musical_params.vel_base_snare = velocity,
-                        _ => {}
+                EngineCommand::SetVelocityBase { channel, velocity } => match channel {
+                    0 => self.musical_params.vel_base_bass = velocity,
+                    2 => self.musical_params.vel_base_snare = velocity,
+                    _ => {}
+                },
+                EngineCommand::StartRecording(format) => match format {
+                    harmonium_core::events::RecordFormat::Wav => {
+                        self.musical_params.record_wav = true
                     }
-                }
-                EngineCommand::StartRecording(format) => {
-                    match format {
-                        harmonium_core::events::RecordFormat::Wav => self.musical_params.record_wav = true,
-                        harmonium_core::events::RecordFormat::Midi => self.musical_params.record_midi = true,
-                        harmonium_core::events::RecordFormat::MusicXml => self.musical_params.record_musicxml = true,
+                    harmonium_core::events::RecordFormat::Midi => {
+                        self.musical_params.record_midi = true
                     }
-                }
-                EngineCommand::StopRecording(format) => {
-                    match format {
-                        harmonium_core::events::RecordFormat::Wav => self.musical_params.record_wav = false,
-                        harmonium_core::events::RecordFormat::Midi => self.musical_params.record_midi = false,
-                        harmonium_core::events::RecordFormat::MusicXml => self.musical_params.record_musicxml = false,
+                    harmonium_core::events::RecordFormat::MusicXml => {
+                        self.musical_params.record_musicxml = true
                     }
-                }
+                },
+                EngineCommand::StopRecording(format) => match format {
+                    harmonium_core::events::RecordFormat::Wav => {
+                        self.musical_params.record_wav = false
+                    }
+                    harmonium_core::events::RecordFormat::Midi => {
+                        self.musical_params.record_midi = false
+                    }
+                    harmonium_core::events::RecordFormat::MusicXml => {
+                        self.musical_params.record_musicxml = false
+                    }
+                },
                 EngineCommand::UseEmotionMode => {
                     self.emotion_mode = true;
                     log::info("Timeline Engine: switched to Emotion mode");
@@ -523,22 +606,40 @@ impl TimelineEngine {
 
                         // Sync audio timing with mapped BPM
                         let steps_per_beat = 4.0f64;
-                        let new_sps = (self.sample_rate * 60.0 / (self.musical_params.bpm as f64) / steps_per_beat) as usize;
+                        let new_sps = (self.sample_rate * 60.0
+                            / (self.musical_params.bpm as f64)
+                            / steps_per_beat) as usize;
                         if new_sps != self.samples_per_step {
                             self.samples_per_step = new_sps;
-                            self.renderer.handle_event(AudioEvent::TimingUpdate { samples_per_step: new_sps });
+                            self.renderer.handle_event(AudioEvent::TimingUpdate {
+                                samples_per_step: new_sps,
+                            });
                         }
 
                         self.params_dirty = true;
 
                         log::info(&format!(
                             "Emotion mapped: arousal={:.2} valence={:.2} density={:.2} tension={:.2} → bpm={:.0} strategy={:?}",
-                            arousal, valence, density, tension,
-                            self.musical_params.bpm, self.musical_params.harmony_strategy
+                            arousal,
+                            valence,
+                            density,
+                            tension,
+                            self.musical_params.bpm,
+                            self.musical_params.harmony_strategy
                         ));
                     }
                 }
-                EngineCommand::SetAllRhythmParams { mode, steps, pulses, rotation, density, tension, secondary_steps, secondary_pulses, secondary_rotation } => {
+                EngineCommand::SetAllRhythmParams {
+                    mode,
+                    steps,
+                    pulses,
+                    rotation,
+                    density,
+                    tension,
+                    secondary_steps,
+                    secondary_pulses,
+                    secondary_rotation,
+                } => {
                     self.musical_params.rhythm_mode = mode;
                     self.musical_params.rhythm_steps = steps;
                     self.musical_params.rhythm_pulses = pulses;
@@ -579,12 +680,13 @@ impl TimelineEngine {
                     log::info(&format!("Timeline export requested: {:?}", format));
                     match format {
                         harmonium_core::events::RecordFormat::MusicXml => {
-                            let xml = harmonium_core::timeline::timeline_to_musicxml_with_instruments(
-                                &self.writehead.timeline,
-                                "Harmonium Export",
-                                &self.musical_params.instrument_lead,
-                                &self.musical_params.instrument_bass,
-                            );
+                            let xml =
+                                harmonium_core::timeline::timeline_to_musicxml_with_instruments(
+                                    &self.writehead.timeline,
+                                    "Harmonium Export",
+                                    &self.musical_params.instrument_lead,
+                                    &self.musical_params.instrument_bass,
+                                );
                             if let Ok(()) = std::fs::write("timeline_export.musicxml", &xml) {
                                 log::info(&format!(
                                     "Timeline exported to timeline_export.musicxml ({} bytes)",
@@ -690,10 +792,8 @@ impl TimelineEngine {
         // Sync routing
         for (i, &mode) in self.musical_params.channel_routing.iter().enumerate() {
             if i < 16 {
-                self.renderer.handle_event(AudioEvent::SetChannelRoute {
-                    channel: i as u8,
-                    bank: mode,
-                });
+                self.renderer
+                    .handle_event(AudioEvent::SetChannelRoute { channel: i as u8, bank: mode });
             }
         }
 
@@ -720,12 +820,11 @@ impl TimelineEngine {
 
         // Timing update
         let steps_per_beat = 4.0f64;
-        let new_sps = (self.sample_rate * 60.0 / (self.musical_params.bpm as f64) / steps_per_beat) as usize;
+        let new_sps =
+            (self.sample_rate * 60.0 / (self.musical_params.bpm as f64) / steps_per_beat) as usize;
         if new_sps != self.samples_per_step {
             self.samples_per_step = new_sps;
-            self.renderer.handle_event(AudioEvent::TimingUpdate {
-                samples_per_step: new_sps,
-            });
+            self.renderer.handle_event(AudioEvent::TimingUpdate { samples_per_step: new_sps });
         }
     }
 
@@ -756,9 +855,8 @@ impl TimelineEngine {
             self.is_recording_musicxml = mp.record_musicxml;
             let fmt = harmonium_core::events::RecordFormat::MusicXml;
             if self.is_recording_musicxml {
-                self.renderer.handle_event(AudioEvent::UpdateMusicalParams {
-                    params: Box::new(mp.clone()),
-                });
+                self.renderer
+                    .handle_event(AudioEvent::UpdateMusicalParams { params: Box::new(mp.clone()) });
                 self.renderer.handle_event(AudioEvent::StartRecording { format: fmt });
             } else {
                 self.renderer.handle_event(AudioEvent::StopRecording { format: fmt });

@@ -4,12 +4,14 @@
 //! the requested duration as fast as the CPU allows.
 //! Uses the decoupled MusicComposer + PlaybackEngine architecture.
 
+use std::{
+    sync::{Arc, Mutex},
+    time::Instant,
+};
+
 use anyhow::Result;
-use harmonium::audio;
-use harmonium::playback::PlaybackCommand;
+use harmonium::{audio, playback::PlaybackCommand};
 use harmonium_core::events::RecordFormat;
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
 
 const SAMPLE_RATE: f64 = 44100.0;
 const CHANNELS: usize = 2;
@@ -33,9 +35,7 @@ pub fn run(
     composer.set_writehead_lookahead(64);
     composer.generate_bars(32);
 
-    let has_recordings = record_wav.is_some()
-        || record_midi.is_some()
-        || record_musicxml.is_some();
+    let has_recordings = record_wav.is_some() || record_midi.is_some() || record_musicxml.is_some();
 
     // Start recordings via playback command queue
     if record_wav.is_some() {
@@ -122,10 +122,7 @@ pub fn run(
             last_progress_sec = audio_sec;
             let wall_elapsed = wall_start.elapsed().as_secs_f64();
             let speedup = audio_sec as f64 / wall_elapsed;
-            println!(
-                "  [{:>3}s / {}s] {:.1}x realtime",
-                audio_sec, duration_secs, speedup
-            );
+            println!("  [{:>3}s / {}s] {:.1}x realtime", audio_sec, duration_secs, speedup);
         }
     }
 

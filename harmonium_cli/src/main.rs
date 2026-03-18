@@ -9,11 +9,14 @@ mod help;
 mod parser;
 mod repl;
 
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+
 use anyhow::Result;
 use clap::Parser;
 use harmonium::audio;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Parser)]
 #[command(name = "harmonium-cli")]
@@ -108,9 +111,16 @@ fn main() -> Result<()> {
         // Interactive REPL mode: needs audio device
         println!("Initializing Harmonium engine...");
 
-        let (_stream, config, composer_mutex, playback_cmd_tx, report_rx, _font_queue, finished_recordings) =
-            audio::create_timeline_stream(sf2_bytes.as_deref(), backend_type)
-                .map_err(|e| anyhow::anyhow!(e))?;
+        let (
+            _stream,
+            config,
+            composer_mutex,
+            playback_cmd_tx,
+            report_rx,
+            _font_queue,
+            finished_recordings,
+        ) = audio::create_timeline_stream(sf2_bytes.as_deref(), backend_type)
+            .map_err(|e| anyhow::anyhow!(e))?;
 
         // Wrap composer in Arc for sharing with the generation thread
         let composer = Arc::new(composer_mutex);
@@ -119,16 +129,14 @@ fn main() -> Result<()> {
         let gen_composer = composer.clone();
         let gen_shutdown = Arc::new(AtomicBool::new(false));
         let gen_shutdown_flag = gen_shutdown.clone();
-        std::thread::spawn(move || {
-            loop {
-                if gen_shutdown_flag.load(Ordering::Relaxed) {
-                    break;
-                }
-                if let Ok(mut c) = gen_composer.lock() {
-                    c.generate_ahead();
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::spawn(move || loop {
+            if gen_shutdown_flag.load(Ordering::Relaxed) {
+                break;
             }
+            if let Ok(mut c) = gen_composer.lock() {
+                c.generate_ahead();
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
         });
 
         println!("Engine initialized");

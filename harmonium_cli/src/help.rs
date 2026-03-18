@@ -16,65 +16,92 @@ pub fn print_help() {
         ("direct", "Switch to direct mode (bypass EmotionMapper, set params directly)"),
     ]);
 
-    print_section("GLOBAL PARAMETERS", &[
-        ("set bpm <70-180>", "Set BPM (beats per minute)"),
-        ("set volume <0-1>", "Set master volume"),
-        ("set time <n/d>", "Set time signature (e.g., 4/4)"),
-    ]);
+    print_section(
+        "GLOBAL PARAMETERS",
+        &[
+            ("set bpm <70-180>", "Set BPM (beats per minute)"),
+            ("set volume <0-1>", "Set master volume"),
+            ("set time <n/d>", "Set time signature (e.g., 4/4)"),
+        ],
+    );
 
-    print_section("RHYTHM PARAMETERS", &[
-        ("set rhythm_mode <mode>", "euclidean | perfect | classic"),
-        ("set steps <4-192>", "Number of steps in pattern"),
-        ("set pulses <1-16>", "Number of pulses (triggers)"),
-        ("set rotation <0-15>", "Pattern rotation offset"),
-        ("set density <0-1>", "Rhythmic density"),
-        ("set rhythm_tension <0-1>", "Rhythmic tension"),
-    ]);
+    print_section(
+        "RHYTHM PARAMETERS",
+        &[
+            ("set rhythm_mode <mode>", "euclidean | perfect | classic"),
+            ("set steps <4-192>", "Number of steps in pattern"),
+            ("set pulses <1-16>", "Number of pulses (triggers)"),
+            ("set rotation <0-15>", "Pattern rotation offset"),
+            ("set density <0-1>", "Rhythmic density"),
+            ("set rhythm_tension <0-1>", "Rhythmic tension"),
+        ],
+    );
 
-    print_section("HARMONY PARAMETERS", &[
-        ("set harmony_mode <mode>", "basic | driver"),
-        ("set valence <-1 to 1>", "Positive/negative emotion"),
-        ("set harmony_tension <0-1>", "Harmonic dissonance"),
-    ]);
+    print_section(
+        "HARMONY PARAMETERS",
+        &[
+            ("set harmony_mode <mode>", "basic | driver"),
+            ("set valence <-1 to 1>", "Positive/negative emotion"),
+            ("set harmony_tension <0-1>", "Harmonic dissonance"),
+        ],
+    );
 
-    print_section("MELODY & VOICING", &[
-        ("set smoothness <0-1>", "Melodic smoothness (Hurst)"),
-        ("set octave <-2 to 2>", "Melody octave shift"),
-        ("set voicing_density <0-1>", "Chord voicing density"),
-        ("set voicing_tension <0-1>", "Voicing tension"),
-    ]);
+    print_section(
+        "MELODY & VOICING",
+        &[
+            ("set smoothness <0-1>", "Melodic smoothness (Hurst)"),
+            ("set octave <-2 to 2>", "Melody octave shift"),
+            ("set voicing_density <0-1>", "Chord voicing density"),
+            ("set voicing_tension <0-1>", "Voicing tension"),
+        ],
+    );
 
-    print_section("MODULE TOGGLES", &[
-        ("enable <module>", "Enable rhythm|harmony|melody|voicing"),
-        ("disable <module>", "Disable rhythm|harmony|melody|voicing"),
-    ]);
+    print_section(
+        "MODULE TOGGLES",
+        &[
+            ("enable <module>", "Enable rhythm|harmony|melody|voicing"),
+            ("disable <module>", "Disable rhythm|harmony|melody|voicing"),
+        ],
+    );
 
-    print_section("MIXER", &[
-        ("set gain <ch> <0-1>", "Set channel gain (ch: 0-3)"),
-        ("set mute <ch>", "Mute channel (0=bass, 1=lead, 2=snare, 3=hat)"),
-        ("set unmute <ch>", "Unmute channel"),
-    ]);
+    print_section(
+        "MIXER",
+        &[
+            ("set gain <ch> <0-1>", "Set channel gain (ch: 0-3)"),
+            ("set mute <ch>", "Mute channel (0=bass, 1=lead, 2=snare, 3=hat)"),
+            ("set unmute <ch>", "Unmute channel"),
+        ],
+    );
 
-    print_section("TIMELINE (timeline engine only)", &[
-        ("seek <bar>", "Seek playhead to a specific bar"),
-        ("loop <start> <end>", "Loop playback between two bars"),
-        ("loop off", "Clear loop region"),
-    ]);
+    print_section(
+        "TIMELINE (timeline engine only)",
+        &[
+            ("seek <bar>", "Seek playhead to a specific bar"),
+            ("loop <start> <end>", "Loop playback between two bars"),
+            ("loop off", "Clear loop region"),
+        ],
+    );
 
-    print_section("RECORDING", &[
-        ("record wav", "Start WAV recording"),
-        ("record midi", "Start MIDI recording"),
-        ("record musicxml", "Start MusicXML recording"),
-        ("stop", "Stop all recordings"),
-        ("stop <format>", "Stop specific format (wav|midi|musicxml)"),
-    ]);
+    print_section(
+        "RECORDING",
+        &[
+            ("record wav", "Start WAV recording"),
+            ("record midi", "Start MIDI recording"),
+            ("record musicxml", "Start MusicXML recording"),
+            ("stop", "Stop all recordings"),
+            ("stop <format>", "Stop specific format (wav|midi|musicxml)"),
+        ],
+    );
 
-    print_section("UTILITY", &[
-        ("state | show | status", "Show current engine state"),
-        ("reset", "Reset engine to defaults"),
-        ("help | ?", "Show this help message"),
-        ("quit | exit", "Exit the CLI"),
-    ]);
+    print_section(
+        "UTILITY",
+        &[
+            ("state | show | status", "Show current engine state"),
+            ("reset", "Reset engine to defaults"),
+            ("help | ?", "Show this help message"),
+            ("quit | exit", "Exit the CLI"),
+        ],
+    );
 
     println!();
     println!("{}", "KEYBOARD SHORTCUTS:".bold().yellow());

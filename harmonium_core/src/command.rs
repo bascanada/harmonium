@@ -4,13 +4,11 @@
 //! This replaces the previous triple buffer + SPSC rings + mutex architecture
 //! with a single lock-free command queue.
 
-use crate::{
-    events::RecordFormat,
-    harmony::HarmonyMode,
-    params::HarmonyStrategy,
-    sequencer::RhythmMode,
-};
 use serde::{Deserialize, Serialize};
+
+use crate::{
+    events::RecordFormat, harmony::HarmonyMode, params::HarmonyStrategy, sequencer::RhythmMode,
+};
 
 /// Unified command interface for controlling the HarmoniumEngine
 /// All control flows through these commands (CLI, Web, VST)
@@ -24,10 +22,7 @@ pub enum EngineCommand {
     SetMasterVolume(f32),
 
     /// Set time signature
-    SetTimeSignature {
-        numerator: usize,
-        denominator: usize,
-    },
+    SetTimeSignature { numerator: usize, denominator: usize },
 
     // === MODULE TOGGLES ===
     /// Enable/disable rhythm module
@@ -62,11 +57,7 @@ pub enum EngineCommand {
     SetRhythmTension(f32),
 
     /// Set secondary rhythm parameters (for polyrhythm)
-    SetRhythmSecondary {
-        steps: usize,
-        pulses: usize,
-        rotation: usize,
-    },
+    SetRhythmSecondary { steps: usize, pulses: usize, rotation: usize },
 
     /// Set fixed kick mode (true = drum kit MIDI note 36, false = harmonized synth bass)
     SetFixedKick(bool),
@@ -132,12 +123,7 @@ pub enum EngineCommand {
 
     /// Set emotional parameters (arousal, valence, density, tension)
     /// This command is sent by HarmoniumController when in emotion mode
-    SetEmotionParams {
-        arousal: f32,
-        valence: f32,
-        density: f32,
-        tension: f32,
-    },
+    SetEmotionParams { arousal: f32, valence: f32, density: f32, tension: f32 },
 
     // === BATCH OPERATIONS ===
     /// Set all rhythm parameters in one command
@@ -158,10 +144,7 @@ pub enum EngineCommand {
     Seek(usize),
 
     /// Set loop region (start_bar..=end_bar, 1-based)
-    SetLoop {
-        start_bar: usize,
-        end_bar: usize,
-    },
+    SetLoop { start_bar: usize, end_bar: usize },
 
     /// Clear loop region
     ClearLoop,

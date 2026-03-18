@@ -1,5 +1,4 @@
-use std::sync::atomic::AtomicUsize;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::AtomicUsize};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 #[cfg(feature = "odin2")]
@@ -7,11 +6,12 @@ use harmonium_audio::backend::odin2_backend::Odin2Backend;
 use harmonium_audio::backend::{
     AudioRenderer, recorder::RecorderBackend, synth_backend::SynthBackend,
 };
-use harmonium_core::log;
+use harmonium_core::{log, params::SessionConfig};
 
-use crate::composer::MusicComposer;
-use crate::playback::{PlaybackCommand, PlaybackEngine};
-use harmonium_core::params::SessionConfig;
+use crate::{
+    composer::MusicComposer,
+    playback::{PlaybackCommand, PlaybackEngine},
+};
 
 /// Available audio backend types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -51,17 +51,14 @@ pub fn create_timeline_stream(
     String,
 > {
     let host = cpal::default_host();
-    let device = host.default_output_device()
-        .ok_or_else(|| "No output device found".to_string())?;
+    let device =
+        host.default_output_device().ok_or_else(|| "No output device found".to_string())?;
 
     let config = device.default_output_config().map_err(|e| e.to_string())?;
     let sample_rate = config.sample_rate().0 as f64;
     let channels = config.channels() as usize;
 
-    log::info(&format!(
-        "Decoupled Engine - Sample rate: {}, Channels: {}",
-        sample_rate, channels
-    ));
+    log::info(&format!("Decoupled Engine - Sample rate: {}, Channels: {}", sample_rate, channels));
 
     // Command/report ring buffers (lock-free for audio thread)
     let (playback_cmd_tx, playback_cmd_rx) = rtrb::RingBuffer::<PlaybackCommand>::new(256);
@@ -78,19 +75,13 @@ pub fn create_timeline_stream(
 
     // Create renderer
     // Route to Oxisynth only when a SoundFont is loaded; otherwise use FundSP
-    let default_routing = if sf2_bytes.is_some() {
-        vec![0, 1, 2, 3]
-    } else {
-        vec![-1, -1, -1, -1]
-    };
+    let default_routing = if sf2_bytes.is_some() { vec![0, 1, 2, 3] } else { vec![-1, -1, -1, -1] };
     let inner_backend: Box<dyn AudioRenderer> = match backend_type {
         AudioBackendType::FundSP => {
             Box::new(SynthBackend::new(sample_rate, sf2_bytes, &default_routing))
         }
         #[cfg(feature = "odin2")]
-        AudioBackendType::Odin2 => {
-            Box::new(Odin2Backend::new(sample_rate))
-        }
+        AudioBackendType::Odin2 => Box::new(Odin2Backend::new(sample_rate)),
     };
 
     let finished_recordings = Arc::new(Mutex::new(Vec::new()));
@@ -140,7 +131,15 @@ pub fn create_timeline_stream(
 
     let composer_mutex = Mutex::new(composer);
 
-    Ok((stream, session_config, composer_mutex, playback_cmd_tx, report_rx, font_queue, finished_recordings))
+    Ok((
+        stream,
+        session_config,
+        composer_mutex,
+        playback_cmd_tx,
+        report_rx,
+        font_queue,
+        finished_recordings,
+    ))
 }
 
 /// Create a timeline engine for offline (non-realtime) rendering.
@@ -169,19 +168,13 @@ pub fn create_offline_engine(
     let playhead_bar = Arc::new(AtomicUsize::new(1));
     let font_queue = Arc::new(std::sync::Mutex::new(Vec::new()));
 
-    let default_routing = if sf2_bytes.is_some() {
-        vec![0, 1, 2, 3]
-    } else {
-        vec![-1, -1, -1, -1]
-    };
+    let default_routing = if sf2_bytes.is_some() { vec![0, 1, 2, 3] } else { vec![-1, -1, -1, -1] };
     let inner_backend: Box<dyn AudioRenderer> = match backend_type {
         AudioBackendType::FundSP => {
             Box::new(SynthBackend::new(sample_rate, sf2_bytes, &default_routing))
         }
         #[cfg(feature = "odin2")]
-        AudioBackendType::Odin2 => {
-            Box::new(Odin2Backend::new(sample_rate))
-        }
+        AudioBackendType::Odin2 => Box::new(Odin2Backend::new(sample_rate)),
     };
 
     let finished_recordings = Arc::new(Mutex::new(Vec::new()));
@@ -191,12 +184,8 @@ pub fn create_offline_engine(
         sample_rate as u32,
     ));
 
-    let composer = MusicComposer::new(
-        sample_rate,
-        shared_pages.clone(),
-        playhead_bar.clone(),
-        font_queue,
-    );
+    let composer =
+        MusicComposer::new(sample_rate, shared_pages.clone(), playhead_bar.clone(), font_queue);
 
     let playback = PlaybackEngine::new(
         sample_rate,
@@ -229,8 +218,8 @@ pub fn create_timeline_stream_legacy(
     String,
 > {
     let host = cpal::default_host();
-    let device = host.default_output_device()
-        .ok_or_else(|| "No output device found".to_string())?;
+    let device =
+        host.default_output_device().ok_or_else(|| "No output device found".to_string())?;
 
     let config = device.default_output_config().map_err(|e| e.to_string())?;
     let sample_rate = config.sample_rate().0 as f64;
@@ -251,9 +240,7 @@ pub fn create_timeline_stream_legacy(
             Box::new(SynthBackend::new(sample_rate, sf2_bytes, &default_routing))
         }
         #[cfg(feature = "odin2")]
-        AudioBackendType::Odin2 => {
-            Box::new(Odin2Backend::new(sample_rate))
-        }
+        AudioBackendType::Odin2 => Box::new(Odin2Backend::new(sample_rate)),
     };
 
     let finished_recordings = Arc::new(Mutex::new(Vec::new()));
@@ -264,7 +251,10 @@ pub fn create_timeline_stream_legacy(
     ));
 
     let mut engine = crate::timeline_engine::TimelineEngine::new(
-        sample_rate, command_rx, report_tx, recorder_backend,
+        sample_rate,
+        command_rx,
+        report_tx,
+        recorder_backend,
     );
     let session_config = engine.config.clone();
     let font_queue = engine.font_queue.clone();
@@ -315,9 +305,7 @@ pub fn create_offline_engine_legacy(
             Box::new(SynthBackend::new(sample_rate, sf2_bytes, &default_routing))
         }
         #[cfg(feature = "odin2")]
-        AudioBackendType::Odin2 => {
-            Box::new(Odin2Backend::new(sample_rate))
-        }
+        AudioBackendType::Odin2 => Box::new(Odin2Backend::new(sample_rate)),
     };
 
     let finished_recordings = Arc::new(Mutex::new(Vec::new()));
@@ -328,7 +316,10 @@ pub fn create_offline_engine_legacy(
     ));
 
     let mut engine = crate::timeline_engine::TimelineEngine::new(
-        sample_rate, command_rx, report_tx, recorder_backend,
+        sample_rate,
+        command_rx,
+        report_tx,
+        recorder_backend,
     );
     engine.set_offline(true);
     let controller = harmonium_core::HarmoniumController::new(command_tx, report_rx);
@@ -359,7 +350,9 @@ mod tests {
 
         for _ in 0..500 {
             composer.generate_ahead();
-            for s in buffer.iter_mut() { *s = 0.0; }
+            for s in buffer.iter_mut() {
+                *s = 0.0;
+            }
             playback.process_buffer(&mut buffer, channels);
             total_energy += buffer.iter().map(|s| (*s as f64) * (*s as f64)).sum::<f64>();
         }
@@ -397,15 +390,13 @@ mod tests {
         // Verify preview bars are exactly the same
         for (i, original) in preview_bars.iter().enumerate() {
             let bar_idx = i + 1;
-            let current = composer.timeline_measure(bar_idx)
-                .expect("preview bar should still exist");
-            assert_eq!(
-                original.index, current.index,
-                "Preview bar {} index changed", bar_idx
-            );
+            let current =
+                composer.timeline_measure(bar_idx).expect("preview bar should still exist");
+            assert_eq!(original.index, current.index, "Preview bar {} index changed", bar_idx);
             assert_eq!(
                 original.tempo, current.tempo,
-                "Preview bar {} tempo should be unchanged (still old BPM)", bar_idx
+                "Preview bar {} tempo should be unchanged (still old BPM)",
+                bar_idx
             );
         }
 
@@ -414,12 +405,13 @@ mod tests {
 
         // Verify post-preview bars use new BPM (180)
         for bar_idx in 5..=8 {
-            let measure = composer.timeline_measure(bar_idx)
-                .expect("post-preview bar should exist");
+            let measure =
+                composer.timeline_measure(bar_idx).expect("post-preview bar should exist");
             assert!(
                 (measure.tempo - 180.0).abs() < 1.0,
                 "Post-preview bar {} should have new BPM ~180, got {}",
-                bar_idx, measure.tempo
+                bar_idx,
+                measure.tempo
             );
         }
     }

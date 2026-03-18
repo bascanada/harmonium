@@ -37,10 +37,7 @@ enum NoteEvent {
 
 impl EventCapture {
     fn new() -> Self {
-        Self {
-            events: Vec::with_capacity(1024),
-            step_counter: 0,
-        }
+        Self { events: Vec::with_capacity(1024), step_counter: 0 }
     }
 
     fn advance_step(&mut self) {
@@ -64,10 +61,7 @@ impl AudioRenderer for EventCapture {
             AudioEvent::NoteOff { note, channel } => {
                 self.events.push(CapturedEvent {
                     step: self.step_counter,
-                    event: NoteEvent::NoteOff {
-                        note: *note,
-                        channel: *channel,
-                    },
+                    event: NoteEvent::NoteOff { note: *note, channel: *channel },
                 });
             }
             AudioEvent::AllNotesOff { channel } => {
@@ -93,7 +87,10 @@ impl AudioRenderer for EventCapture {
 }
 
 /// Create a timeline engine with the given seed.
-fn create_engine(seed: u64, sample_rate: f64) -> (
+fn create_engine(
+    seed: u64,
+    sample_rate: f64,
+) -> (
     TimelineEngine,
     rtrb::Producer<harmonium_core::EngineCommand>,
     rtrb::Consumer<harmonium_core::EngineReport>,
@@ -101,9 +98,7 @@ fn create_engine(seed: u64, sample_rate: f64) -> (
     let (cmd_tx, cmd_rx) = rtrb::RingBuffer::new(1024);
     let (rpt_tx, rpt_rx) = rtrb::RingBuffer::new(256);
     let renderer: Box<dyn AudioRenderer> = Box::new(EventCapture::new());
-    let mut engine = TimelineEngine::new_with_seed(
-        sample_rate, cmd_rx, rpt_tx, renderer, seed,
-    );
+    let mut engine = TimelineEngine::new_with_seed(sample_rate, cmd_rx, rpt_tx, renderer, seed);
     engine.set_offline(true);
     (engine, cmd_tx, rpt_rx)
 }
@@ -191,11 +186,7 @@ fn test_rhythm_mode_sweep() {
     use harmonium_core::sequencer::RhythmMode;
 
     let sample_rate = 44100.0;
-    let modes = [
-        RhythmMode::Euclidean,
-        RhythmMode::PerfectBalance,
-        RhythmMode::ClassicGroove,
-    ];
+    let modes = [RhythmMode::Euclidean, RhythmMode::PerfectBalance, RhythmMode::ClassicGroove];
 
     for (i, &mode) in modes.iter().enumerate() {
         let seed = 300 + i as u64;
@@ -251,7 +242,8 @@ fn test_all_channels_muted_no_panic() {
 
     let (mut engine, mut cmd_tx, _rpt_rx) = create_engine(seed, sample_rate);
     for ch in 0..4u8 {
-        let _ = cmd_tx.push(harmonium_core::EngineCommand::SetChannelMute { channel: ch, muted: true });
+        let _ =
+            cmd_tx.push(harmonium_core::EngineCommand::SetChannelMute { channel: ch, muted: true });
     }
     let total = samples_for_bars(4, 120.0, 4, sample_rate);
     run_engine_samples(&mut engine, total);
@@ -279,11 +271,7 @@ fn test_maximum_density_all_modes_no_panic() {
     use harmonium_core::sequencer::RhythmMode;
 
     let sample_rate = 44100.0;
-    let modes = [
-        RhythmMode::Euclidean,
-        RhythmMode::PerfectBalance,
-        RhythmMode::ClassicGroove,
-    ];
+    let modes = [RhythmMode::Euclidean, RhythmMode::PerfectBalance, RhythmMode::ClassicGroove];
 
     for (i, &mode) in modes.iter().enumerate() {
         let seed = 800 + i as u64;
@@ -318,15 +306,11 @@ fn test_same_seed_produces_same_session_config() {
 
 #[test]
 fn test_coverage_matrix_no_panics() {
-    use harmonium_core::harmony::HarmonyMode;
-    use harmonium_core::sequencer::RhythmMode;
+    use harmonium_core::{harmony::HarmonyMode, sequencer::RhythmMode};
 
     let sample_rate = 44100.0;
-    let rhythm_modes = [
-        RhythmMode::Euclidean,
-        RhythmMode::PerfectBalance,
-        RhythmMode::ClassicGroove,
-    ];
+    let rhythm_modes =
+        [RhythmMode::Euclidean, RhythmMode::PerfectBalance, RhythmMode::ClassicGroove];
     let harmony_modes = [HarmonyMode::Basic, HarmonyMode::Driver];
     let time_sigs: [(usize, usize); 3] = [(4, 4), (3, 4), (5, 4)];
 
@@ -374,10 +358,7 @@ fn test_measure_snapshots_in_reports() {
     }
 
     // Should have received multiple measures (at least a few bars)
-    assert!(
-        !all_measures.is_empty(),
-        "Should receive measure snapshots via reports"
-    );
+    assert!(!all_measures.is_empty(), "Should receive measure snapshots via reports");
 
     // Verify measure data is populated (use last measure which has fully morphed state)
     let last = all_measures.last().unwrap();

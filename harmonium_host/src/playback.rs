@@ -3,34 +3,54 @@
 //! Minimal audio-thread component: reads pre-generated measures from a ring buffer,
 //! ticks the playhead, renders audio events. No generation, no allocations in steady state.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use arrayvec::ArrayString;
 use harmonium_audio::backend::AudioRenderer;
-use harmonium_core::{
-    events::AudioEvent,
-    log,
-    params::MusicalParams,
-    timeline::Playhead,
-};
+use harmonium_core::{events::AudioEvent, log, params::MusicalParams, timeline::Playhead};
 
 /// Commands sent from the main thread to the PlaybackEngine (audio thread).
 pub enum PlaybackCommand {
-    SetChannelGain { channel: u8, gain: f32 },
-    SetChannelMute { channel: u8, muted: bool },
-    SetChannelRoute { channel: u8, bank_id: i32 },
-    SetVelocityBase { channel: u8, velocity: u8 },
+    SetChannelGain {
+        channel: u8,
+        gain: f32,
+    },
+    SetChannelMute {
+        channel: u8,
+        muted: bool,
+    },
+    SetChannelRoute {
+        channel: u8,
+        bank_id: i32,
+    },
+    SetVelocityBase {
+        channel: u8,
+        velocity: u8,
+    },
     SetOutputMute(bool),
     SetMasterVolume(f32),
     Seek(usize),
     SeekPlayhead(usize),
-    SetLoop { start_bar: usize, end_bar: usize },
+    SetLoop {
+        start_bar: usize,
+        end_bar: usize,
+    },
     ClearLoop,
     StartRecording(harmonium_core::events::RecordFormat),
     StopRecording(harmonium_core::events::RecordFormat),
-    MixerGains { lead: f32, bass: f32, snare: f32, hat: f32 },
-    LoadFont { id: u32, bytes: Vec<u8> },
+    MixerGains {
+        lead: f32,
+        bass: f32,
+        snare: f32,
+        hat: f32,
+    },
+    LoadFont {
+        id: u32,
+        bytes: Vec<u8>,
+    },
     /// Update the muted channels mask from the composer's musical params
     SetMutedChannels(Vec<bool>),
     /// Update musical params snapshot for recording/reporting
@@ -200,17 +220,17 @@ impl PlaybackEngine {
             if let Some(measure) = measure_opt {
                 // Update timing from measure tempo
                 let steps_per_beat = 4.0f64;
-                let new_sps = (self.sample_rate * 60.0 / (measure.tempo as f64) / steps_per_beat) as usize;
+                let new_sps =
+                    (self.sample_rate * 60.0 / (measure.tempo as f64) / steps_per_beat) as usize;
                 if new_sps != self.samples_per_step {
                     self.samples_per_step = new_sps;
-                    self.renderer.handle_event(AudioEvent::TimingUpdate {
-                        samples_per_step: new_sps,
-                    });
+                    self.renderer
+                        .handle_event(AudioEvent::TimingUpdate { samples_per_step: new_sps });
                 }
 
                 // Update chord info for reports
-                self.last_chord_name = ArrayString::from(&measure.chord_context.chord_name)
-                    .unwrap_or_default();
+                self.last_chord_name =
+                    ArrayString::from(&measure.chord_context.chord_name).unwrap_or_default();
                 self.last_chord_root_offset = measure.chord_context.root_offset;
                 self.last_chord_is_minor = measure.chord_context.is_minor;
 
@@ -272,10 +292,8 @@ impl PlaybackEngine {
                 }
                 PlaybackCommand::SetChannelRoute { channel, bank_id } => {
                     if (channel as usize) < 16 {
-                        self.renderer.handle_event(AudioEvent::SetChannelRoute {
-                            channel,
-                            bank: bank_id,
-                        });
+                        self.renderer
+                            .handle_event(AudioEvent::SetChannelRoute { channel, bank: bank_id });
                     }
                 }
                 PlaybackCommand::SetVelocityBase { .. } => {
@@ -336,8 +354,12 @@ impl PlaybackEngine {
                 PlaybackCommand::StopRecording(format) => {
                     match format {
                         harmonium_core::events::RecordFormat::Wav => self.is_recording_wav = false,
-                        harmonium_core::events::RecordFormat::Midi => self.is_recording_midi = false,
-                        harmonium_core::events::RecordFormat::MusicXml => self.is_recording_musicxml = false,
+                        harmonium_core::events::RecordFormat::Midi => {
+                            self.is_recording_midi = false
+                        }
+                        harmonium_core::events::RecordFormat::MusicXml => {
+                            self.is_recording_musicxml = false
+                        }
                     }
                     self.renderer.handle_event(AudioEvent::StopRecording { format });
                 }
@@ -346,7 +368,12 @@ impl PlaybackEngine {
                     self.gain_bass = bass;
                     self.gain_snare = snare;
                     self.gain_hat = hat;
-                    self.renderer.handle_event(AudioEvent::SetMixerGains { lead, bass, snare, hat });
+                    self.renderer.handle_event(AudioEvent::SetMixerGains {
+                        lead,
+                        bass,
+                        snare,
+                        hat,
+                    });
                 }
                 PlaybackCommand::LoadFont { id, bytes } => {
                     self.renderer.handle_event(AudioEvent::LoadFont { id, bytes });
@@ -355,7 +382,8 @@ impl PlaybackEngine {
                     for (i, &muted) in channels.iter().enumerate() {
                         if i < self.muted_channels.len() {
                             if muted && !self.muted_channels[i] {
-                                self.renderer.handle_event(AudioEvent::AllNotesOff { channel: i as u8 });
+                                self.renderer
+                                    .handle_event(AudioEvent::AllNotesOff { channel: i as u8 });
                             }
                             self.muted_channels[i] = muted;
                         }

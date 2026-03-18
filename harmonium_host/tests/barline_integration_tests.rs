@@ -30,18 +30,12 @@ fn test_buffer_swap_on_barline() {
     assert!(sequencer.next_pattern.is_some(), "Next pattern should be prepared");
 
     // Verify pattern has NOT swapped yet (still using initial pattern)
-    assert_eq!(
-        sequencer.pattern, initial_pattern,
-        "Pattern should not change until barline"
-    );
+    assert_eq!(sequencer.pattern, initial_pattern, "Pattern should not change until barline");
 
     // Simulate ticking through a full bar (16 steps in 4/4)
     for step in 0..15 {
         let tick_result = sequencer.tick();
-        assert!(
-            !tick_result.bar_crossed,
-            "Should not cross bar at step {}", step
-        );
+        assert!(!tick_result.bar_crossed, "Should not cross bar at step {}", step);
     }
 
     // Tick the last step - this should cross the barline
@@ -56,10 +50,7 @@ fn test_buffer_swap_on_barline() {
     }
 
     // Verify pattern HAS swapped (should be different from initial)
-    assert_ne!(
-        sequencer.pattern, initial_pattern,
-        "Pattern should have changed after barline"
-    );
+    assert_ne!(sequencer.pattern, initial_pattern, "Pattern should have changed after barline");
 }
 
 #[test]
@@ -173,7 +164,7 @@ fn test_dual_sequencer_sync() {
     primary.tension = 0.3;
     primary.regenerate_pattern();
 
-    secondary.pulses = 3;  // Initial: 3 pulses
+    secondary.pulses = 3; // Initial: 3 pulses
     secondary.regenerate_pattern();
 
     let primary_initial = primary.pattern.clone();
@@ -182,7 +173,7 @@ fn test_dual_sequencer_sync() {
     // Change parameters so next patterns will be different
     primary.density = 0.8;
     primary.tension = 0.8;
-    secondary.pulses = 5;  // Changed to 5 pulses
+    secondary.pulses = 5; // Changed to 5 pulses
 
     // Prepare next bars for both (both should have different patterns)
     primary.prepare_next_bar();
@@ -215,14 +206,8 @@ fn test_dual_sequencer_sync() {
     }
 
     // Verify both patterns changed
-    assert_ne!(
-        primary.pattern, primary_initial,
-        "Primary pattern should have changed"
-    );
-    assert_ne!(
-        secondary.pattern, secondary_initial,
-        "Secondary pattern should have changed"
-    );
+    assert_ne!(primary.pattern, primary_initial, "Primary pattern should have changed");
+    assert_ne!(secondary.pattern, secondary_initial, "Secondary pattern should have changed");
 
     // Verify both have no pending next patterns (they were swapped)
     assert!(primary.next_pattern.is_none(), "Primary next_pattern should be None after swap");

@@ -14,8 +14,7 @@
 
 use harmonium::timeline_engine::TimelineEngine;
 use harmonium_audio::backend::AudioRenderer;
-use harmonium_core::events::AudioEvent;
-use harmonium_core::report::MeasureSnapshot;
+use harmonium_core::{events::AudioEvent, report::MeasureSnapshot};
 
 // ─── Null renderer (captures nothing, just satisfies the trait) ───
 
@@ -104,8 +103,7 @@ fn assert_golden(name: &str, measures: &[MeasureSnapshot]) {
     let dir = golden_dir();
     let path = dir.join(format!("{name}.json"));
 
-    let actual_json = serde_json::to_string_pretty(measures)
-        .expect("Failed to serialize measures");
+    let actual_json = serde_json::to_string_pretty(measures).expect("Failed to serialize measures");
 
     if path.exists() {
         let expected_json = std::fs::read_to_string(&path)
@@ -191,7 +189,8 @@ fn golden_default_8bars() {
         assert!(
             w[1].index > w[0].index,
             "Measure indices not ascending: {} then {}",
-            w[0].index, w[1].index
+            w[0].index,
+            w[1].index
         );
     }
 }
@@ -214,10 +213,7 @@ fn golden_determinism_same_seed_twice() {
     let json1 = serde_json::to_string(&m1).unwrap();
     let json2 = serde_json::to_string(&m2).unwrap();
 
-    assert_eq!(
-        json1, json2,
-        "Same seed must produce byte-identical measure snapshots"
-    );
+    assert_eq!(json1, json2, "Same seed must produce byte-identical measure snapshots");
 }
 
 #[test]
@@ -319,10 +315,8 @@ fn golden_time_sig_3_4() {
     let seed = 300u64;
     let sample_rate = 44100.0;
     let (mut engine, mut cmd_tx, mut rpt_rx) = create_engine(seed, sample_rate);
-    let _ = cmd_tx.push(harmonium_core::EngineCommand::SetTimeSignature {
-        numerator: 3,
-        denominator: 4,
-    });
+    let _ = cmd_tx
+        .push(harmonium_core::EngineCommand::SetTimeSignature { numerator: 3, denominator: 4 });
     let total = samples_for_bars(8, 120.0, 3, sample_rate);
     let measures = run_engine_and_collect_measures(&mut engine, &mut rpt_rx, total);
     assert!(!measures.is_empty());
@@ -334,10 +328,8 @@ fn golden_time_sig_5_4() {
     let seed = 300u64;
     let sample_rate = 44100.0;
     let (mut engine, mut cmd_tx, mut rpt_rx) = create_engine(seed, sample_rate);
-    let _ = cmd_tx.push(harmonium_core::EngineCommand::SetTimeSignature {
-        numerator: 5,
-        denominator: 4,
-    });
+    let _ = cmd_tx
+        .push(harmonium_core::EngineCommand::SetTimeSignature { numerator: 5, denominator: 4 });
     let total = samples_for_bars(8, 120.0, 5, sample_rate);
     let measures = run_engine_and_collect_measures(&mut engine, &mut rpt_rx, total);
     assert!(!measures.is_empty());
@@ -348,8 +340,7 @@ fn golden_time_sig_5_4() {
 
 #[test]
 fn golden_coverage_matrix() {
-    use harmonium_core::harmony::HarmonyMode;
-    use harmonium_core::sequencer::RhythmMode;
+    use harmonium_core::{harmony::HarmonyMode, sequencer::RhythmMode};
 
     let sample_rate = 44100.0;
     let rhythm_modes = [
@@ -357,15 +348,8 @@ fn golden_coverage_matrix() {
         ("perfect_balance", RhythmMode::PerfectBalance),
         ("classic_groove", RhythmMode::ClassicGroove),
     ];
-    let harmony_modes = [
-        ("basic", HarmonyMode::Basic),
-        ("driver", HarmonyMode::Driver),
-    ];
-    let time_sigs: &[(&str, usize, usize)] = &[
-        ("4_4", 4, 4),
-        ("3_4", 3, 4),
-        ("5_4", 5, 4),
-    ];
+    let harmony_modes = [("basic", HarmonyMode::Basic), ("driver", HarmonyMode::Driver)];
+    let time_sigs: &[(&str, usize, usize)] = &[("4_4", 4, 4), ("3_4", 3, 4), ("5_4", 5, 4)];
 
     for (ri, (r_name, rhythm)) in rhythm_modes.iter().enumerate() {
         for (hi, (h_name, harmony)) in harmony_modes.iter().enumerate() {
@@ -381,14 +365,10 @@ fn golden_coverage_matrix() {
                 });
 
                 let total = samples_for_bars(8, 120.0, *num, sample_rate);
-                let measures =
-                    run_engine_and_collect_measures(&mut engine, &mut rpt_rx, total);
+                let measures = run_engine_and_collect_measures(&mut engine, &mut rpt_rx, total);
 
                 let golden_name = format!("matrix_{r_name}_{h_name}_{ts_name}_seed{seed}");
-                assert!(
-                    !measures.is_empty(),
-                    "No measures for config {golden_name}"
-                );
+                assert!(!measures.is_empty(), "No measures for config {golden_name}");
                 assert_golden(&golden_name, &measures);
             }
         }
@@ -431,8 +411,7 @@ fn golden_incremental_reconstruction() {
             // We simulate by collecting the MeasureSnapshots directly
             for m in report.new_measures {
                 // Verify each measure can round-trip through JSON (like the frontend receives)
-                let json = serde_json::to_string(&m)
-                    .expect("MeasureSnapshot must serialize");
+                let json = serde_json::to_string(&m).expect("MeasureSnapshot must serialize");
                 let deserialized: MeasureSnapshot = serde_json::from_str(&json)
                     .expect("MeasureSnapshot must deserialize from its own JSON");
 
@@ -455,17 +434,15 @@ fn golden_incremental_reconstruction() {
         }
     }
 
-    assert!(
-        !score_cache.is_empty(),
-        "Frontend score cache should have measures"
-    );
+    assert!(!score_cache.is_empty(), "Frontend score cache should have measures");
 
     // Verify ascending indices (frontend relies on this for sequential rendering)
     for w in score_cache.windows(2) {
         assert!(
             w[1].index > w[0].index,
             "Score cache indices must be ascending: {} then {}",
-            w[0].index, w[1].index
+            w[0].index,
+            w[1].index
         );
     }
 
@@ -539,11 +516,7 @@ fn golden_note_validity() {
             assert!(note.pitch <= 127, "MIDI pitch out of range: {}", note.pitch);
             assert!(note.velocity <= 127, "Velocity out of range: {}", note.velocity);
             assert!(note.velocity > 0, "Velocity should be > 0 for triggered notes");
-            assert!(
-                note.track <= 3,
-                "Track/channel out of range: {} (expected 0-3)",
-                note.track
-            );
+            assert!(note.track <= 3, "Track/channel out of range: {} (expected 0-3)", note.track);
             assert!(
                 note.start_step < m.steps,
                 "Note start_step {} >= measure steps {} in measure {}",

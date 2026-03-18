@@ -12,12 +12,11 @@ pub mod export;
 pub mod generator;
 mod pointers;
 
+use std::collections::HashMap;
+
 pub use export::{timeline_to_musicxml, timeline_to_musicxml_with_instruments};
 pub use generator::TimelineGenerator;
 pub use pointers::{Playhead, Writehead};
-
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 
 use crate::params::{CurrentState, TimeSignature};
@@ -247,11 +246,7 @@ impl ScoreTimeline {
     /// Create a new timeline with the given capacity
     #[must_use]
     pub fn new(max_measures: usize) -> Self {
-        Self {
-            measures: Vec::with_capacity(max_measures),
-            max_measures,
-            next_note_id: 1,
-        }
+        Self { measures: Vec::with_capacity(max_measures), max_measures, next_note_id: 1 }
     }
 
     /// Default capacity (100 bars)

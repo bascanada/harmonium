@@ -584,24 +584,21 @@ fn generate_timeline_export(
     num_measures: usize,
     seed: u64,
 ) {
-    use harmonium_core::harmony::melody::HarmonyNavigator;
-    use harmonium_core::params::CurrentState;
-    use harmonium_core::timeline::{
-        TimelineGenerator, ScoreTimeline, TrackId,
-        timeline_to_musicxml_with_instruments,
+    use harmonium_core::{
+        harmony::melody::HarmonyNavigator,
+        params::CurrentState,
+        timeline::{
+            ScoreTimeline, TimelineGenerator, TrackId, timeline_to_musicxml_with_instruments,
+        },
     };
-    use rust_music_theory::note::PitchSymbol;
-    use rust_music_theory::scale::ScaleType;
+    use rust_music_theory::{note::PitchSymbol, scale::ScaleType};
 
     setup_output_dir();
 
-    let seq_primary = Sequencer::new(
-        params.rhythm_steps,
-        params.rhythm_pulses,
-        params.bpm,
-    );
+    let seq_primary = Sequencer::new(params.rhythm_steps, params.rhythm_pulses, params.bpm);
     let seq_secondary = Sequencer::new_with_rotation(12, 3, params.bpm, 0);
-    let harmony = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, params.melody_octave);
+    let harmony =
+        HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, params.melody_octave);
     let driver = HarmonicDriver::new(params.key_root);
     let state = CurrentState {
         bpm: params.bpm,
@@ -636,7 +633,9 @@ fn generate_timeline_export(
             assert!(
                 note.pitch >= instrument_lead.min_note && note.pitch <= instrument_lead.max_note,
                 "Lead note {} out of instrument range [{}, {}]",
-                note.pitch, instrument_lead.min_note, instrument_lead.max_note,
+                note.pitch,
+                instrument_lead.min_note,
+                instrument_lead.max_note,
             );
             lead_count += 1;
         }
@@ -671,8 +670,7 @@ fn generate_timeline_export(
 #[ignore]
 fn test_tenor_sax_lead_export() {
     let tenor = InstrumentConfig::tenor_sax();
-    let params = MusicalParams::default()
-        .instrument_lead(tenor);
+    let params = MusicalParams::default().instrument_lead(tenor);
 
     generate_timeline_export(
         "tenor_sax_lead",
@@ -688,15 +686,7 @@ fn test_tenor_sax_lead_export() {
 #[ignore]
 fn test_alto_sax_lead_export() {
     let alto = InstrumentConfig::alto_sax();
-    let params = MusicalParams::default()
-        .instrument_lead(alto);
+    let params = MusicalParams::default().instrument_lead(alto);
 
-    generate_timeline_export(
-        "alto_sax_lead",
-        &params,
-        &alto,
-        &InstrumentConfig::default(),
-        8,
-        42,
-    );
+    generate_timeline_export("alto_sax_lead", &params, &alto, &InstrumentConfig::default(), 8, 42);
 }

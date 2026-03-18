@@ -12,7 +12,7 @@ const GM_HIHAT_CLOSED: u8 = 42; // F#1 - Closed Hi-Hat
 use std::sync::{Arc, Mutex};
 
 use harmonium_audio::backend::vst_midi_backend::VstMidiBackend;
-use harmonium_core::{harmony::HarmonyMode, sequencer::RhythmMode, HarmoniumController};
+use harmonium_core::{HarmoniumController, harmony::HarmonyMode, sequencer::RhythmMode};
 
 use crate::timeline_engine::TimelineEngine;
 
@@ -208,13 +208,7 @@ impl Default for HarmoniumPlugin {
         let params = Arc::new(HarmoniumParams::default());
         let midi_backend = Arc::new(Mutex::new(VstMidiBackend::new()));
 
-        Self {
-            params,
-            engine: None,
-            controller: None,
-            midi_backend,
-            sample_rate: 44100.0,
-        }
+        Self { params, engine: None, controller: None, midi_backend, sample_rate: 44100.0 }
     }
 }
 
@@ -250,15 +244,29 @@ impl HarmoniumPlugin {
 
             // Module enables (work in both modes)
             let _ = controller.send(EngineCommand::EnableRhythm(self.params.enable_rhythm.value()));
-            let _ = controller.send(EngineCommand::EnableHarmony(self.params.enable_harmony.value()));
+            let _ =
+                controller.send(EngineCommand::EnableHarmony(self.params.enable_harmony.value()));
             let _ = controller.send(EngineCommand::EnableMelody(self.params.enable_melody.value()));
-            let _ = controller.send(EngineCommand::EnableVoicing(self.params.enable_voicing.value()));
+            let _ =
+                controller.send(EngineCommand::EnableVoicing(self.params.enable_voicing.value()));
 
             // Channel mutes
-            let _ = controller.send(EngineCommand::SetChannelMute { channel: 0, muted: self.params.mute_bass.value() });
-            let _ = controller.send(EngineCommand::SetChannelMute { channel: 1, muted: self.params.mute_lead.value() });
-            let _ = controller.send(EngineCommand::SetChannelMute { channel: 2, muted: self.params.mute_snare.value() });
-            let _ = controller.send(EngineCommand::SetChannelMute { channel: 3, muted: self.params.mute_hat.value() });
+            let _ = controller.send(EngineCommand::SetChannelMute {
+                channel: 0,
+                muted: self.params.mute_bass.value(),
+            });
+            let _ = controller.send(EngineCommand::SetChannelMute {
+                channel: 1,
+                muted: self.params.mute_lead.value(),
+            });
+            let _ = controller.send(EngineCommand::SetChannelMute {
+                channel: 2,
+                muted: self.params.mute_snare.value(),
+            });
+            let _ = controller.send(EngineCommand::SetChannelMute {
+                channel: 3,
+                muted: self.params.mute_hat.value(),
+            });
 
             if emotion_mode {
                 // Emotion mode - send emotional parameters
@@ -277,9 +285,14 @@ impl HarmoniumPlugin {
                     RhythmMode::Euclidean
                 };
                 let _ = controller.send(EngineCommand::SetRhythmMode(rhythm_mode));
-                let _ = controller.send(EngineCommand::SetRhythmSteps(self.params.rhythm_steps.value() as usize));
-                let _ = controller.send(EngineCommand::SetRhythmPulses(self.params.rhythm_pulses.value() as usize));
-                let _ = controller.send(EngineCommand::SetRhythmRotation(self.params.rhythm_rotation.value() as usize));
+                let _ = controller
+                    .send(EngineCommand::SetRhythmSteps(self.params.rhythm_steps.value() as usize));
+                let _ = controller.send(EngineCommand::SetRhythmPulses(
+                    self.params.rhythm_pulses.value() as usize,
+                ));
+                let _ = controller.send(EngineCommand::SetRhythmRotation(
+                    self.params.rhythm_rotation.value() as usize,
+                ));
 
                 let harmony_mode = if self.params.harmony_mode.value() {
                     HarmonyMode::Driver
@@ -344,12 +357,8 @@ impl Plugin for HarmoniumPlugin {
         let (report_tx, report_rx) = rtrb::RingBuffer::<harmonium_core::EngineReport>::new(256);
 
         // Create engine with timeline architecture
-        let engine = TimelineEngine::new(
-            self.sample_rate as f64,
-            command_rx,
-            report_tx,
-            engine_backend,
-        );
+        let engine =
+            TimelineEngine::new(self.sample_rate as f64, command_rx, report_tx, engine_backend);
 
         self.engine = Some(engine);
 
@@ -410,7 +419,8 @@ impl Plugin for HarmoniumPlugin {
                     //
                     // Drum channels (0,2,3) are remapped to GM standard notes
                     // Melody channel (1) keeps original musical notes
-                    let midi_note = Self::map_note_for_channel(note_event.channel, note_event.note_midi);
+                    let midi_note =
+                        Self::map_note_for_channel(note_event.channel, note_event.note_midi);
 
                     // Send NoteOn at start of buffer
                     context.send_event(NoteEvent::NoteOn {

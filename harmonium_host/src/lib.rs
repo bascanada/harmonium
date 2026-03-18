@@ -283,26 +283,17 @@ impl Handle {
 
     pub fn get_current_chord_index(&mut self) -> usize {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.chord_root_offset as usize)
-            .unwrap_or(0)
+        self.controller.get_state().map(|s| s.chord_root_offset as usize).unwrap_or(0)
     }
 
     pub fn is_current_chord_minor(&mut self) -> bool {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.chord_is_minor)
-            .unwrap_or(false)
+        self.controller.get_state().map(|s| s.chord_is_minor).unwrap_or(false)
     }
 
     pub fn get_current_measure(&mut self) -> usize {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.current_bar)
-            .unwrap_or(1)
+        self.controller.get_state().map(|s| s.current_bar).unwrap_or(1)
     }
 
     pub fn get_current_cycle(&mut self) -> usize {
@@ -311,21 +302,14 @@ impl Handle {
         self.controller
             .get_state()
             .map(|s| {
-                if s.progression_length > 0 {
-                    s.current_bar / s.progression_length + 1
-                } else {
-                    1
-                }
+                if s.progression_length > 0 { s.current_bar / s.progression_length + 1 } else { 1 }
             })
             .unwrap_or(1)
     }
 
     pub fn get_current_step(&mut self) -> usize {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.current_step)
-            .unwrap_or(0)
+        self.controller.get_state().map(|s| s.current_step).unwrap_or(0)
     }
 
     pub fn get_progression_name(&mut self) -> String {
@@ -338,10 +322,7 @@ impl Handle {
 
     pub fn get_progression_length(&mut self) -> usize {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.progression_length)
-            .unwrap_or(4)
+        self.controller.get_state().map(|s| s.progression_length).unwrap_or(4)
     }
 
     // === Rhythm Visualization Getters ===
@@ -383,10 +364,7 @@ impl Handle {
             .get_state()
             .map(|s| {
                 let len = s.primary_steps.min(192);
-                s.primary_pattern[..len]
-                    .iter()
-                    .map(|&b| if b { 1 } else { 0 })
-                    .collect()
+                s.primary_pattern[..len].iter().map(|&b| if b { 1 } else { 0 }).collect()
             })
             .unwrap_or_else(|| vec![0; 16])
     }
@@ -398,10 +376,7 @@ impl Handle {
             .get_state()
             .map(|s| {
                 let len = s.secondary_steps.min(192);
-                s.secondary_pattern[..len]
-                    .iter()
-                    .map(|&b| if b { 1 } else { 0 })
-                    .collect()
+                s.secondary_pattern[..len].iter().map(|&b| if b { 1 } else { 0 }).collect()
             })
             .unwrap_or_else(|| vec![0; 12])
     }
@@ -437,12 +412,10 @@ impl Handle {
     /// Set channel routing (-1=FundSP, >=0=Bank ID)
     pub fn set_channel_routing(&mut self, channel: usize, mode: i32) {
         if channel < 16 {
-            let _ = self.controller.send(
-                harmonium_core::EngineCommand::SetChannelRoute {
-                    channel: channel as u8,
-                    bank_id: mode,
-                },
-            );
+            let _ = self.controller.send(harmonium_core::EngineCommand::SetChannelRoute {
+                channel: channel as u8,
+                bank_id: mode,
+            });
         }
     }
 
@@ -477,22 +450,18 @@ impl Handle {
 
     pub fn set_vel_base_bass(&mut self, vel: u8) {
         self.cached_params.vel_base_bass = vel.min(127);
-        let _ = self.controller.send(
-            harmonium_core::EngineCommand::SetVelocityBase {
-                channel: 0,
-                velocity: self.cached_params.vel_base_bass,
-            },
-        );
+        let _ = self.controller.send(harmonium_core::EngineCommand::SetVelocityBase {
+            channel: 0,
+            velocity: self.cached_params.vel_base_bass,
+        });
     }
 
     pub fn set_vel_base_snare(&mut self, vel: u8) {
         self.cached_params.vel_base_snare = vel.min(127);
-        let _ = self.controller.send(
-            harmonium_core::EngineCommand::SetVelocityBase {
-                channel: 2,
-                velocity: self.cached_params.vel_base_snare,
-            },
-        );
+        let _ = self.controller.send(harmonium_core::EngineCommand::SetVelocityBase {
+            channel: 2,
+            velocity: self.cached_params.vel_base_snare,
+        });
     }
 
     pub fn get_gain_lead(&self) -> f32 {
@@ -542,9 +511,7 @@ impl Handle {
     #[cfg(feature = "wasm")]
     pub fn resume(&self) -> Result<(), JsValue> {
         use cpal::traits::StreamTrait;
-        self.stream
-            .play()
-            .map_err(|e| JsValue::from_str(&e.to_string()))
+        self.stream.play().map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
     #[cfg(not(feature = "wasm"))]
@@ -556,9 +523,7 @@ impl Handle {
     #[cfg(feature = "wasm")]
     pub fn pause(&self) -> Result<(), JsValue> {
         use cpal::traits::StreamTrait;
-        self.stream
-            .pause()
-            .map_err(|e| JsValue::from_str(&e.to_string()))
+        self.stream.pause().map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
     #[cfg(not(feature = "wasm"))]
@@ -586,15 +551,11 @@ impl Handle {
     }
 
     pub fn start_recording_musicxml(&mut self) {
-        let _ = self
-            .controller
-            .start_recording(events::RecordFormat::MusicXml);
+        let _ = self.controller.start_recording(events::RecordFormat::MusicXml);
     }
 
     pub fn stop_recording_musicxml(&mut self) {
-        let _ = self
-            .controller
-            .stop_recording(events::RecordFormat::MusicXml);
+        let _ = self.controller.stop_recording(events::RecordFormat::MusicXml);
     }
 
     pub fn pop_finished_recording(&self) -> Option<RecordedData> {
@@ -636,10 +597,7 @@ impl Handle {
 
     pub fn get_direct_bpm(&mut self) -> f32 {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.musical_params.bpm)
-            .unwrap_or(120.0)
+        self.controller.get_state().map(|s| s.musical_params.bpm).unwrap_or(120.0)
     }
 
     pub fn set_direct_enable_rhythm(&mut self, enabled: bool) {
@@ -688,19 +646,17 @@ impl Handle {
             _ => RhythmMode::Euclidean,
         };
         let valid_steps = (steps / 4) * 4;
-        let _ = self.controller.send(
-            harmonium_core::EngineCommand::SetAllRhythmParams {
-                mode: rhythm_mode,
-                steps: valid_steps.clamp(16, 384),
-                pulses: pulses.clamp(1, 32),
-                rotation,
-                density: density.clamp(0.0, 1.0),
-                tension: tension.clamp(0.0, 1.0),
-                secondary_steps: secondary_steps.clamp(4, 32),
-                secondary_pulses: secondary_pulses.clamp(1, 32),
-                secondary_rotation,
-            },
-        );
+        let _ = self.controller.send(harmonium_core::EngineCommand::SetAllRhythmParams {
+            mode: rhythm_mode,
+            steps: valid_steps.clamp(16, 384),
+            pulses: pulses.clamp(1, 32),
+            rotation,
+            density: density.clamp(0.0, 1.0),
+            tension: tension.clamp(0.0, 1.0),
+            secondary_steps: secondary_steps.clamp(4, 32),
+            secondary_pulses: secondary_pulses.clamp(1, 32),
+            secondary_rotation,
+        });
     }
 
     pub fn set_direct_rhythm_mode(&mut self, mode: u8) {
@@ -715,9 +671,7 @@ impl Handle {
 
     pub fn set_direct_rhythm_steps(&mut self, steps: usize) {
         let valid_steps = (steps / 4) * 4;
-        let _ = self
-            .controller
-            .set_rhythm_steps(valid_steps.clamp(16, 384));
+        let _ = self.controller.set_rhythm_steps(valid_steps.clamp(16, 384));
     }
 
     pub fn set_direct_rhythm_pulses(&mut self, pulses: usize) {
@@ -733,48 +687,40 @@ impl Handle {
     }
 
     pub fn set_direct_rhythm_tension(&mut self, tension: f32) {
-        let _ = self
-            .controller
-            .set_rhythm_tension(tension.clamp(0.0, 1.0));
+        let _ = self.controller.set_rhythm_tension(tension.clamp(0.0, 1.0));
     }
 
     pub fn set_direct_secondary_steps(&mut self, steps: usize) {
         let _ = self.controller.poll_reports();
         let cur_pulses = self.controller.get_state().map(|s| s.secondary_pulses).unwrap_or(3);
         let cur_rotation = self.controller.get_state().map(|s| s.secondary_rotation).unwrap_or(0);
-        let _ = self.controller.send(
-            harmonium_core::EngineCommand::SetRhythmSecondary {
-                steps: steps.clamp(4, 32),
-                pulses: cur_pulses,
-                rotation: cur_rotation,
-            },
-        );
+        let _ = self.controller.send(harmonium_core::EngineCommand::SetRhythmSecondary {
+            steps: steps.clamp(4, 32),
+            pulses: cur_pulses,
+            rotation: cur_rotation,
+        });
     }
 
     pub fn set_direct_secondary_pulses(&mut self, pulses: usize) {
         let _ = self.controller.poll_reports();
         let cur_steps = self.controller.get_state().map(|s| s.secondary_steps).unwrap_or(12);
         let cur_rotation = self.controller.get_state().map(|s| s.secondary_rotation).unwrap_or(0);
-        let _ = self.controller.send(
-            harmonium_core::EngineCommand::SetRhythmSecondary {
-                steps: cur_steps,
-                pulses: pulses.clamp(1, 32),
-                rotation: cur_rotation,
-            },
-        );
+        let _ = self.controller.send(harmonium_core::EngineCommand::SetRhythmSecondary {
+            steps: cur_steps,
+            pulses: pulses.clamp(1, 32),
+            rotation: cur_rotation,
+        });
     }
 
     pub fn set_direct_secondary_rotation(&mut self, rotation: usize) {
         let _ = self.controller.poll_reports();
         let cur_steps = self.controller.get_state().map(|s| s.secondary_steps).unwrap_or(12);
         let cur_pulses = self.controller.get_state().map(|s| s.secondary_pulses).unwrap_or(3);
-        let _ = self.controller.send(
-            harmonium_core::EngineCommand::SetRhythmSecondary {
-                steps: cur_steps,
-                pulses: cur_pulses,
-                rotation,
-            },
-        );
+        let _ = self.controller.send(harmonium_core::EngineCommand::SetRhythmSecondary {
+            steps: cur_steps,
+            pulses: cur_pulses,
+            rotation,
+        });
     }
 
     pub fn set_direct_harmony_mode(&mut self, mode: u8) {
@@ -787,42 +733,32 @@ impl Handle {
     }
 
     pub fn set_direct_harmony_tension(&mut self, tension: f32) {
-        let _ = self
-            .controller
-            .set_harmony_tension(tension.clamp(0.0, 1.0));
+        let _ = self.controller.set_harmony_tension(tension.clamp(0.0, 1.0));
     }
 
     pub fn set_direct_harmony_valence(&mut self, valence: f32) {
-        let _ = self
-            .controller
-            .set_harmony_valence(valence.clamp(-1.0, 1.0));
+        let _ = self.controller.set_harmony_valence(valence.clamp(-1.0, 1.0));
     }
 
     pub fn set_direct_melody_smoothness(&mut self, smoothness: f32) {
-        let _ = self
-            .controller
-            .set_melody_smoothness(smoothness.clamp(0.0, 1.0));
+        let _ = self.controller.set_melody_smoothness(smoothness.clamp(0.0, 1.0));
     }
 
     pub fn set_direct_voicing_density(&mut self, density: f32) {
-        let _ = self
-            .controller
-            .set_voicing_density(density.clamp(0.0, 1.0));
+        let _ = self.controller.set_voicing_density(density.clamp(0.0, 1.0));
     }
 
     pub fn set_direct_voicing_tension(&mut self, tension: f32) {
-        let _ = self.controller.send(
-            harmonium_core::EngineCommand::SetVoicingTension(tension.clamp(0.0, 1.0)),
-        );
+        let _ = self
+            .controller
+            .send(harmonium_core::EngineCommand::SetVoicingTension(tension.clamp(0.0, 1.0)));
     }
 
     pub fn get_direct_params_json(&mut self) -> String {
         let _ = self.controller.poll_reports();
         self.controller
             .get_state()
-            .map(|s| {
-                serde_json::to_string(&s.musical_params).unwrap_or_else(|_| "{}".to_string())
-            })
+            .map(|s| serde_json::to_string(&s.musical_params).unwrap_or_else(|_| "{}".to_string()))
             .unwrap_or_else(|| "{}".to_string())
     }
 
@@ -831,15 +767,9 @@ impl Handle {
             let _ = self.controller.set_bpm(params.bpm);
             let _ = self.controller.set_rhythm_mode(params.rhythm_mode);
             let _ = self.controller.set_rhythm_density(params.rhythm_density);
-            let _ = self
-                .controller
-                .set_harmony_tension(params.harmony_tension);
-            let _ = self
-                .controller
-                .set_harmony_valence(params.harmony_valence);
-            let _ = self
-                .controller
-                .set_melody_smoothness(params.melody_smoothness);
+            let _ = self.controller.set_harmony_tension(params.harmony_tension);
+            let _ = self.controller.set_harmony_valence(params.harmony_valence);
+            let _ = self.controller.set_melody_smoothness(params.melody_smoothness);
         }
     }
 
@@ -847,34 +777,22 @@ impl Handle {
 
     pub fn get_direct_enable_rhythm(&mut self) -> bool {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.musical_params.enable_rhythm)
-            .unwrap_or(true)
+        self.controller.get_state().map(|s| s.musical_params.enable_rhythm).unwrap_or(true)
     }
 
     pub fn get_direct_enable_harmony(&mut self) -> bool {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.musical_params.enable_harmony)
-            .unwrap_or(true)
+        self.controller.get_state().map(|s| s.musical_params.enable_harmony).unwrap_or(true)
     }
 
     pub fn get_direct_enable_melody(&mut self) -> bool {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.musical_params.enable_melody)
-            .unwrap_or(true)
+        self.controller.get_state().map(|s| s.musical_params.enable_melody).unwrap_or(true)
     }
 
     pub fn get_direct_enable_voicing(&mut self) -> bool {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.musical_params.enable_voicing)
-            .unwrap_or(false)
+        self.controller.get_state().map(|s| s.musical_params.enable_voicing).unwrap_or(false)
     }
 
     pub fn get_direct_rhythm_mode(&mut self) -> u8 {
@@ -891,106 +809,67 @@ impl Handle {
 
     pub fn get_direct_rhythm_steps(&mut self) -> usize {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.primary_steps)
-            .unwrap_or(16)
+        self.controller.get_state().map(|s| s.primary_steps).unwrap_or(16)
     }
 
     pub fn get_direct_rhythm_pulses(&mut self) -> usize {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.primary_pulses)
-            .unwrap_or(4)
+        self.controller.get_state().map(|s| s.primary_pulses).unwrap_or(4)
     }
 
     pub fn get_direct_rhythm_rotation(&mut self) -> usize {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.primary_rotation)
-            .unwrap_or(0)
+        self.controller.get_state().map(|s| s.primary_rotation).unwrap_or(0)
     }
 
     pub fn get_direct_rhythm_density(&mut self) -> f32 {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.musical_params.rhythm_density)
-            .unwrap_or(0.5)
+        self.controller.get_state().map(|s| s.musical_params.rhythm_density).unwrap_or(0.5)
     }
 
     pub fn get_direct_rhythm_tension(&mut self) -> f32 {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.musical_params.rhythm_tension)
-            .unwrap_or(0.3)
+        self.controller.get_state().map(|s| s.musical_params.rhythm_tension).unwrap_or(0.3)
     }
 
     pub fn get_direct_secondary_steps(&mut self) -> usize {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.secondary_steps)
-            .unwrap_or(12)
+        self.controller.get_state().map(|s| s.secondary_steps).unwrap_or(12)
     }
 
     pub fn get_direct_secondary_pulses(&mut self) -> usize {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.secondary_pulses)
-            .unwrap_or(3)
+        self.controller.get_state().map(|s| s.secondary_pulses).unwrap_or(3)
     }
 
     pub fn get_direct_secondary_rotation(&mut self) -> usize {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.secondary_rotation)
-            .unwrap_or(0)
+        self.controller.get_state().map(|s| s.secondary_rotation).unwrap_or(0)
     }
 
     pub fn get_direct_harmony_tension(&mut self) -> f32 {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.musical_params.harmony_tension)
-            .unwrap_or(0.3)
+        self.controller.get_state().map(|s| s.musical_params.harmony_tension).unwrap_or(0.3)
     }
 
     pub fn get_direct_harmony_valence(&mut self) -> f32 {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.musical_params.harmony_valence)
-            .unwrap_or(0.3)
+        self.controller.get_state().map(|s| s.musical_params.harmony_valence).unwrap_or(0.3)
     }
 
     pub fn get_direct_melody_smoothness(&mut self) -> f32 {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.musical_params.melody_smoothness)
-            .unwrap_or(0.7)
+        self.controller.get_state().map(|s| s.musical_params.melody_smoothness).unwrap_or(0.7)
     }
 
     pub fn get_direct_voicing_density(&mut self) -> f32 {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.musical_params.voicing_density)
-            .unwrap_or(0.5)
+        self.controller.get_state().map(|s| s.musical_params.voicing_density).unwrap_or(0.5)
     }
 
     pub fn get_direct_voicing_tension(&mut self) -> f32 {
         let _ = self.controller.poll_reports();
-        self.controller
-            .get_state()
-            .map(|s| s.musical_params.voicing_tension)
-            .unwrap_or(0.3)
+        self.controller.get_state().map(|s| s.musical_params.voicing_tension).unwrap_or(0.3)
     }
 }
 

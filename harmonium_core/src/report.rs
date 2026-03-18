@@ -237,12 +237,7 @@ impl EngineReport {
 
     /// Add a note event (reuses pre-allocated capacity)
     pub fn add_note(&mut self, note_midi: u8, velocity: u8, channel: u8, is_note_on: bool) {
-        self.notes.push(NoteEvent {
-            note_midi,
-            velocity,
-            channel,
-            is_note_on,
-        });
+        self.notes.push(NoteEvent { note_midi, velocity, channel, is_note_on });
     }
 }
 

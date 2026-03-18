@@ -3,8 +3,10 @@
 //! Extracts the generation side of TimelineEngine: writehead, generator, musical params,
 //! emotion mapping, and measure snapshots. Callable directly (no audio stream needed).
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use arrayvec::ArrayString;
 use harmonium_core::{
@@ -14,10 +16,11 @@ use harmonium_core::{
     sequencer::Sequencer,
     timeline::{Measure, TimelineGenerator, Writehead},
 };
-use crate::mapper::EmotionMapper;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use rust_music_theory::{note::PitchSymbol, scale::ScaleType};
+
+use crate::mapper::EmotionMapper;
 
 /// Main-thread music composer. Generates measures synchronously.
 ///
@@ -89,8 +92,13 @@ impl MusicComposer {
         let initial_pulses = 4;
 
         let keys = [
-            PitchSymbol::C, PitchSymbol::D, PitchSymbol::E, PitchSymbol::F,
-            PitchSymbol::G, PitchSymbol::A, PitchSymbol::B,
+            PitchSymbol::C,
+            PitchSymbol::D,
+            PitchSymbol::E,
+            PitchSymbol::F,
+            PitchSymbol::G,
+            PitchSymbol::A,
+            PitchSymbol::B,
         ];
         let scales = [ScaleType::PentatonicMinor, ScaleType::PentatonicMajor];
         let random_key = keys[rng.gen_range(0..keys.len())];
@@ -116,9 +124,14 @@ impl MusicComposer {
 
         let harmony = HarmonyNavigator::new(random_key, random_scale, 4);
         let key_pc = match random_key {
-            PitchSymbol::C => 0, PitchSymbol::D => 2, PitchSymbol::E => 4,
-            PitchSymbol::F => 5, PitchSymbol::G => 7, PitchSymbol::A => 9,
-            PitchSymbol::B => 11, _ => 0,
+            PitchSymbol::C => 0,
+            PitchSymbol::D => 2,
+            PitchSymbol::E => 4,
+            PitchSymbol::F => 5,
+            PitchSymbol::G => 7,
+            PitchSymbol::A => 9,
+            PitchSymbol::B => 11,
+            _ => 0,
         };
         let harmonic_driver = Some(HarmonicDriver::new(key_pc));
 
@@ -183,9 +196,8 @@ impl MusicComposer {
             // ensure it's in shared pages and advance.
             if let Some(existing) = self.writehead.timeline.get_measure(bar_idx) {
                 self.publish_measure(existing.clone());
-                self.pending_measure_snapshots.push(
-                    harmonium_core::report::MeasureSnapshot::from_measure(&existing),
-                );
+                self.pending_measure_snapshots
+                    .push(harmonium_core::report::MeasureSnapshot::from_measure(&existing));
                 self.writehead.current_bar = bar_idx + 1;
                 continue;
             }
@@ -193,14 +205,13 @@ impl MusicComposer {
             let measure = self.generator.generate_measure(bar_idx, &mut self.rng);
 
             // Update report cache
-            self.last_chord_name = ArrayString::from(&measure.chord_context.chord_name)
-                .unwrap_or_default();
+            self.last_chord_name =
+                ArrayString::from(&measure.chord_context.chord_name).unwrap_or_default();
             self.last_chord_root_offset = measure.chord_context.root_offset;
             self.last_chord_is_minor = measure.chord_context.is_minor;
 
-            self.pending_measure_snapshots.push(
-                harmonium_core::report::MeasureSnapshot::from_measure(&measure),
-            );
+            self.pending_measure_snapshots
+                .push(harmonium_core::report::MeasureSnapshot::from_measure(&measure));
 
             self.publish_measure(measure.clone());
             self.writehead.commit_measure(measure);
@@ -250,7 +261,8 @@ impl MusicComposer {
     /// The playback engine reads directly by index — no refill needed.
     pub fn invalidate_after_preview(&mut self, preview_bars: usize) {
         let playhead_bar = self.playhead_bar.load(Ordering::Relaxed);
-        let keep_until = if playhead_bar == 0 { 1 + preview_bars } else { playhead_bar + preview_bars };
+        let keep_until =
+            if playhead_bar == 0 { 1 + preview_bars } else { playhead_bar + preview_bars };
 
         // Invalidate timeline from keep_until onward (preview bars stay intact)
         self.writehead.timeline.invalidate_from(keep_until);
@@ -300,42 +312,89 @@ impl MusicComposer {
         self.musical_params.time_signature = TimeSignature { numerator, denominator };
     }
 
-    pub fn enable_rhythm(&mut self, e: bool) { self.musical_params.enable_rhythm = e; }
-    pub fn enable_harmony(&mut self, e: bool) { self.musical_params.enable_harmony = e; }
-    pub fn enable_melody(&mut self, e: bool) { self.musical_params.enable_melody = e; }
-    pub fn enable_voicing(&mut self, e: bool) { self.musical_params.enable_voicing = e; }
+    pub fn enable_rhythm(&mut self, e: bool) {
+        self.musical_params.enable_rhythm = e;
+    }
+    pub fn enable_harmony(&mut self, e: bool) {
+        self.musical_params.enable_harmony = e;
+    }
+    pub fn enable_melody(&mut self, e: bool) {
+        self.musical_params.enable_melody = e;
+    }
+    pub fn enable_voicing(&mut self, e: bool) {
+        self.musical_params.enable_voicing = e;
+    }
 
-    pub fn set_rhythm_mode(&mut self, m: harmonium_core::sequencer::RhythmMode) { self.musical_params.rhythm_mode = m; }
-    pub fn set_rhythm_steps(&mut self, s: usize) { self.musical_params.rhythm_steps = s; }
-    pub fn set_rhythm_pulses(&mut self, p: usize) { self.musical_params.rhythm_pulses = p; }
-    pub fn set_rhythm_rotation(&mut self, r: usize) { self.musical_params.rhythm_rotation = r; }
-    pub fn set_rhythm_density(&mut self, d: f32) { self.musical_params.rhythm_density = d.clamp(0.0, 1.0); }
-    pub fn set_rhythm_tension(&mut self, t: f32) { self.musical_params.rhythm_tension = t.clamp(0.0, 1.0); }
+    pub fn set_rhythm_mode(&mut self, m: harmonium_core::sequencer::RhythmMode) {
+        self.musical_params.rhythm_mode = m;
+    }
+    pub fn set_rhythm_steps(&mut self, s: usize) {
+        self.musical_params.rhythm_steps = s;
+    }
+    pub fn set_rhythm_pulses(&mut self, p: usize) {
+        self.musical_params.rhythm_pulses = p;
+    }
+    pub fn set_rhythm_rotation(&mut self, r: usize) {
+        self.musical_params.rhythm_rotation = r;
+    }
+    pub fn set_rhythm_density(&mut self, d: f32) {
+        self.musical_params.rhythm_density = d.clamp(0.0, 1.0);
+    }
+    pub fn set_rhythm_tension(&mut self, t: f32) {
+        self.musical_params.rhythm_tension = t.clamp(0.0, 1.0);
+    }
     pub fn set_rhythm_secondary(&mut self, steps: usize, pulses: usize, rotation: usize) {
         self.musical_params.rhythm_secondary_steps = steps;
         self.musical_params.rhythm_secondary_pulses = pulses;
         self.musical_params.rhythm_secondary_rotation = rotation;
     }
-    pub fn set_fixed_kick(&mut self, f: bool) { self.musical_params.fixed_kick = f; }
+    pub fn set_fixed_kick(&mut self, f: bool) {
+        self.musical_params.fixed_kick = f;
+    }
 
-    pub fn set_harmony_mode(&mut self, m: harmonium_core::harmony::HarmonyMode) { self.musical_params.harmony_mode = m; }
-    pub fn set_harmony_strategy(&mut self, s: harmonium_core::params::HarmonyStrategy) { self.musical_params.harmony_strategy = s; }
-    pub fn set_harmony_tension(&mut self, t: f32) { self.musical_params.harmony_tension = t.clamp(0.0, 1.0); }
-    pub fn set_harmony_valence(&mut self, v: f32) { self.musical_params.harmony_valence = v.clamp(-1.0, 1.0); }
-    pub fn set_harmony_measures_per_chord(&mut self, m: usize) { self.musical_params.harmony_measures_per_chord = m; }
-    pub fn set_key_root(&mut self, r: u8) { self.musical_params.key_root = r % 12; }
+    pub fn set_harmony_mode(&mut self, m: harmonium_core::harmony::HarmonyMode) {
+        self.musical_params.harmony_mode = m;
+    }
+    pub fn set_harmony_strategy(&mut self, s: harmonium_core::params::HarmonyStrategy) {
+        self.musical_params.harmony_strategy = s;
+    }
+    pub fn set_harmony_tension(&mut self, t: f32) {
+        self.musical_params.harmony_tension = t.clamp(0.0, 1.0);
+    }
+    pub fn set_harmony_valence(&mut self, v: f32) {
+        self.musical_params.harmony_valence = v.clamp(-1.0, 1.0);
+    }
+    pub fn set_harmony_measures_per_chord(&mut self, m: usize) {
+        self.musical_params.harmony_measures_per_chord = m;
+    }
+    pub fn set_key_root(&mut self, r: u8) {
+        self.musical_params.key_root = r % 12;
+    }
 
-    pub fn set_melody_smoothness(&mut self, s: f32) { self.musical_params.melody_smoothness = s.clamp(0.0, 1.0); }
-    pub fn set_melody_octave(&mut self, o: i32) { self.musical_params.melody_octave = o.clamp(3, 6); }
-    pub fn set_voicing_density(&mut self, d: f32) { self.musical_params.voicing_density = d.clamp(0.0, 1.0); }
-    pub fn set_voicing_tension(&mut self, t: f32) { self.musical_params.voicing_tension = t.clamp(0.0, 1.0); }
+    pub fn set_melody_smoothness(&mut self, s: f32) {
+        self.musical_params.melody_smoothness = s.clamp(0.0, 1.0);
+    }
+    pub fn set_melody_octave(&mut self, o: i32) {
+        self.musical_params.melody_octave = o.clamp(3, 6);
+    }
+    pub fn set_voicing_density(&mut self, d: f32) {
+        self.musical_params.voicing_density = d.clamp(0.0, 1.0);
+    }
+    pub fn set_voicing_tension(&mut self, t: f32) {
+        self.musical_params.voicing_tension = t.clamp(0.0, 1.0);
+    }
 
     pub fn set_all_rhythm_params(
         &mut self,
         mode: harmonium_core::sequencer::RhythmMode,
-        steps: usize, pulses: usize, rotation: usize,
-        density: f32, tension: f32,
-        secondary_steps: usize, secondary_pulses: usize, secondary_rotation: usize,
+        steps: usize,
+        pulses: usize,
+        rotation: usize,
+        density: f32,
+        tension: f32,
+        secondary_steps: usize,
+        secondary_pulses: usize,
+        secondary_rotation: usize,
     ) {
         self.musical_params.rhythm_mode = mode;
         self.musical_params.rhythm_steps = steps;
@@ -400,8 +459,12 @@ impl MusicComposer {
 
         log::info(&format!(
             "Emotion mapped: arousal={:.2} valence={:.2} density={:.2} tension={:.2} → bpm={:.0} strategy={:?}",
-            arousal, valence, density, tension,
-            self.musical_params.bpm, self.musical_params.harmony_strategy
+            arousal,
+            valence,
+            density,
+            tension,
+            self.musical_params.bpm,
+            self.musical_params.harmony_strategy
         ));
     }
 
@@ -434,10 +497,7 @@ impl MusicComposer {
                 }
             }
             _ => {
-                log::warn(&format!(
-                    "Timeline export only supports MusicXML, got {:?}",
-                    format
-                ));
+                log::warn(&format!("Timeline export only supports MusicXML, got {:?}", format));
             }
         }
     }
@@ -459,9 +519,19 @@ impl MusicComposer {
         self.writehead.timeline.get_measure(bar)
     }
 
-    pub fn last_chord_name(&self) -> &ArrayString<64> { &self.last_chord_name }
-    pub fn last_chord_root_offset(&self) -> i32 { self.last_chord_root_offset }
-    pub fn last_chord_is_minor(&self) -> bool { self.last_chord_is_minor }
-    pub fn musical_params(&self) -> &MusicalParams { &self.musical_params }
-    pub fn sample_rate(&self) -> f64 { self.sample_rate }
+    pub fn last_chord_name(&self) -> &ArrayString<64> {
+        &self.last_chord_name
+    }
+    pub fn last_chord_root_offset(&self) -> i32 {
+        self.last_chord_root_offset
+    }
+    pub fn last_chord_is_minor(&self) -> bool {
+        self.last_chord_is_minor
+    }
+    pub fn musical_params(&self) -> &MusicalParams {
+        &self.musical_params
+    }
+    pub fn sample_rate(&self) -> f64 {
+        self.sample_rate
+    }
 }

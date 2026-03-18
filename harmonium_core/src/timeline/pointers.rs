@@ -8,12 +8,8 @@
 //!   musical time (steps) to sample time, and emits `AudioEvent`s to the renderer.
 //!   Zero allocations in steady state.
 
-use crate::events::AudioEvent;
-use crate::params::TimeSignature;
-
-use super::{
-    Measure, MusicalPosition, ScoreTimeline, TempoMap, TrackId,
-};
+use super::{Measure, MusicalPosition, ScoreTimeline, TempoMap, TrackId};
+use crate::{events::AudioEvent, params::TimeSignature};
 
 /// Writehead state - generates measures ahead of playback.
 ///
@@ -162,7 +158,8 @@ impl Playhead {
                     match track_id {
                         TrackId::Bass => {
                             if let Some(old_note) = self.active_bass_note.take() {
-                                self.events.push(AudioEvent::NoteOff { note: old_note, channel: 0 });
+                                self.events
+                                    .push(AudioEvent::NoteOff { note: old_note, channel: 0 });
                             }
                             self.events.push(AudioEvent::NoteOn {
                                 note: note.pitch,
@@ -317,9 +314,9 @@ mod tests {
         let events = ph.tick();
         assert!(!events.is_empty());
         // Should have a NoteOn for bass
-        let has_note_on = events.iter().any(|e| {
-            matches!(e, AudioEvent::NoteOn { note: 36, velocity: 100, channel: 0 })
-        });
+        let has_note_on = events
+            .iter()
+            .any(|e| matches!(e, AudioEvent::NoteOn { note: 36, velocity: 100, channel: 0 }));
         assert!(has_note_on, "Expected NoteOn for bass at step 0");
     }
 

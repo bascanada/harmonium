@@ -1,11 +1,10 @@
 use std::sync::Mutex;
 
-use crate::{FinishedRecordings, FontQueue, audio::AudioBackendType};
-use crate::composer::MusicComposer;
-use crate::playback::PlaybackCommand;
-use harmonium_core::{
-    EngineReport, MeasureSnapshot,
-    params::SessionConfig,
+use harmonium_core::{EngineReport, MeasureSnapshot, params::SessionConfig};
+
+use crate::{
+    FinishedRecordings, FontQueue, audio::AudioBackendType, composer::MusicComposer,
+    playback::PlaybackCommand,
 };
 
 /// Wrapper that makes `cpal::Stream` `Send + Sync`.
@@ -39,12 +38,16 @@ pub struct NativeHandle {
 
 impl NativeHandle {
     /// Start the engine and immediately begin playback.
-    pub fn start(
-        sf2_bytes: Option<&[u8]>,
-        backend: AudioBackendType,
-    ) -> Result<Self, String> {
-        let (stream, session_config, composer, playback_cmd_tx, report_rx, font_queue, finished_recordings) =
-            crate::audio::create_timeline_stream(sf2_bytes, backend)?;
+    pub fn start(sf2_bytes: Option<&[u8]>, backend: AudioBackendType) -> Result<Self, String> {
+        let (
+            stream,
+            session_config,
+            composer,
+            playback_cmd_tx,
+            report_rx,
+            font_queue,
+            finished_recordings,
+        ) = crate::audio::create_timeline_stream(sf2_bytes, backend)?;
 
         Ok(Self {
             stream: SendStream(stream),
@@ -144,11 +147,7 @@ impl NativeHandle {
 
     /// Read the current playhead bar (from the shared atomic).
     pub fn playhead_bar(&self) -> usize {
-        if let Ok(composer) = self.composer.lock() {
-            composer.playhead_bar()
-        } else {
-            1
-        }
+        if let Ok(composer) = self.composer.lock() { composer.playhead_bar() } else { 1 }
     }
 
     /// Apply param changes while preserving the preview window.
@@ -216,15 +215,21 @@ impl NativeHandle {
     // === Composer setters (generation params — direct calls) ===
 
     pub fn use_emotion_mode(&self) {
-        if let Ok(mut c) = self.composer.lock() { c.use_emotion_mode(); }
+        if let Ok(mut c) = self.composer.lock() {
+            c.use_emotion_mode();
+        }
     }
 
     pub fn use_direct_mode(&self) {
-        if let Ok(mut c) = self.composer.lock() { c.use_direct_mode(); }
+        if let Ok(mut c) = self.composer.lock() {
+            c.use_direct_mode();
+        }
     }
 
     pub fn set_bpm(&self, bpm: f32) {
-        if let Ok(mut c) = self.composer.lock() { c.set_bpm(bpm); }
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_bpm(bpm);
+        }
     }
 
     pub fn set_emotions(&self, arousal: f32, valence: f32, density: f32, tension: f32) {
@@ -234,65 +239,95 @@ impl NativeHandle {
     }
 
     pub fn set_time_signature(&self, numerator: usize, denominator: usize) {
-        if let Ok(mut c) = self.composer.lock() { c.set_time_signature(numerator, denominator); }
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_time_signature(numerator, denominator);
+        }
     }
 
     pub fn set_density(&self, density: f32) {
-        if let Ok(mut c) = self.composer.lock() { c.set_rhythm_density(density); }
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_rhythm_density(density);
+        }
     }
 
     pub fn enable_melody(&self, enabled: bool) {
-        if let Ok(mut c) = self.composer.lock() { c.enable_melody(enabled); }
+        if let Ok(mut c) = self.composer.lock() {
+            c.enable_melody(enabled);
+        }
     }
 
     pub fn enable_harmony(&self, enabled: bool) {
-        if let Ok(mut c) = self.composer.lock() { c.enable_harmony(enabled); }
+        if let Ok(mut c) = self.composer.lock() {
+            c.enable_harmony(enabled);
+        }
     }
 
     pub fn enable_rhythm(&self, enabled: bool) {
-        if let Ok(mut c) = self.composer.lock() { c.enable_rhythm(enabled); }
+        if let Ok(mut c) = self.composer.lock() {
+            c.enable_rhythm(enabled);
+        }
     }
 
     pub fn enable_voicing(&self, enabled: bool) {
-        if let Ok(mut c) = self.composer.lock() { c.enable_voicing(enabled); }
+        if let Ok(mut c) = self.composer.lock() {
+            c.enable_voicing(enabled);
+        }
     }
 
     pub fn set_melody_smoothness(&self, smoothness: f32) {
-        if let Ok(mut c) = self.composer.lock() { c.set_melody_smoothness(smoothness); }
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_melody_smoothness(smoothness);
+        }
     }
 
     pub fn set_rhythm_steps(&self, steps: usize) {
-        if let Ok(mut c) = self.composer.lock() { c.set_rhythm_steps(steps); }
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_rhythm_steps(steps);
+        }
     }
 
     pub fn set_rhythm_pulses(&self, pulses: usize) {
-        if let Ok(mut c) = self.composer.lock() { c.set_rhythm_pulses(pulses); }
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_rhythm_pulses(pulses);
+        }
     }
 
     pub fn set_rhythm_rotation(&self, rotation: usize) {
-        if let Ok(mut c) = self.composer.lock() { c.set_rhythm_rotation(rotation); }
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_rhythm_rotation(rotation);
+        }
     }
 
     pub fn set_harmony_tension(&self, tension: f32) {
-        if let Ok(mut c) = self.composer.lock() { c.set_harmony_tension(tension); }
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_harmony_tension(tension);
+        }
     }
 
     pub fn set_harmony_valence(&self, valence: f32) {
-        if let Ok(mut c) = self.composer.lock() { c.set_harmony_valence(valence); }
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_harmony_valence(valence);
+        }
     }
 
     pub fn set_rhythm_mode(&self, mode: harmonium_core::sequencer::RhythmMode) {
-        if let Ok(mut c) = self.composer.lock() { c.set_rhythm_mode(mode); }
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_rhythm_mode(mode);
+        }
     }
 
     pub fn set_writehead_lookahead(&self, bars: usize) {
-        if let Ok(mut c) = self.composer.lock() { c.set_writehead_lookahead(bars); }
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_writehead_lookahead(bars);
+        }
     }
 
     /// Sync the generator with current musical params.
     /// Call after batch param changes and before the first generate_bars().
     pub fn sync_generator(&self) {
-        if let Ok(mut c) = self.composer.lock() { c.sync_generator(); }
+        if let Ok(mut c) = self.composer.lock() {
+            c.sync_generator();
+        }
     }
 
     // === Playback commands (sent to audio thread) ===

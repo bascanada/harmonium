@@ -5,9 +5,8 @@
 
 use std::fmt::Write;
 
+use super::{Measure, ScoreTimeline, TimelineNote, TrackId};
 use crate::params::InstrumentConfig;
-
-use super::{Measure, ScoreTimeline, TrackId, TimelineNote};
 
 /// MIDI note number to MusicXML pitch mapping
 struct MxlPitch {
@@ -112,8 +111,10 @@ pub fn timeline_to_musicxml_with_instruments(
 
     // Part list
     writeln!(xml, "  <part-list>").unwrap();
-    writeln!(xml, "    <score-part id=\"P1\"><part-name>{bass_name}</part-name></score-part>").unwrap();
-    writeln!(xml, "    <score-part id=\"P2\"><part-name>{lead_name}</part-name></score-part>").unwrap();
+    writeln!(xml, "    <score-part id=\"P1\"><part-name>{bass_name}</part-name></score-part>")
+        .unwrap();
+    writeln!(xml, "    <score-part id=\"P2\"><part-name>{lead_name}</part-name></score-part>")
+        .unwrap();
     writeln!(xml, "    <score-part id=\"P3\"><part-name>Drums</part-name></score-part>").unwrap();
     writeln!(xml, "  </part-list>").unwrap();
 
@@ -145,7 +146,13 @@ fn write_header(xml: &mut String, title: &str) {
     writeln!(xml, "  </identification>").unwrap();
 }
 
-fn write_part(xml: &mut String, part_id: &str, measures: &[Measure], track: TrackId, instrument: &InstrumentConfig) {
+fn write_part(
+    xml: &mut String,
+    part_id: &str,
+    measures: &[Measure],
+    track: TrackId,
+    instrument: &InstrumentConfig,
+) {
     writeln!(xml, "  <part id=\"{part_id}\">").unwrap();
 
     for (i, measure) in measures.iter().enumerate() {
@@ -157,7 +164,12 @@ fn write_part(xml: &mut String, part_id: &str, measures: &[Measure], track: Trac
             writeln!(xml, "        <divisions>4</divisions>").unwrap();
             writeln!(xml, "        <time>").unwrap();
             writeln!(xml, "          <beats>{}</beats>", measure.time_signature.numerator).unwrap();
-            writeln!(xml, "          <beat-type>{}</beat-type>", measure.time_signature.denominator).unwrap();
+            writeln!(
+                xml,
+                "          <beat-type>{}</beat-type>",
+                measure.time_signature.denominator
+            )
+            .unwrap();
             writeln!(xml, "        </time>").unwrap();
             writeln!(xml, "        <clef>").unwrap();
             if track == TrackId::Bass {
@@ -193,7 +205,12 @@ fn write_part(xml: &mut String, part_id: &str, measures: &[Measure], track: Trac
         if !measure.chord_context.chord_name.is_empty() {
             writeln!(xml, "      <direction placement=\"above\">").unwrap();
             writeln!(xml, "        <direction-type>").unwrap();
-            writeln!(xml, "          <words>{}</words>", xml_escape(&measure.chord_context.chord_name)).unwrap();
+            writeln!(
+                xml,
+                "          <words>{}</words>",
+                xml_escape(&measure.chord_context.chord_name)
+            )
+            .unwrap();
             writeln!(xml, "        </direction-type>").unwrap();
             writeln!(xml, "      </direction>").unwrap();
         }
@@ -218,7 +235,12 @@ fn write_drum_part(xml: &mut String, part_id: &str, measures: &[Measure]) {
             writeln!(xml, "        <divisions>4</divisions>").unwrap();
             writeln!(xml, "        <time>").unwrap();
             writeln!(xml, "          <beats>{}</beats>", measure.time_signature.numerator).unwrap();
-            writeln!(xml, "          <beat-type>{}</beat-type>", measure.time_signature.denominator).unwrap();
+            writeln!(
+                xml,
+                "          <beat-type>{}</beat-type>",
+                measure.time_signature.denominator
+            )
+            .unwrap();
             writeln!(xml, "        </time>").unwrap();
             writeln!(xml, "        <clef>").unwrap();
             writeln!(xml, "          <sign>percussion</sign>").unwrap();
@@ -230,7 +252,8 @@ fn write_drum_part(xml: &mut String, part_id: &str, measures: &[Measure]) {
         let snare_notes = measure.notes_for_track(TrackId::Snare);
         let hat_notes = measure.notes_for_track(TrackId::Hat);
 
-        let mut all_notes: Vec<&TimelineNote> = snare_notes.iter().chain(hat_notes.iter()).collect();
+        let mut all_notes: Vec<&TimelineNote> =
+            snare_notes.iter().chain(hat_notes.iter()).collect();
         all_notes.sort_by_key(|n| n.start_step);
 
         if all_notes.is_empty() {
@@ -390,8 +413,7 @@ fn empty_musicxml(title: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::params::TimeSignature;
-    use crate::timeline::Articulation;
+    use crate::{params::TimeSignature, timeline::Articulation};
 
     #[test]
     fn test_midi_to_pitch() {
@@ -494,7 +516,10 @@ mod tests {
 
         // Should have <transpose> element with chromatic=-2 (Bb instrument)
         assert!(xml.contains("<transpose>"), "Expected <transpose> element");
-        assert!(xml.contains("<chromatic>-2</chromatic>"), "Expected chromatic=-2 for Bb instrument");
+        assert!(
+            xml.contains("<chromatic>-2</chromatic>"),
+            "Expected chromatic=-2 for Bb instrument"
+        );
         assert!(xml.contains("<diatonic>-1</diatonic>"), "Expected diatonic=-1 for Bb instrument");
 
         // The note D4 should be written as-is (written pitch)
@@ -528,7 +553,10 @@ mod tests {
 
         assert!(xml.contains("Alto Saxophone"));
         assert!(xml.contains("<chromatic>3</chromatic>"), "Expected chromatic=3 for Eb instrument");
-        assert!(xml.contains("<diatonic>2</diatonic>"), "Expected diatonic=2 for Eb instrument (minor 3rd)");
+        assert!(
+            xml.contains("<diatonic>2</diatonic>"),
+            "Expected diatonic=2 for Eb instrument (minor 3rd)"
+        );
     }
 
     #[test]

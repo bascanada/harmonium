@@ -101,9 +101,7 @@ impl HarmoniumController {
     ///
     /// Returns `QueueFull` if the command queue is full
     pub fn send(&mut self, cmd: EngineCommand) -> Result<(), ControllerError> {
-        self.command_tx
-            .push(cmd)
-            .map_err(|_| ControllerError::QueueFull)
+        self.command_tx.push(cmd).map_err(|_| ControllerError::QueueFull)
     }
 
     /// Poll for new reports from the engine (non-blocking, drains queue)
@@ -173,11 +171,7 @@ impl HarmoniumController {
             valence,
             density,
             tension,
-            smoothness: self
-                .cached_emotions
-                .as_ref()
-                .map(|e| e.smoothness)
-                .unwrap_or(0.5),
+            smoothness: self.cached_emotions.as_ref().map(|e| e.smoothness).unwrap_or(0.5),
             algorithm: self
                 .cached_emotions
                 .as_ref()
@@ -188,46 +182,14 @@ impl HarmoniumController {
                 .as_ref()
                 .map(|e| e.harmony_mode)
                 .unwrap_or(HarmonyMode::default()),
-            gain_lead: self
-                .cached_emotions
-                .as_ref()
-                .map(|e| e.gain_lead)
-                .unwrap_or(1.0),
-            gain_bass: self
-                .cached_emotions
-                .as_ref()
-                .map(|e| e.gain_bass)
-                .unwrap_or(0.6),
-            gain_snare: self
-                .cached_emotions
-                .as_ref()
-                .map(|e| e.gain_snare)
-                .unwrap_or(0.5),
-            gain_hat: self
-                .cached_emotions
-                .as_ref()
-                .map(|e| e.gain_hat)
-                .unwrap_or(0.4),
-            vel_base_bass: self
-                .cached_emotions
-                .as_ref()
-                .map(|e| e.vel_base_bass)
-                .unwrap_or(80),
-            vel_base_snare: self
-                .cached_emotions
-                .as_ref()
-                .map(|e| e.vel_base_snare)
-                .unwrap_or(100),
-            record_wav: self
-                .cached_emotions
-                .as_ref()
-                .map(|e| e.record_wav)
-                .unwrap_or(false),
-            record_midi: self
-                .cached_emotions
-                .as_ref()
-                .map(|e| e.record_midi)
-                .unwrap_or(false),
+            gain_lead: self.cached_emotions.as_ref().map(|e| e.gain_lead).unwrap_or(1.0),
+            gain_bass: self.cached_emotions.as_ref().map(|e| e.gain_bass).unwrap_or(0.6),
+            gain_snare: self.cached_emotions.as_ref().map(|e| e.gain_snare).unwrap_or(0.5),
+            gain_hat: self.cached_emotions.as_ref().map(|e| e.gain_hat).unwrap_or(0.4),
+            vel_base_bass: self.cached_emotions.as_ref().map(|e| e.vel_base_bass).unwrap_or(80),
+            vel_base_snare: self.cached_emotions.as_ref().map(|e| e.vel_base_snare).unwrap_or(100),
+            record_wav: self.cached_emotions.as_ref().map(|e| e.record_wav).unwrap_or(false),
+            record_midi: self.cached_emotions.as_ref().map(|e| e.record_midi).unwrap_or(false),
             record_musicxml: self
                 .cached_emotions
                 .as_ref()
@@ -238,16 +200,8 @@ impl HarmoniumController {
                 .as_ref()
                 .map(|e| e.enable_synthesis_morphing)
                 .unwrap_or(true),
-            poly_steps: self
-                .cached_emotions
-                .as_ref()
-                .map(|e| e.poly_steps)
-                .unwrap_or(48),
-            fixed_kick: self
-                .cached_emotions
-                .as_ref()
-                .map(|e| e.fixed_kick)
-                .unwrap_or(false),
+            poly_steps: self.cached_emotions.as_ref().map(|e| e.poly_steps).unwrap_or(48),
+            fixed_kick: self.cached_emotions.as_ref().map(|e| e.fixed_kick).unwrap_or(false),
             channel_routing: self
                 .cached_emotions
                 .as_ref()
@@ -263,12 +217,7 @@ impl HarmoniumController {
         self.cached_emotions = Some(emotions.clone());
 
         // Send emotion params command
-        self.send(EngineCommand::SetEmotionParams {
-            arousal,
-            valence,
-            density,
-            tension,
-        })
+        self.send(EngineCommand::SetEmotionParams { arousal, valence, density, tension })
     }
 
     // === DIRECT MODE API ===
@@ -313,10 +262,7 @@ impl HarmoniumController {
         numerator: usize,
         denominator: usize,
     ) -> Result<(), ControllerError> {
-        self.send(EngineCommand::SetTimeSignature {
-            numerator,
-            denominator,
-        })
+        self.send(EngineCommand::SetTimeSignature { numerator, denominator })
     }
 
     // === MODULE TOGGLES ===
@@ -462,9 +408,7 @@ impl HarmoniumController {
     ///
     /// Returns `QueueFull` if the command queue is full
     pub fn set_melody_smoothness(&mut self, smoothness: f32) -> Result<(), ControllerError> {
-        self.send(EngineCommand::SetMelodySmoothness(
-            smoothness.clamp(0.0, 1.0),
-        ))
+        self.send(EngineCommand::SetMelodySmoothness(smoothness.clamp(0.0, 1.0)))
     }
 
     /// Set voicing density (0.0-1.0)
@@ -483,15 +427,8 @@ impl HarmoniumController {
     /// # Errors
     ///
     /// Returns `QueueFull` if the command queue is full
-    pub fn set_channel_gain(
-        &mut self,
-        channel: u8,
-        gain: f32,
-    ) -> Result<(), ControllerError> {
-        self.send(EngineCommand::SetChannelGain {
-            channel,
-            gain: gain.clamp(0.0, 1.0),
-        })
+    pub fn set_channel_gain(&mut self, channel: u8, gain: f32) -> Result<(), ControllerError> {
+        self.send(EngineCommand::SetChannelGain { channel, gain: gain.clamp(0.0, 1.0) })
     }
 
     /// Set channel mute
@@ -499,11 +436,7 @@ impl HarmoniumController {
     /// # Errors
     ///
     /// Returns `QueueFull` if the command queue is full
-    pub fn set_channel_mute(
-        &mut self,
-        channel: u8,
-        muted: bool,
-    ) -> Result<(), ControllerError> {
+    pub fn set_channel_mute(&mut self, channel: u8, muted: bool) -> Result<(), ControllerError> {
         self.send(EngineCommand::SetChannelMute { channel, muted })
     }
 
@@ -543,15 +476,8 @@ impl HarmoniumController {
     /// # Errors
     ///
     /// Returns `QueueFull` if the command queue is full
-    pub fn set_loop(
-        &mut self,
-        start_bar: usize,
-        end_bar: usize,
-    ) -> Result<(), ControllerError> {
-        self.send(EngineCommand::SetLoop {
-            start_bar,
-            end_bar,
-        })
+    pub fn set_loop(&mut self, start_bar: usize, end_bar: usize) -> Result<(), ControllerError> {
+        self.send(EngineCommand::SetLoop { start_bar, end_bar })
     }
 
     /// Clear loop region
@@ -611,17 +537,13 @@ impl HarmoniumController {
     /// Get current BPM from cached state
     #[must_use]
     pub fn current_bpm(&self) -> Option<f32> {
-        self.cached_state
-            .as_ref()
-            .map(|state| state.musical_params.bpm)
+        self.cached_state.as_ref().map(|state| state.musical_params.bpm)
     }
 
     /// Get current chord from cached state
     #[must_use]
     pub fn current_chord(&self) -> Option<&str> {
-        self.cached_state
-            .as_ref()
-            .map(|state| state.current_chord.as_str())
+        self.cached_state.as_ref().map(|state| state.current_chord.as_str())
     }
 
     /// Get current bar from cached state

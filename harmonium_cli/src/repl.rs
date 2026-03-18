@@ -4,15 +4,13 @@
 //! Generation commands go to the composer directly; playback commands
 //! go to the PlaybackEngine via a lock-free ring buffer.
 
+use std::sync::{Arc, Mutex};
+
 use anyhow::Result;
 use colored::Colorize;
-use harmonium::composer::MusicComposer;
-use harmonium::playback::PlaybackCommand;
-use harmonium_core::{EngineCommand, EngineReport};
-use harmonium_core::events::RecordFormat;
-use rustyline::error::ReadlineError;
-use rustyline::Editor;
-use std::sync::{Arc, Mutex};
+use harmonium::{composer::MusicComposer, playback::PlaybackCommand};
+use harmonium_core::{events::RecordFormat, EngineCommand, EngineReport};
+use rustyline::{error::ReadlineError, Editor};
 
 use crate::{completer::HarmoniumCompleter, help, parser};
 
@@ -26,12 +24,7 @@ struct EmotionState {
 
 impl Default for EmotionState {
     fn default() -> Self {
-        Self {
-            arousal: 0.5,
-            valence: 0.0,
-            density: 0.5,
-            tension: 0.5,
-        }
+        Self { arousal: 0.5, valence: 0.0, density: 0.5, tension: 0.5 }
     }
 }
 
@@ -61,9 +54,9 @@ impl ReplState {
     fn send_invalidate(&mut self) {
         if let Ok(mut c) = self.composer.lock() {
             c.generate_bars(1);
-            let _ = self.playback_cmd_tx.push(
-                PlaybackCommand::UpdateMusicalParams(Box::new(c.musical_params().clone()))
-            );
+            let _ = self
+                .playback_cmd_tx
+                .push(PlaybackCommand::UpdateMusicalParams(Box::new(c.musical_params().clone())));
         }
     }
 }
@@ -90,11 +83,10 @@ pub fn run(
     rl.set_helper(Some(helper));
 
     // Load history if it exists
-    let history_path = dirs::home_dir()
-        .map(|mut p| {
-            p.push(".harmonium_history");
-            p
-        });
+    let history_path = dirs::home_dir().map(|mut p| {
+        p.push(".harmonium_history");
+        p
+    });
 
     if let Some(ref path) = history_path {
         let _ = rl.load_history(path);
@@ -119,16 +111,20 @@ pub fn run(
 
                 match std::fs::write(filename, &data) {
                     Ok(_) => {
-                        println!("\n{} Saved {} ({} bytes)",
+                        println!(
+                            "\n{} Saved {} ({} bytes)",
                             "[RECORDING]".cyan().bold(),
                             filename.green(),
-                            data.len());
+                            data.len()
+                        );
                     }
                     Err(e) => {
-                        println!("\n{} Failed to write {}: {}",
+                        println!(
+                            "\n{} Failed to write {}: {}",
                             "[ERROR]".red().bold(),
                             filename,
-                            e);
+                            e
+                        );
                     }
                 }
             }
@@ -182,10 +178,7 @@ pub fn run(
 }
 
 /// Handle a single command
-fn handle_command(
-    line: &str,
-    state: &mut ReplState,
-) -> Result<bool> {
+fn handle_command(line: &str, state: &mut ReplState) -> Result<bool> {
     let line = line.trim();
 
     if line.is_empty() {
@@ -220,16 +213,24 @@ fn handle_command(
                     "midi" | "mid" => RecordFormat::Midi,
                     "musicxml" | "xml" => RecordFormat::MusicXml,
                     _ => {
-                        println!("{} Unknown format: {}. Use: wav, midi, musicxml", "[ERROR]".red().bold(), tokens[1]);
+                        println!(
+                            "{} Unknown format: {}. Use: wav, midi, musicxml",
+                            "[ERROR]".red().bold(),
+                            tokens[1]
+                        );
                         return Ok(true);
                     }
                 };
                 let _ = state.playback_cmd_tx.push(PlaybackCommand::StopRecording(format));
                 println!("{} Recording {:?} stopped", "[OK]".green().bold(), format);
             } else {
-                let _ = state.playback_cmd_tx.push(PlaybackCommand::StopRecording(RecordFormat::Wav));
-                let _ = state.playback_cmd_tx.push(PlaybackCommand::StopRecording(RecordFormat::Midi));
-                let _ = state.playback_cmd_tx.push(PlaybackCommand::StopRecording(RecordFormat::MusicXml));
+                let _ =
+                    state.playback_cmd_tx.push(PlaybackCommand::StopRecording(RecordFormat::Wav));
+                let _ =
+                    state.playback_cmd_tx.push(PlaybackCommand::StopRecording(RecordFormat::Midi));
+                let _ = state
+                    .playback_cmd_tx
+                    .push(PlaybackCommand::StopRecording(RecordFormat::MusicXml));
                 println!("{} All recordings stopped", "[OK]".green().bold());
             }
             return Ok(true);
@@ -259,8 +260,12 @@ fn handle_command(
 
         "loop" => {
             if tokens.len() > 2 {
-                if let (Ok(start), Ok(end)) = (tokens[1].parse::<usize>(), tokens[2].parse::<usize>()) {
-                    let _ = state.playback_cmd_tx.push(PlaybackCommand::SetLoop { start_bar: start, end_bar: end });
+                if let (Ok(start), Ok(end)) =
+                    (tokens[1].parse::<usize>(), tokens[2].parse::<usize>())
+                {
+                    let _ = state
+                        .playback_cmd_tx
+                        .push(PlaybackCommand::SetLoop { start_bar: start, end_bar: end });
                     println!("{} Loop set: bars {start}-{end}", "[OK]".green().bold());
                 } else {
                     println!("{} Usage: loop <start_bar> <end_bar>", "[ERROR]".red().bold());
@@ -314,19 +319,31 @@ fn dispatch_command(state: &mut ReplState, cmd: EngineCommand) -> Result<()> {
                 let bpm = c.musical_params().bpm;
                 let density_mapped = c.musical_params().rhythm_density;
                 c.invalidate_future();
-                println!("{} A={:.2} V={:.2} D={:.2} T={:.2} → BPM={:.0} Density={:.2}",
-                    "[OK]".green().bold(), arousal, valence, density, tension, bpm, density_mapped);
+                println!(
+                    "{} A={:.2} V={:.2} D={:.2} T={:.2} → BPM={:.0} Density={:.2}",
+                    "[OK]".green().bold(),
+                    arousal,
+                    valence,
+                    density,
+                    tension,
+                    bpm,
+                    density_mapped
+                );
             }
             state.send_invalidate();
         }
 
         EngineCommand::UseEmotionMode => {
-            if let Ok(mut c) = state.composer.lock() { c.use_emotion_mode(); }
+            if let Ok(mut c) = state.composer.lock() {
+                c.use_emotion_mode();
+            }
             print_success_msg("Switched to Emotion mode");
         }
 
         EngineCommand::UseDirectMode => {
-            if let Ok(mut c) = state.composer.lock() { c.use_direct_mode(); }
+            if let Ok(mut c) = state.composer.lock() {
+                c.use_direct_mode();
+            }
             print_success_msg("Switched to Direct mode");
         }
 
@@ -521,15 +538,27 @@ fn dispatch_command(state: &mut ReplState, cmd: EngineCommand) -> Result<()> {
         }
 
         EngineCommand::SetAllRhythmParams {
-            mode, steps, pulses, rotation,
-            density, tension,
-            secondary_steps, secondary_pulses, secondary_rotation,
+            mode,
+            steps,
+            pulses,
+            rotation,
+            density,
+            tension,
+            secondary_steps,
+            secondary_pulses,
+            secondary_rotation,
         } => {
             if let Ok(mut c) = state.composer.lock() {
                 c.set_all_rhythm_params(
-                    mode, steps, pulses, rotation,
-                    density, tension,
-                    secondary_steps, secondary_pulses, secondary_rotation,
+                    mode,
+                    steps,
+                    pulses,
+                    rotation,
+                    density,
+                    tension,
+                    secondary_steps,
+                    secondary_pulses,
+                    secondary_rotation,
                 );
                 c.invalidate_future();
             }
@@ -571,16 +600,22 @@ fn dispatch_command(state: &mut ReplState, cmd: EngineCommand) -> Result<()> {
 
         EngineCommand::SetChannelMute { channel, muted } => {
             let _ = state.playback_cmd_tx.push(PlaybackCommand::SetChannelMute { channel, muted });
-            print_success_msg(&format!("Channel {} {}", channel, if muted { "muted" } else { "unmuted" }));
+            print_success_msg(&format!(
+                "Channel {} {}",
+                channel,
+                if muted { "muted" } else { "unmuted" }
+            ));
         }
 
         EngineCommand::SetChannelRoute { channel, bank_id } => {
-            let _ = state.playback_cmd_tx.push(PlaybackCommand::SetChannelRoute { channel, bank_id });
+            let _ =
+                state.playback_cmd_tx.push(PlaybackCommand::SetChannelRoute { channel, bank_id });
             print_success_msg(&format!("Channel {} routed to bank {}", channel, bank_id));
         }
 
         EngineCommand::SetVelocityBase { channel, velocity } => {
-            let _ = state.playback_cmd_tx.push(PlaybackCommand::SetVelocityBase { channel, velocity });
+            let _ =
+                state.playback_cmd_tx.push(PlaybackCommand::SetVelocityBase { channel, velocity });
             print_success_msg(&format!("Channel {} velocity base set to {}", channel, velocity));
         }
 
@@ -618,10 +653,7 @@ fn has_relative_values(tokens: &[&str]) -> bool {
 }
 
 /// Handle relative emotion adjustments (e.g., "emotion a+0.1 v-0.2")
-fn handle_relative_emotion(
-    state: &mut ReplState,
-    tokens: &[&str],
-) -> Result<bool> {
+fn handle_relative_emotion(state: &mut ReplState, tokens: &[&str]) -> Result<bool> {
     for token in tokens {
         if token.len() < 2 {
             continue;
@@ -637,10 +669,18 @@ fn handle_relative_emotion(
         };
 
         match param.as_str() {
-            "a" => state.emotion_state.arousal = (state.emotion_state.arousal + delta).clamp(0.0, 1.0),
-            "v" => state.emotion_state.valence = (state.emotion_state.valence + delta).clamp(-1.0, 1.0),
-            "d" => state.emotion_state.density = (state.emotion_state.density + delta).clamp(0.0, 1.0),
-            "t" => state.emotion_state.tension = (state.emotion_state.tension + delta).clamp(0.0, 1.0),
+            "a" => {
+                state.emotion_state.arousal = (state.emotion_state.arousal + delta).clamp(0.0, 1.0)
+            }
+            "v" => {
+                state.emotion_state.valence = (state.emotion_state.valence + delta).clamp(-1.0, 1.0)
+            }
+            "d" => {
+                state.emotion_state.density = (state.emotion_state.density + delta).clamp(0.0, 1.0)
+            }
+            "t" => {
+                state.emotion_state.tension = (state.emotion_state.tension + delta).clamp(0.0, 1.0)
+            }
             _ => {
                 println!("{} Unknown emotion parameter: {}", "[WARN]".yellow().bold(), param);
             }
@@ -659,8 +699,16 @@ fn handle_relative_emotion(
         let bpm = c.musical_params().bpm;
         let density_mapped = c.musical_params().rhythm_density;
         c.invalidate_future();
-        println!("{} A={:.2} V={:.2} D={:.2} T={:.2} → BPM={:.0} Density={:.2}",
-            "[OK]".green().bold(), a, v, d, t, bpm, density_mapped);
+        println!(
+            "{} A={:.2} V={:.2} D={:.2} T={:.2} → BPM={:.0} Density={:.2}",
+            "[OK]".green().bold(),
+            a,
+            v,
+            d,
+            t,
+            bpm,
+            density_mapped
+        );
     }
     state.send_invalidate();
 
@@ -718,7 +766,11 @@ fn print_state(state: &mut ReplState) {
         // Timing
         println!("{}", "TIMING:".yellow().bold());
         println!("  BPM: {}", format!("{:.1}", report.musical_params.bpm).green());
-        println!("  Time Signature: {}", format!("{}/{}", report.time_signature.numerator, report.time_signature.denominator).green());
+        println!(
+            "  Time Signature: {}",
+            format!("{}/{}", report.time_signature.numerator, report.time_signature.denominator)
+                .green()
+        );
         println!("  Bar: {}", format!("{}", report.current_bar + 1).green());
         println!("  Beat: {}", format!("{}", report.current_beat + 1).green());
         println!("  Step: {}", format!("{}", report.current_step + 1).green());
@@ -728,19 +780,24 @@ fn print_state(state: &mut ReplState) {
         println!("{}", "HARMONY:".yellow().bold());
         println!("  Mode: {}", format!("{:?}", report.harmony_mode).green());
         println!("  Current Chord: {}", format!("{}", report.current_chord).magenta().bold());
-        println!("  Progression: {}", format!("{} ({} chords)", report.progression_name, report.progression_length).green());
+        println!(
+            "  Progression: {}",
+            format!("{} ({} chords)", report.progression_name, report.progression_length).green()
+        );
         println!("  Key: {}", format!("{} {}", report.session_key, report.session_scale).green());
         println!();
 
         // Rhythm
         println!("{}", "RHYTHM:".yellow().bold());
         println!("  Mode: {}", format!("{:?}", report.rhythm_mode).green());
-        println!("  Primary: {} steps, {} pulses, rotation {}",
+        println!(
+            "  Primary: {} steps, {} pulses, rotation {}",
             format!("{}", report.primary_steps).green(),
             format!("{}", report.primary_pulses).green(),
             format!("{}", report.primary_rotation).green()
         );
-        println!("  Secondary: {} steps, {} pulses, rotation {}",
+        println!(
+            "  Secondary: {} steps, {} pulses, rotation {}",
             format!("{}", report.secondary_steps).green(),
             format!("{}", report.secondary_pulses).green(),
             format!("{}", report.secondary_rotation).green()
@@ -763,12 +820,23 @@ fn print_state(state: &mut ReplState) {
 
         // Modules
         println!("{}", "MODULES:".yellow().bold());
-        println!("  Rhythm:  {}", if report.musical_params.enable_rhythm { "ON".green() } else { "OFF".red() });
-        println!("  Harmony: {}", if report.musical_params.enable_harmony { "ON".green() } else { "OFF".red() });
-        println!("  Melody:  {}", if report.musical_params.enable_melody { "ON".green() } else { "OFF".red() });
-        println!("  Voicing: {}", if report.musical_params.enable_voicing { "ON".green() } else { "OFF".red() });
+        println!(
+            "  Rhythm:  {}",
+            if report.musical_params.enable_rhythm { "ON".green() } else { "OFF".red() }
+        );
+        println!(
+            "  Harmony: {}",
+            if report.musical_params.enable_harmony { "ON".green() } else { "OFF".red() }
+        );
+        println!(
+            "  Melody:  {}",
+            if report.musical_params.enable_melody { "ON".green() } else { "OFF".red() }
+        );
+        println!(
+            "  Voicing: {}",
+            if report.musical_params.enable_voicing { "ON".green() } else { "OFF".red() }
+        );
         println!();
-
     } else {
         println!("{}", "No state available yet. Engine may still be initializing.".yellow());
     }

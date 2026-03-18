@@ -10,20 +10,18 @@
 //! The algorithms are IDENTICAL to the legacy engine - just writing to
 //! `Measure` structs instead of emitting ephemeral `AudioEvent`s.
 
-use crate::harmony::RngCore;
-use crate::harmony::basic::{ChordQuality, ChordStep, Progression};
-use crate::harmony::chord::ChordType;
-use crate::harmony::driver::HarmonicDriver;
-use crate::harmony::melody::HarmonyNavigator;
-use crate::params::{CurrentState, MusicalParams};
-use crate::sequencer::{RhythmMode, Sequencer, StepTrigger};
-
-use super::{
-    Articulation, ChordContext, Measure, NoteId, StateSnapshot,
-    TimelineNote, TrackId,
+use super::{Articulation, ChordContext, Measure, NoteId, StateSnapshot, TimelineNote, TrackId};
+use crate::{
+    harmony::{
+        HarmonyMode, RngCore,
+        basic::{ChordQuality, ChordStep, Progression},
+        chord::ChordType,
+        driver::HarmonicDriver,
+        melody::HarmonyNavigator,
+    },
+    params::{CurrentState, MusicalParams},
+    sequencer::{RhythmMode, Sequencer, StepTrigger},
 };
-
-use crate::harmony::HarmonyMode;
 
 /// Generates measures offline (on the main thread) using the same algorithms
 /// as the legacy engine's tick() function.
@@ -73,10 +71,8 @@ impl TimelineGenerator {
         musical_params: MusicalParams,
         current_state: CurrentState,
     ) -> Self {
-        let current_progression = Progression::get_palette(
-            current_state.valence,
-            current_state.tension,
-        );
+        let current_progression =
+            Progression::get_palette(current_state.valence, current_state.tension);
 
         Self {
             sequencer_primary,
@@ -103,11 +99,7 @@ impl TimelineGenerator {
     ///
     /// This ticks both sequencers through all steps in the measure, calling
     /// the same melody/harmony/rhythm functions in identical order as tick().
-    pub fn generate_measure(
-        &mut self,
-        bar_index: usize,
-        rng: &mut dyn RngCore,
-    ) -> Measure {
+    pub fn generate_measure(&mut self, bar_index: usize, rng: &mut dyn RngCore) -> Measure {
         self.current_bar = bar_index;
 
         // Snap current_state to match musical_params first —
@@ -117,12 +109,7 @@ impl TimelineGenerator {
         let time_sig = self.musical_params.time_signature;
         let steps = time_sig.steps_per_bar(self.sequencer_primary.ticks_per_beat);
 
-        let mut measure = Measure::new(
-            bar_index,
-            time_sig,
-            self.current_state.bpm,
-            steps,
-        );
+        let mut measure = Measure::new(bar_index, time_sig, self.current_state.bpm, steps);
 
         // === BARLINE LOGIC (replicates tick() bar_crossed branch) ===
         self.handle_barline(bar_index, rng);
@@ -176,17 +163,20 @@ impl TimelineGenerator {
                     (36 + self.chord_root_offset) as u8
                 };
                 let midi_note = self.musical_params.instrument_bass.apply(midi_note);
-                let vel = self.musical_params.vel_base_bass
-                    + (self.current_state.arousal * 25.0) as u8;
+                let vel =
+                    self.musical_params.vel_base_bass + (self.current_state.arousal * 25.0) as u8;
 
-                measure.add_note(TrackId::Bass, TimelineNote {
-                    id: self.next_id(),
-                    pitch: midi_note,
-                    start_step: step,
-                    duration_steps: 1, // Staccato bass
-                    velocity: vel,
-                    articulation: Articulation::Staccato,
-                });
+                measure.add_note(
+                    TrackId::Bass,
+                    TimelineNote {
+                        id: self.next_id(),
+                        pitch: midi_note,
+                        start_step: step,
+                        duration_steps: 1, // Staccato bass
+                        velocity: vel,
+                        articulation: Articulation::Staccato,
+                    },
+                );
             }
 
             // === LEAD (with voicing decision) ===
@@ -199,28 +189,33 @@ impl TimelineGenerator {
                 let is_strong = trigger_primary.kick || trigger_primary.snare;
                 let is_new_measure = step == 0;
 
-                let freq = self.harmony.next_note_structured(
-                    is_strong,
-                    is_new_measure,
-                    rng,
-                );
+                let freq = self.harmony.next_note_structured(is_strong, is_new_measure, rng);
                 let melody_midi = (69.0 + 12.0 * (freq / 440.0).log2()).round() as u8;
                 let melody_midi = self.musical_params.instrument_lead.apply(melody_midi);
                 let base_vel = 90 + (self.current_state.arousal * 30.0) as u8;
 
                 // Determine duration: until next lead trigger or end of bar
-                let duration = self.calculate_lead_duration(step, steps, &self.sequencer_primary.pattern, is_high_tension, fill_zone_start);
+                let duration = self.calculate_lead_duration(
+                    step,
+                    steps,
+                    &self.sequencer_primary.pattern,
+                    is_high_tension,
+                    fill_zone_start,
+                );
 
                 // Simplified: emit single melody note (voicing handled by Playhead or skipped)
                 let solo_vel = (base_vel as f32 * 0.7) as u8;
-                measure.add_note(TrackId::Lead, TimelineNote {
-                    id: self.next_id(),
-                    pitch: melody_midi,
-                    start_step: step,
-                    duration_steps: duration,
-                    velocity: solo_vel,
-                    articulation: Articulation::Normal,
-                });
+                measure.add_note(
+                    TrackId::Lead,
+                    TimelineNote {
+                        id: self.next_id(),
+                        pitch: melody_midi,
+                        start_step: step,
+                        duration_steps: duration,
+                        velocity: solo_vel,
+                        articulation: Articulation::Normal,
+                    },
+                );
             }
 
             // === SNARE (with ghost notes and tom fills) ===
@@ -229,8 +224,8 @@ impl TimelineGenerator {
                 && !self.musical_params.muted_channels.get(2).copied().unwrap_or(false)
             {
                 let mut snare_note = 38u8;
-                let mut vel = self.musical_params.vel_base_snare
-                    + (self.current_state.arousal * 30.0) as u8;
+                let mut vel =
+                    self.musical_params.vel_base_snare + (self.current_state.arousal * 30.0) as u8;
 
                 // Ghost notes
                 if trigger_primary.velocity < 0.7 {
@@ -250,14 +245,17 @@ impl TimelineGenerator {
                     vel = (vel as f32 * 1.1).min(127.0) as u8;
                 }
 
-                measure.add_note(TrackId::Snare, TimelineNote {
-                    id: self.next_id(),
-                    pitch: snare_note,
-                    start_step: step,
-                    duration_steps: 0, // Trigger only
-                    velocity: vel,
-                    articulation: Articulation::Trigger,
-                });
+                measure.add_note(
+                    TrackId::Snare,
+                    TimelineNote {
+                        id: self.next_id(),
+                        pitch: snare_note,
+                        start_step: step,
+                        duration_steps: 0, // Trigger only
+                        velocity: vel,
+                        articulation: Articulation::Trigger,
+                    },
+                );
             }
 
             // === HAT (with cymbal variations) ===
@@ -287,14 +285,17 @@ impl TimelineGenerator {
                     hat_note = 44; // Pedal Hi-Hat
                 }
 
-                measure.add_note(TrackId::Hat, TimelineNote {
-                    id: self.next_id(),
-                    pitch: hat_note,
-                    start_step: step,
-                    duration_steps: 0,
-                    velocity: vel,
-                    articulation: Articulation::Trigger,
-                });
+                measure.add_note(
+                    TrackId::Hat,
+                    TimelineNote {
+                        id: self.next_id(),
+                        pitch: hat_note,
+                        start_step: step,
+                        duration_steps: 0,
+                        velocity: vel,
+                        articulation: Articulation::Trigger,
+                    },
+                );
             }
         }
 
@@ -359,8 +360,7 @@ impl TimelineGenerator {
         // Chord progression
         let measures_per_chord = if self.current_state.tension > 0.6 { 1 } else { 2 };
         if bar_index.is_multiple_of(measures_per_chord) {
-            self.progression_index =
-                (self.progression_index + 1) % self.current_progression.len();
+            self.progression_index = (self.progression_index + 1) % self.current_progression.len();
             let chord = &self.current_progression[self.progression_index];
 
             self.harmony.set_chord_context(chord.root_offset, chord.quality);
@@ -382,11 +382,8 @@ impl TimelineGenerator {
         let measures_per_chord = if self.current_state.tension > 0.6 { 1 } else { 2 };
         if bar_index.is_multiple_of(measures_per_chord) {
             if let Some(ref mut driver) = self.harmonic_driver {
-                let decision = driver.next_chord(
-                    self.current_state.tension,
-                    self.current_state.valence,
-                    rng,
-                );
+                let decision =
+                    driver.next_chord(self.current_state.tension, self.current_state.valence, rng);
 
                 let root_offset = driver.root_offset();
                 let quality = driver.to_basic_quality();
@@ -425,8 +422,8 @@ impl TimelineGenerator {
                     StepTrigger::default()
                 };
 
-                let would_play = trigger.lead
-                    && !(is_high_tension && future_step >= fill_zone_start);
+                let would_play =
+                    trigger.lead && !(is_high_tension && future_step >= fill_zone_start);
                 if would_play {
                     break 'outer future_step - current_step;
                 }
@@ -436,11 +433,7 @@ impl TimelineGenerator {
         };
 
         // Clamp to largest notation-safe duration that fits within the raw gap
-        Self::NOTATION_SAFE_STEPS
-            .iter()
-            .copied()
-            .find(|&d| d <= raw)
-            .unwrap_or(1)
+        Self::NOTATION_SAFE_STEPS.iter().copied().find(|&d| d <= raw).unwrap_or(1)
     }
 
     /// Update musical parameters (called when commands are processed)
@@ -483,7 +476,8 @@ impl TimelineGenerator {
         self.sequencer_primary.density = params.rhythm_density;
 
         // Secondary sequencer
-        self.sequencer_secondary.pulses = params.rhythm_secondary_pulses.min(params.rhythm_secondary_steps);
+        self.sequencer_secondary.pulses =
+            params.rhythm_secondary_pulses.min(params.rhythm_secondary_steps);
         self.sequencer_secondary.rotation = params.rhythm_secondary_rotation;
 
         // Melody
@@ -527,9 +521,10 @@ fn format_chord_name(root_offset: i32, quality: ChordQuality) -> String {
 
 #[cfg(test)]
 mod tests {
+    use rust_music_theory::{note::PitchSymbol, scale::ScaleType};
+
     use super::*;
     use crate::params::TimeSignature;
-    use rust_music_theory::{note::PitchSymbol, scale::ScaleType};
 
     fn make_gen() -> TimelineGenerator {
         let seq_primary = Sequencer::new(16, 4, 120.0);
@@ -680,7 +675,8 @@ mod tests {
         use crate::params::InstrumentConfig;
 
         let mut tgen = make_gen();
-        tgen.musical_params.instrument_lead = InstrumentConfig { min_note: 60, max_note: 72, transposition_semitones: 0 };
+        tgen.musical_params.instrument_lead =
+            InstrumentConfig { min_note: 60, max_note: 72, transposition_semitones: 0 };
 
         let mut rng = rand::thread_rng();
         for bar in 1..=8 {
@@ -737,8 +733,10 @@ mod tests {
     /// → generate measures → validate ranges → export MusicXML → validate XML structure.
     #[test]
     fn test_tenor_sax_full_pipeline() {
-        use crate::params::InstrumentConfig;
-        use crate::timeline::{ScoreTimeline, export::timeline_to_musicxml_with_instruments};
+        use crate::{
+            params::InstrumentConfig,
+            timeline::{ScoreTimeline, export::timeline_to_musicxml_with_instruments},
+        };
 
         let tenor = InstrumentConfig::tenor_sax();
         let mut tgen = make_gen();
@@ -755,7 +753,9 @@ mod tests {
                 assert!(
                     note.pitch >= tenor.min_note && note.pitch <= tenor.max_note,
                     "Lead note MIDI {} out of tenor sax range [{}, {}] at bar {bar}",
-                    note.pitch, tenor.min_note, tenor.max_note,
+                    note.pitch,
+                    tenor.min_note,
+                    tenor.max_note,
                 );
             }
 

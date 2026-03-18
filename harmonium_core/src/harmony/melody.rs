@@ -10,8 +10,7 @@ use rust_music_theory::{
     scale::{Direction, Scale, ScaleType},
 };
 
-use super::RngCore;
-use super::basic::ChordQuality;
+use super::{RngCore, basic::ChordQuality};
 use crate::fractal::PinkNoise;
 
 pub struct HarmonyNavigator {

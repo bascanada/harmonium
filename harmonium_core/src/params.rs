@@ -173,24 +173,20 @@ impl InstrumentConfig {
         let abs_semitones = chromatic.unsigned_abs() % 12;
         let abs_diatonic = match abs_semitones {
             0 => 0,
-            1 => 1,   // minor/major 2nd
-            2 => 1,   // major 2nd
-            3 => 2,   // minor 3rd
-            4 => 2,   // major 3rd
-            5 => 3,   // perfect 4th
-            6 => 3,   // tritone
-            7 => 4,   // perfect 5th
-            8 => 5,   // minor 6th
-            9 => 5,   // major 6th
-            10 => 6,  // minor 7th
-            11 => 6,  // major 7th
+            1 => 1,  // minor/major 2nd
+            2 => 1,  // major 2nd
+            3 => 2,  // minor 3rd
+            4 => 2,  // major 3rd
+            5 => 3,  // perfect 4th
+            6 => 3,  // tritone
+            7 => 4,  // perfect 5th
+            8 => 5,  // minor 6th
+            9 => 5,  // major 6th
+            10 => 6, // minor 7th
+            11 => 6, // major 7th
             _ => 0,
         };
-        let diatonic = if chromatic < 0 {
-            -(abs_diatonic as i16)
-        } else {
-            abs_diatonic as i16
-        };
+        let diatonic = if chromatic < 0 { -(abs_diatonic as i16) } else { abs_diatonic as i16 };
         Some((chromatic, diatonic))
     }
 }

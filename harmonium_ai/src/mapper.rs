@@ -281,12 +281,7 @@ impl UnifiedTensionSystem {
     /// Create a new Unified Tension System with default values (Stability state)
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            arousal: 0.0,
-            valence: 0.0,
-            tension: 0.0,
-            tension_state: TensionState::Stability,
-        }
+        Self { arousal: 0.0, valence: 0.0, tension: 0.0, tension_state: TensionState::Stability }
     }
 
     /// Update the system with new emotional inputs and recalculate tension state
@@ -328,20 +323,12 @@ impl UnifiedTensionSystem {
             (true, true) => {
                 // High arousal, high valence (excited, energetic)
                 // High tension → PeakClimax, Low tension → RhythmicDrive
-                if tension > 0.6 {
-                    TensionState::PeakClimax
-                } else {
-                    TensionState::RhythmicDrive
-                }
+                if tension > 0.6 { TensionState::PeakClimax } else { TensionState::RhythmicDrive }
             }
             (false, false) => {
                 // Low arousal, low valence (sad, melancholic)
                 // High tension → HarmonicSuspense, Low tension → Stability
-                if tension > 0.5 {
-                    TensionState::HarmonicSuspense
-                } else {
-                    TensionState::Stability
-                }
+                if tension > 0.5 { TensionState::HarmonicSuspense } else { TensionState::Stability }
             }
             (false, true) => {
                 // Low arousal, high valence (relaxed, peaceful)
@@ -560,7 +547,11 @@ mod tests {
         // HarmonicSuspense → Low oddity (4-5)
         system.update(0.2, -0.7, 0.8);
         let oddity = system.calculate_target_oddity();
-        assert!((4..=5).contains(&oddity), "HarmonicSuspense should map to oddity 4-5, got {}", oddity);
+        assert!(
+            (4..=5).contains(&oddity),
+            "HarmonicSuspense should map to oddity 4-5, got {}",
+            oddity
+        );
     }
 
     #[test]
@@ -569,7 +560,11 @@ mod tests {
         let mut system = UnifiedTensionSystem::new();
         system.update(0.8, 0.7, 0.3);
         let oddity = system.calculate_target_oddity();
-        assert!((6..=7).contains(&oddity), "RhythmicDrive should map to oddity 6-7, got {}", oddity);
+        assert!(
+            (6..=7).contains(&oddity),
+            "RhythmicDrive should map to oddity 6-7, got {}",
+            oddity
+        );
 
         // PeakClimax → High oddity (6-7)
         system.update(0.9, -0.8, 0.9);
