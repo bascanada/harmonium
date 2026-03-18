@@ -177,7 +177,7 @@ impl Sequencer {
                         snare: false,  // Will be set below
                         hat: b,        // Layering simple
                         bass: b,       // Sync bass with kick in Euclidean mode
-                        lead: false,
+                        lead: b,
                         velocity: if i == 0 { 1.0 } else if b { 0.85 } else { 0.0 },
                     })
                     .collect();
@@ -258,7 +258,7 @@ impl Sequencer {
                         snare: false,  // Will be set below
                         hat: b,        // Layering simple
                         bass: b,       // Sync bass with kick in Euclidean mode
-                        lead: false,
+                        lead: b,
                         velocity: if i == 0 { 1.0 } else if b { 0.85 } else { 0.0 },
                     })
                     .collect();
@@ -482,7 +482,11 @@ pub fn generate_balanced_layers(
     let bass_gon = if density < 0.4 { kick_gon } else { Polygon::new(8, 0, 0.8) };
 
     // LAYER E: LEAD (Melody)
-    let lead_vertices = if density < 0.3 { 3 } else { 5 };
+    // Scale smoothly: 2 vertices at density=0 → 8 at density=1
+    // Keeps the melody musical (half-notes to eighth-notes in 4/4)
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let lead_vertices = (2.0 + density * 6.0).round() as usize;
+    let lead_vertices = lead_vertices.clamp(2, steps);
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let lead_offset = (tension * (steps / lead_vertices) as f32) as usize;
     let lead_gon = Polygon::new(lead_vertices, lead_offset, 0.7);
@@ -732,7 +736,14 @@ pub fn generate_classic_groove(
     }
 
     // === LEAD PATTERNS ===
-    let melody_interval = if density < 0.4 { beat } else { eighth };
+    // Scale smoothly: beat interval at density=0, eighth note at density=1
+    let melody_interval = {
+        let max_interval = beat.max(1);
+        let min_interval = eighth.max(1);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let interval = (max_interval as f32 * (1.0 - density) + min_interval as f32 * density).round() as usize;
+        interval.max(1)
+    };
     for i in (0..steps).step_by(melody_interval) {
         let jitter = if tension > 0.5 && sixteenth > 0 { sixteenth } else { 0 };
         let final_pos = (i + jitter) % steps;

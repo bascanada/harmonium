@@ -275,6 +275,16 @@ impl MusicComposer {
         }
     }
 
+    /// Clear timeline, writehead, and shared pages WITHOUT resetting musical_params.
+    /// Use this when you want to regenerate from scratch with current settings.
+    pub fn reset_timeline(&mut self) {
+        self.writehead.reset();
+        self.generator.update_params(self.musical_params.clone());
+        if let Ok(mut pages) = self.shared_pages.lock() {
+            pages.clear();
+        }
+    }
+
     /// Seek the writehead to a specific bar.
     pub fn seek_writehead(&mut self, bar: usize) {
         self.writehead.current_bar = bar;
@@ -368,6 +378,7 @@ impl MusicComposer {
 
         // Preserve runtime state that shouldn't be overwritten by the mapper
         let mut new_params = mapped;
+        new_params.rhythm_mode = self.musical_params.rhythm_mode;
         new_params.enable_rhythm = self.musical_params.enable_rhythm;
         new_params.enable_harmony = self.musical_params.enable_harmony;
         new_params.enable_melody = self.musical_params.enable_melody;

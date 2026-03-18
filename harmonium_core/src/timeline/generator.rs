@@ -191,12 +191,12 @@ impl TimelineGenerator {
 
             // === LEAD (with voicing decision) ===
             let play_lead = melody_enabled
-                && (trigger_primary.kick || trigger_primary.snare)
+                && trigger_primary.lead
                 && !(is_high_tension && is_in_fill_zone)
                 && !self.musical_params.muted_channels.get(1).copied().unwrap_or(false);
 
             if play_lead {
-                let is_strong = trigger_primary.kick;
+                let is_strong = trigger_primary.kick || trigger_primary.snare;
                 let is_new_measure = step == 0;
 
                 let freq = self.harmony.next_note_structured(
@@ -425,7 +425,7 @@ impl TimelineGenerator {
                     StepTrigger::default()
                 };
 
-                let would_play = (trigger.kick || trigger.snare)
+                let would_play = trigger.lead
                     && !(is_high_tension && future_step >= fill_zone_start);
                 if would_play {
                     break 'outer future_step - current_step;

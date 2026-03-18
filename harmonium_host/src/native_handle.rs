@@ -128,6 +128,20 @@ impl NativeHandle {
         self.measures_buffer.clear();
     }
 
+    /// Clear timeline and regenerate, keeping current musical params.
+    /// Use this for "New" / regenerate where the user wants fresh bars
+    /// but with their current settings (emotions, rhythm mode, etc.).
+    pub fn regenerate_with_current_params(&mut self, bars: usize) {
+        if let Ok(mut composer) = self.composer.lock() {
+            composer.reset_timeline();
+            composer.generate_bars(bars);
+        }
+        self.measures_buffer.clear();
+        // Clear stale reports so poll_state() doesn't return pre-regeneration data
+        self.cached_state = None;
+        while self.report_rx.pop().is_ok() {}
+    }
+
     /// Read the current playhead bar (from the shared atomic).
     pub fn playhead_bar(&self) -> usize {
         if let Ok(composer) = self.composer.lock() {
@@ -275,6 +289,12 @@ impl NativeHandle {
         if let Ok(mut c) = self.composer.lock() { c.set_writehead_lookahead(bars); }
     }
 
+    /// Sync the generator with current musical params.
+    /// Call after batch param changes and before the first generate_bars().
+    pub fn sync_generator(&self) {
+        if let Ok(mut c) = self.composer.lock() { c.sync_generator(); }
+    }
+
     // === Playback commands (sent to audio thread) ===
 
     pub fn set_channel_gain(&mut self, channel: u8, gain: f32) {
@@ -307,6 +327,12 @@ impl NativeHandle {
     pub fn seek_playhead(&mut self, bar: usize) {
         let target_bar = bar.max(1);
         let _ = self.playback_cmd_tx.push(PlaybackCommand::SeekPlayhead(target_bar));
+        // Clear cached state so poll_state() returns None until the audio thread
+        // sends a fresh report from the new position. Without this, stale reports
+        // from before the seek leak through when the stream is paused.
+        self.cached_state = None;
+        // Drain any in-flight reports that were queued before the seek
+        while self.report_rx.pop().is_ok() {}
     }
 
     pub fn set_loop(&mut self, start_bar: usize, end_bar: usize) {

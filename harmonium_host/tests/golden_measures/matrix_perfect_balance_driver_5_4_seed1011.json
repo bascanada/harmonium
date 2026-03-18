@@ -1,7 +1,7 @@
 [
   {
     "index": 1,
-    "tempo": 0.0,
+    "tempo": 120.0,
     "time_sig_numerator": 5,
     "time_sig_denominator": 4,
     "steps": 20,
@@ -14,434 +14,572 @@
         "pitch": 36,
         "start_step": 0,
         "duration_steps": 1,
-        "velocity": 85
+        "velocity": 96
       },
       {
         "track": 0,
         "pitch": 36,
         "start_step": 4,
         "duration_steps": 1,
-        "velocity": 85
+        "velocity": 96
       },
       {
         "track": 0,
         "pitch": 36,
         "start_step": 8,
         "duration_steps": 1,
-        "velocity": 85
+        "velocity": 96
       },
       {
         "track": 0,
         "pitch": 36,
         "start_step": 12,
         "duration_steps": 1,
-        "velocity": 85
+        "velocity": 96
       },
       {
         "track": 1,
         "pitch": 65,
         "start_step": 0,
         "duration_steps": 4,
-        "velocity": 63
+        "velocity": 72
       },
       {
         "track": 1,
         "pitch": 63,
         "start_step": 4,
         "duration_steps": 4,
-        "velocity": 63
+        "velocity": 72
       },
       {
         "track": 1,
         "pitch": 60,
         "start_step": 8,
         "duration_steps": 4,
-        "velocity": 63
+        "velocity": 72
       },
       {
         "track": 1,
         "pitch": 60,
         "start_step": 12,
         "duration_steps": 8,
-        "velocity": 63
+        "velocity": 72
       },
       {
         "track": 2,
         "pitch": 38,
         "start_step": 4,
         "duration_steps": 0,
-        "velocity": 70
+        "velocity": 83
       },
       {
         "track": 2,
         "pitch": 38,
         "start_step": 12,
         "duration_steps": 0,
-        "velocity": 70
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 0,
         "duration_steps": 0,
-        "velocity": 70
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 4,
         "duration_steps": 0,
-        "velocity": 70
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 8,
         "duration_steps": 0,
-        "velocity": 70
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 12,
         "duration_steps": 0,
-        "velocity": 70
+        "velocity": 83
       }
     ]
   },
   {
     "index": 2,
-    "tempo": 3.6,
+    "tempo": 120.0,
     "time_sig_numerator": 5,
     "time_sig_denominator": 4,
     "steps": 20,
-    "chord_name": "A#7",
-    "chord_root_offset": 10,
-    "chord_is_minor": false,
+    "chord_name": "Am7",
+    "chord_root_offset": 9,
+    "chord_is_minor": true,
     "notes": [
       {
         "track": 0,
-        "pitch": 46,
+        "pitch": 45,
         "start_step": 0,
         "duration_steps": 1,
-        "velocity": 85
+        "velocity": 96
       },
       {
         "track": 0,
-        "pitch": 46,
+        "pitch": 45,
         "start_step": 4,
         "duration_steps": 1,
-        "velocity": 85
+        "velocity": 96
       },
       {
         "track": 0,
-        "pitch": 46,
+        "pitch": 45,
         "start_step": 8,
         "duration_steps": 1,
-        "velocity": 85
+        "velocity": 96
       },
       {
         "track": 0,
-        "pitch": 46,
+        "pitch": 45,
         "start_step": 12,
         "duration_steps": 1,
-        "velocity": 85
+        "velocity": 96
       },
       {
         "track": 1,
         "pitch": 48,
         "start_step": 0,
         "duration_steps": 4,
-        "velocity": 63
+        "velocity": 72
       },
       {
         "track": 1,
         "pitch": 58,
         "start_step": 4,
-        "duration_steps": 4,
-        "velocity": 63
-      },
-      {
-        "track": 1,
-        "pitch": 55,
-        "start_step": 8,
-        "duration_steps": 4,
-        "velocity": 63
+        "duration_steps": 3,
+        "velocity": 72
       },
       {
         "track": 1,
         "pitch": 58,
-        "start_step": 12,
-        "duration_steps": 8,
-        "velocity": 63
+        "start_step": 7,
+        "duration_steps": 3,
+        "velocity": 72
+      },
+      {
+        "track": 1,
+        "pitch": 60,
+        "start_step": 10,
+        "duration_steps": 3,
+        "velocity": 72
+      },
+      {
+        "track": 1,
+        "pitch": 60,
+        "start_step": 13,
+        "duration_steps": 6,
+        "velocity": 72
       },
       {
         "track": 2,
         "pitch": 38,
         "start_step": 4,
         "duration_steps": 0,
-        "velocity": 70
+        "velocity": 83
       },
       {
         "track": 2,
         "pitch": 38,
         "start_step": 12,
         "duration_steps": 0,
-        "velocity": 70
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 2,
         "duration_steps": 0,
-        "velocity": 70
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 6,
         "duration_steps": 0,
-        "velocity": 70
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 10,
         "duration_steps": 0,
-        "velocity": 70
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 14,
         "duration_steps": 0,
-        "velocity": 70
+        "velocity": 83
       }
     ]
   },
   {
     "index": 3,
-    "tempo": 7.092,
+    "tempo": 120.0,
     "time_sig_numerator": 5,
     "time_sig_denominator": 4,
     "steps": 20,
-    "chord_name": "A#7",
-    "chord_root_offset": 10,
-    "chord_is_minor": false,
+    "chord_name": "Am7",
+    "chord_root_offset": 9,
+    "chord_is_minor": true,
     "notes": [
       {
         "track": 0,
-        "pitch": 46,
+        "pitch": 45,
         "start_step": 0,
         "duration_steps": 1,
-        "velocity": 85
+        "velocity": 96
       },
       {
         "track": 0,
-        "pitch": 46,
+        "pitch": 45,
         "start_step": 4,
         "duration_steps": 1,
-        "velocity": 85
+        "velocity": 96
       },
       {
         "track": 0,
-        "pitch": 46,
+        "pitch": 45,
         "start_step": 8,
         "duration_steps": 1,
-        "velocity": 85
+        "velocity": 96
       },
       {
         "track": 0,
-        "pitch": 46,
+        "pitch": 45,
         "start_step": 12,
         "duration_steps": 1,
-        "velocity": 85
+        "velocity": 96
       },
       {
         "track": 1,
-        "pitch": 53,
+        "pitch": 48,
         "start_step": 0,
         "duration_steps": 4,
-        "velocity": 63
+        "velocity": 72
       },
       {
         "track": 1,
         "pitch": 58,
         "start_step": 4,
-        "duration_steps": 4,
-        "velocity": 63
-      },
-      {
-        "track": 1,
-        "pitch": 55,
-        "start_step": 8,
-        "duration_steps": 4,
-        "velocity": 63
+        "duration_steps": 3,
+        "velocity": 72
       },
       {
         "track": 1,
         "pitch": 58,
-        "start_step": 12,
-        "duration_steps": 8,
-        "velocity": 63
+        "start_step": 7,
+        "duration_steps": 3,
+        "velocity": 72
+      },
+      {
+        "track": 1,
+        "pitch": 60,
+        "start_step": 10,
+        "duration_steps": 3,
+        "velocity": 72
+      },
+      {
+        "track": 1,
+        "pitch": 60,
+        "start_step": 13,
+        "duration_steps": 6,
+        "velocity": 72
       },
       {
         "track": 2,
         "pitch": 38,
         "start_step": 4,
         "duration_steps": 0,
-        "velocity": 71
+        "velocity": 83
       },
       {
         "track": 2,
         "pitch": 38,
         "start_step": 12,
         "duration_steps": 0,
-        "velocity": 71
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 2,
         "duration_steps": 0,
-        "velocity": 71
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 6,
         "duration_steps": 0,
-        "velocity": 71
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 10,
         "duration_steps": 0,
-        "velocity": 71
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 14,
         "duration_steps": 0,
-        "velocity": 71
+        "velocity": 83
       }
     ]
   },
   {
     "index": 4,
-    "tempo": 10.47924,
+    "tempo": 120.0,
     "time_sig_numerator": 5,
     "time_sig_denominator": 4,
     "steps": 20,
-    "chord_name": "F",
-    "chord_root_offset": 5,
+    "chord_name": "C",
+    "chord_root_offset": 0,
     "chord_is_minor": false,
     "notes": [
       {
         "track": 0,
-        "pitch": 41,
+        "pitch": 36,
         "start_step": 0,
         "duration_steps": 1,
-        "velocity": 86
+        "velocity": 96
       },
       {
         "track": 0,
-        "pitch": 41,
+        "pitch": 36,
         "start_step": 4,
         "duration_steps": 1,
-        "velocity": 86
+        "velocity": 96
       },
       {
         "track": 0,
-        "pitch": 41,
+        "pitch": 36,
         "start_step": 8,
         "duration_steps": 1,
-        "velocity": 86
+        "velocity": 96
       },
       {
         "track": 0,
-        "pitch": 41,
+        "pitch": 36,
         "start_step": 12,
         "duration_steps": 1,
-        "velocity": 86
+        "velocity": 96
       },
       {
         "track": 1,
-        "pitch": 53,
+        "pitch": 65,
         "start_step": 0,
         "duration_steps": 4,
-        "velocity": 63
+        "velocity": 72
       },
       {
         "track": 1,
-        "pitch": 58,
+        "pitch": 67,
         "start_step": 4,
-        "duration_steps": 4,
-        "velocity": 63
+        "duration_steps": 3,
+        "velocity": 72
       },
       {
         "track": 1,
-        "pitch": 55,
-        "start_step": 8,
-        "duration_steps": 4,
-        "velocity": 63
+        "pitch": 70,
+        "start_step": 7,
+        "duration_steps": 3,
+        "velocity": 72
       },
       {
         "track": 1,
-        "pitch": 58,
-        "start_step": 12,
-        "duration_steps": 8,
-        "velocity": 63
+        "pitch": 67,
+        "start_step": 10,
+        "duration_steps": 3,
+        "velocity": 72
+      },
+      {
+        "track": 1,
+        "pitch": 70,
+        "start_step": 13,
+        "duration_steps": 6,
+        "velocity": 72
       },
       {
         "track": 2,
         "pitch": 38,
         "start_step": 4,
         "duration_steps": 0,
-        "velocity": 71
+        "velocity": 83
       },
       {
         "track": 2,
         "pitch": 38,
         "start_step": 12,
         "duration_steps": 0,
-        "velocity": 71
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 2,
         "duration_steps": 0,
-        "velocity": 71
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 6,
         "duration_steps": 0,
-        "velocity": 71
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 10,
         "duration_steps": 0,
-        "velocity": 71
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 14,
         "duration_steps": 0,
-        "velocity": 71
+        "velocity": 83
       }
     ]
   },
   {
     "index": 5,
-    "tempo": 13.764863,
+    "tempo": 120.0,
+    "time_sig_numerator": 5,
+    "time_sig_denominator": 4,
+    "steps": 20,
+    "chord_name": "C",
+    "chord_root_offset": 0,
+    "chord_is_minor": false,
+    "notes": [
+      {
+        "track": 0,
+        "pitch": 36,
+        "start_step": 0,
+        "duration_steps": 1,
+        "velocity": 96
+      },
+      {
+        "track": 0,
+        "pitch": 36,
+        "start_step": 4,
+        "duration_steps": 1,
+        "velocity": 96
+      },
+      {
+        "track": 0,
+        "pitch": 36,
+        "start_step": 8,
+        "duration_steps": 1,
+        "velocity": 96
+      },
+      {
+        "track": 0,
+        "pitch": 36,
+        "start_step": 12,
+        "duration_steps": 1,
+        "velocity": 96
+      },
+      {
+        "track": 1,
+        "pitch": 67,
+        "start_step": 0,
+        "duration_steps": 4,
+        "velocity": 72
+      },
+      {
+        "track": 1,
+        "pitch": 72,
+        "start_step": 4,
+        "duration_steps": 3,
+        "velocity": 72
+      },
+      {
+        "track": 1,
+        "pitch": 70,
+        "start_step": 7,
+        "duration_steps": 3,
+        "velocity": 72
+      },
+      {
+        "track": 1,
+        "pitch": 67,
+        "start_step": 10,
+        "duration_steps": 3,
+        "velocity": 72
+      },
+      {
+        "track": 1,
+        "pitch": 70,
+        "start_step": 13,
+        "duration_steps": 6,
+        "velocity": 72
+      },
+      {
+        "track": 2,
+        "pitch": 38,
+        "start_step": 4,
+        "duration_steps": 0,
+        "velocity": 83
+      },
+      {
+        "track": 2,
+        "pitch": 38,
+        "start_step": 12,
+        "duration_steps": 0,
+        "velocity": 83
+      },
+      {
+        "track": 3,
+        "pitch": 42,
+        "start_step": 2,
+        "duration_steps": 0,
+        "velocity": 83
+      },
+      {
+        "track": 3,
+        "pitch": 42,
+        "start_step": 6,
+        "duration_steps": 0,
+        "velocity": 83
+      },
+      {
+        "track": 3,
+        "pitch": 42,
+        "start_step": 10,
+        "duration_steps": 0,
+        "velocity": 83
+      },
+      {
+        "track": 3,
+        "pitch": 42,
+        "start_step": 14,
+        "duration_steps": 0,
+        "velocity": 83
+      }
+    ]
+  },
+  {
+    "index": 6,
+    "tempo": 120.0,
     "time_sig_numerator": 5,
     "time_sig_denominator": 4,
     "steps": 20,
@@ -454,324 +592,228 @@
         "pitch": 41,
         "start_step": 0,
         "duration_steps": 1,
-        "velocity": 86
+        "velocity": 96
       },
       {
         "track": 0,
         "pitch": 41,
         "start_step": 4,
         "duration_steps": 1,
-        "velocity": 86
+        "velocity": 96
       },
       {
         "track": 0,
         "pitch": 41,
         "start_step": 8,
         "duration_steps": 1,
-        "velocity": 86
+        "velocity": 96
       },
       {
         "track": 0,
         "pitch": 41,
         "start_step": 12,
         "duration_steps": 1,
-        "velocity": 86
+        "velocity": 96
       },
       {
         "track": 1,
-        "pitch": 53,
+        "pitch": 67,
         "start_step": 0,
         "duration_steps": 4,
-        "velocity": 63
+        "velocity": 72
       },
       {
         "track": 1,
-        "pitch": 58,
+        "pitch": 72,
         "start_step": 4,
-        "duration_steps": 4,
-        "velocity": 63
-      },
-      {
-        "track": 1,
-        "pitch": 55,
-        "start_step": 8,
-        "duration_steps": 4,
-        "velocity": 63
-      },
-      {
-        "track": 1,
-        "pitch": 58,
-        "start_step": 12,
-        "duration_steps": 8,
-        "velocity": 63
-      },
-      {
-        "track": 2,
-        "pitch": 38,
-        "start_step": 4,
-        "duration_steps": 0,
-        "velocity": 71
-      },
-      {
-        "track": 2,
-        "pitch": 38,
-        "start_step": 12,
-        "duration_steps": 0,
-        "velocity": 71
-      },
-      {
-        "track": 3,
-        "pitch": 44,
-        "start_step": 2,
-        "duration_steps": 0,
-        "velocity": 71
-      },
-      {
-        "track": 3,
-        "pitch": 44,
-        "start_step": 6,
-        "duration_steps": 0,
-        "velocity": 71
-      },
-      {
-        "track": 3,
-        "pitch": 44,
-        "start_step": 10,
-        "duration_steps": 0,
-        "velocity": 71
-      },
-      {
-        "track": 3,
-        "pitch": 44,
-        "start_step": 14,
-        "duration_steps": 0,
-        "velocity": 71
-      }
-    ]
-  },
-  {
-    "index": 6,
-    "tempo": 16.951918,
-    "time_sig_numerator": 5,
-    "time_sig_denominator": 4,
-    "steps": 20,
-    "chord_name": "C",
-    "chord_root_offset": 0,
-    "chord_is_minor": false,
-    "notes": [
-      {
-        "track": 0,
-        "pitch": 36,
-        "start_step": 0,
-        "duration_steps": 1,
-        "velocity": 86
-      },
-      {
-        "track": 0,
-        "pitch": 36,
-        "start_step": 4,
-        "duration_steps": 1,
-        "velocity": 86
-      },
-      {
-        "track": 0,
-        "pitch": 36,
-        "start_step": 8,
-        "duration_steps": 1,
-        "velocity": 86
-      },
-      {
-        "track": 0,
-        "pitch": 36,
-        "start_step": 12,
-        "duration_steps": 1,
-        "velocity": 86
-      },
-      {
-        "track": 1,
-        "pitch": 60,
-        "start_step": 0,
-        "duration_steps": 4,
-        "velocity": 64
-      },
-      {
-        "track": 1,
-        "pitch": 63,
-        "start_step": 4,
-        "duration_steps": 4,
-        "velocity": 64
-      },
-      {
-        "track": 1,
-        "pitch": 60,
-        "start_step": 8,
-        "duration_steps": 4,
-        "velocity": 64
+        "duration_steps": 3,
+        "velocity": 72
       },
       {
         "track": 1,
         "pitch": 70,
-        "start_step": 12,
-        "duration_steps": 8,
-        "velocity": 64
+        "start_step": 7,
+        "duration_steps": 3,
+        "velocity": 72
+      },
+      {
+        "track": 1,
+        "pitch": 67,
+        "start_step": 10,
+        "duration_steps": 3,
+        "velocity": 72
+      },
+      {
+        "track": 1,
+        "pitch": 70,
+        "start_step": 13,
+        "duration_steps": 6,
+        "velocity": 72
       },
       {
         "track": 2,
         "pitch": 38,
         "start_step": 4,
         "duration_steps": 0,
-        "velocity": 72
+        "velocity": 83
       },
       {
         "track": 2,
         "pitch": 38,
         "start_step": 12,
         "duration_steps": 0,
-        "velocity": 72
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 2,
         "duration_steps": 0,
-        "velocity": 72
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 6,
         "duration_steps": 0,
-        "velocity": 72
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 10,
         "duration_steps": 0,
-        "velocity": 72
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 14,
         "duration_steps": 0,
-        "velocity": 72
+        "velocity": 83
       }
     ]
   },
   {
     "index": 7,
-    "tempo": 20.04336,
+    "tempo": 120.0,
     "time_sig_numerator": 5,
     "time_sig_denominator": 4,
     "steps": 20,
-    "chord_name": "C",
-    "chord_root_offset": 0,
+    "chord_name": "F",
+    "chord_root_offset": 5,
     "chord_is_minor": false,
     "notes": [
       {
         "track": 0,
-        "pitch": 36,
+        "pitch": 41,
         "start_step": 0,
         "duration_steps": 1,
-        "velocity": 87
+        "velocity": 96
       },
       {
         "track": 0,
-        "pitch": 36,
+        "pitch": 41,
         "start_step": 4,
         "duration_steps": 1,
-        "velocity": 87
+        "velocity": 96
       },
       {
         "track": 0,
-        "pitch": 36,
+        "pitch": 41,
         "start_step": 8,
         "duration_steps": 1,
-        "velocity": 87
+        "velocity": 96
       },
       {
         "track": 0,
-        "pitch": 36,
+        "pitch": 41,
         "start_step": 12,
         "duration_steps": 1,
-        "velocity": 87
+        "velocity": 96
+      },
+      {
+        "track": 1,
+        "pitch": 67,
+        "start_step": 0,
+        "duration_steps": 4,
+        "velocity": 72
       },
       {
         "track": 1,
         "pitch": 72,
-        "start_step": 0,
-        "duration_steps": 4,
-        "velocity": 64
-      },
-      {
-        "track": 1,
-        "pitch": 75,
         "start_step": 4,
-        "duration_steps": 4,
-        "velocity": 64
+        "duration_steps": 3,
+        "velocity": 72
       },
       {
         "track": 1,
-        "pitch": 72,
-        "start_step": 8,
-        "duration_steps": 4,
-        "velocity": 64
+        "pitch": 70,
+        "start_step": 7,
+        "duration_steps": 3,
+        "velocity": 72
       },
       {
         "track": 1,
-        "pitch": 82,
-        "start_step": 12,
-        "duration_steps": 8,
-        "velocity": 64
+        "pitch": 67,
+        "start_step": 10,
+        "duration_steps": 3,
+        "velocity": 72
+      },
+      {
+        "track": 1,
+        "pitch": 70,
+        "start_step": 13,
+        "duration_steps": 6,
+        "velocity": 72
       },
       {
         "track": 2,
         "pitch": 38,
         "start_step": 4,
         "duration_steps": 0,
-        "velocity": 72
+        "velocity": 83
       },
       {
         "track": 2,
         "pitch": 38,
         "start_step": 12,
         "duration_steps": 0,
-        "velocity": 72
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 2,
         "duration_steps": 0,
-        "velocity": 72
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 6,
         "duration_steps": 0,
-        "velocity": 72
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 10,
         "duration_steps": 0,
-        "velocity": 72
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 14,
         "duration_steps": 0,
-        "velocity": 72
+        "velocity": 83
       }
     ]
   },
   {
     "index": 8,
-    "tempo": 23.042059,
+    "tempo": 120.0,
     "time_sig_numerator": 5,
     "time_sig_denominator": 4,
     "steps": 20,
@@ -784,104 +826,111 @@
         "pitch": 36,
         "start_step": 0,
         "duration_steps": 1,
-        "velocity": 87
+        "velocity": 96
       },
       {
         "track": 0,
         "pitch": 36,
         "start_step": 4,
         "duration_steps": 1,
-        "velocity": 87
+        "velocity": 96
       },
       {
         "track": 0,
         "pitch": 36,
         "start_step": 8,
         "duration_steps": 1,
-        "velocity": 87
+        "velocity": 96
       },
       {
         "track": 0,
         "pitch": 36,
         "start_step": 12,
         "duration_steps": 1,
-        "velocity": 87
+        "velocity": 96
       },
       {
         "track": 1,
-        "pitch": 84,
+        "pitch": 67,
         "start_step": 0,
         "duration_steps": 4,
-        "velocity": 64
+        "velocity": 72
       },
       {
         "track": 1,
-        "pitch": 79,
+        "pitch": 72,
         "start_step": 4,
-        "duration_steps": 4,
-        "velocity": 64
+        "duration_steps": 3,
+        "velocity": 72
       },
       {
         "track": 1,
-        "pitch": 75,
-        "start_step": 8,
-        "duration_steps": 4,
-        "velocity": 64
+        "pitch": 70,
+        "start_step": 7,
+        "duration_steps": 3,
+        "velocity": 72
       },
       {
         "track": 1,
-        "pitch": 77,
-        "start_step": 12,
-        "duration_steps": 8,
-        "velocity": 64
+        "pitch": 67,
+        "start_step": 10,
+        "duration_steps": 3,
+        "velocity": 72
+      },
+      {
+        "track": 1,
+        "pitch": 70,
+        "start_step": 13,
+        "duration_steps": 6,
+        "velocity": 72
       },
       {
         "track": 2,
         "pitch": 38,
         "start_step": 4,
         "duration_steps": 0,
-        "velocity": 72
+        "velocity": 83
       },
       {
         "track": 2,
         "pitch": 38,
         "start_step": 12,
         "duration_steps": 0,
-        "velocity": 72
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 2,
         "duration_steps": 0,
-        "velocity": 72
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 6,
         "duration_steps": 0,
-        "velocity": 72
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 10,
         "duration_steps": 0,
-        "velocity": 72
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 14,
         "duration_steps": 0,
-        "velocity": 72
+        "velocity": 83
       }
     ]
   },
   {
     "index": 9,
-    "tempo": 25.950798,
+    "tempo": 120.0,
     "time_sig_numerator": 5,
     "time_sig_denominator": 4,
     "steps": 20,
@@ -894,318 +943,339 @@
         "pitch": 36,
         "start_step": 0,
         "duration_steps": 1,
-        "velocity": 87
+        "velocity": 96
       },
       {
         "track": 0,
         "pitch": 36,
         "start_step": 4,
         "duration_steps": 1,
-        "velocity": 87
+        "velocity": 96
       },
       {
         "track": 0,
         "pitch": 36,
         "start_step": 8,
         "duration_steps": 1,
-        "velocity": 87
+        "velocity": 96
       },
       {
         "track": 0,
         "pitch": 36,
         "start_step": 12,
         "duration_steps": 1,
-        "velocity": 87
+        "velocity": 96
       },
       {
         "track": 1,
-        "pitch": 79,
+        "pitch": 67,
         "start_step": 0,
         "duration_steps": 4,
-        "velocity": 65
+        "velocity": 72
       },
       {
         "track": 1,
-        "pitch": 75,
+        "pitch": 63,
         "start_step": 4,
-        "duration_steps": 4,
-        "velocity": 65
+        "duration_steps": 3,
+        "velocity": 72
       },
       {
         "track": 1,
-        "pitch": 72,
-        "start_step": 8,
-        "duration_steps": 4,
-        "velocity": 65
+        "pitch": 60,
+        "start_step": 7,
+        "duration_steps": 3,
+        "velocity": 72
       },
       {
         "track": 1,
-        "pitch": 72,
-        "start_step": 12,
-        "duration_steps": 8,
-        "velocity": 65
+        "pitch": 63,
+        "start_step": 10,
+        "duration_steps": 3,
+        "velocity": 72
+      },
+      {
+        "track": 1,
+        "pitch": 65,
+        "start_step": 13,
+        "duration_steps": 6,
+        "velocity": 72
       },
       {
         "track": 2,
         "pitch": 38,
         "start_step": 4,
         "duration_steps": 0,
-        "velocity": 73
+        "velocity": 83
       },
       {
         "track": 2,
         "pitch": 38,
         "start_step": 12,
         "duration_steps": 0,
-        "velocity": 73
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 2,
         "duration_steps": 0,
-        "velocity": 73
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 6,
         "duration_steps": 0,
-        "velocity": 73
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 10,
         "duration_steps": 0,
-        "velocity": 73
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 14,
         "duration_steps": 0,
-        "velocity": 73
+        "velocity": 83
       }
     ]
   },
   {
     "index": 10,
-    "tempo": 28.772274,
+    "tempo": 120.0,
     "time_sig_numerator": 5,
     "time_sig_denominator": 4,
     "steps": 20,
-    "chord_name": "Am7",
-    "chord_root_offset": 9,
-    "chord_is_minor": true,
+    "chord_name": "C",
+    "chord_root_offset": 0,
+    "chord_is_minor": false,
     "notes": [
       {
         "track": 0,
-        "pitch": 45,
+        "pitch": 36,
         "start_step": 0,
         "duration_steps": 1,
-        "velocity": 87
+        "velocity": 96
       },
       {
         "track": 0,
-        "pitch": 45,
+        "pitch": 36,
         "start_step": 4,
         "duration_steps": 1,
-        "velocity": 87
+        "velocity": 96
       },
       {
         "track": 0,
-        "pitch": 45,
+        "pitch": 36,
         "start_step": 8,
         "duration_steps": 1,
-        "velocity": 87
+        "velocity": 96
       },
       {
         "track": 0,
-        "pitch": 45,
+        "pitch": 36,
         "start_step": 12,
         "duration_steps": 1,
-        "velocity": 87
+        "velocity": 96
       },
       {
         "track": 1,
-        "pitch": 75,
+        "pitch": 63,
         "start_step": 0,
         "duration_steps": 4,
-        "velocity": 65
+        "velocity": 72
       },
       {
         "track": 1,
-        "pitch": 72,
+        "pitch": 60,
         "start_step": 4,
-        "duration_steps": 4,
-        "velocity": 65
+        "duration_steps": 3,
+        "velocity": 72
       },
       {
         "track": 1,
-        "pitch": 67,
-        "start_step": 8,
-        "duration_steps": 4,
-        "velocity": 65
+        "pitch": 65,
+        "start_step": 7,
+        "duration_steps": 3,
+        "velocity": 72
       },
       {
         "track": 1,
-        "pitch": 70,
-        "start_step": 12,
-        "duration_steps": 8,
-        "velocity": 65
+        "pitch": 63,
+        "start_step": 10,
+        "duration_steps": 3,
+        "velocity": 72
+      },
+      {
+        "track": 1,
+        "pitch": 60,
+        "start_step": 13,
+        "duration_steps": 6,
+        "velocity": 72
       },
       {
         "track": 2,
         "pitch": 38,
         "start_step": 4,
         "duration_steps": 0,
-        "velocity": 73
+        "velocity": 83
       },
       {
         "track": 2,
         "pitch": 38,
         "start_step": 12,
         "duration_steps": 0,
-        "velocity": 73
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 2,
         "duration_steps": 0,
-        "velocity": 73
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 6,
         "duration_steps": 0,
-        "velocity": 73
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 10,
         "duration_steps": 0,
-        "velocity": 73
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 14,
         "duration_steps": 0,
-        "velocity": 73
+        "velocity": 83
       }
     ]
   },
   {
     "index": 11,
-    "tempo": 31.509106,
+    "tempo": 120.0,
     "time_sig_numerator": 5,
     "time_sig_denominator": 4,
     "steps": 20,
-    "chord_name": "Am7",
-    "chord_root_offset": 9,
-    "chord_is_minor": true,
+    "chord_name": "C",
+    "chord_root_offset": 0,
+    "chord_is_minor": false,
     "notes": [
       {
         "track": 0,
-        "pitch": 45,
+        "pitch": 36,
         "start_step": 0,
         "duration_steps": 1,
-        "velocity": 88
+        "velocity": 96
       },
       {
         "track": 0,
-        "pitch": 45,
+        "pitch": 36,
         "start_step": 4,
         "duration_steps": 1,
-        "velocity": 88
+        "velocity": 96
       },
       {
         "track": 0,
-        "pitch": 45,
+        "pitch": 36,
         "start_step": 8,
         "duration_steps": 1,
-        "velocity": 88
+        "velocity": 96
       },
       {
         "track": 0,
-        "pitch": 45,
+        "pitch": 36,
         "start_step": 12,
         "duration_steps": 1,
-        "velocity": 88
+        "velocity": 96
       },
       {
         "track": 1,
-        "pitch": 72,
+        "pitch": 70,
         "start_step": 0,
         "duration_steps": 4,
-        "velocity": 65
+        "velocity": 72
       },
       {
         "track": 1,
         "pitch": 67,
         "start_step": 4,
-        "duration_steps": 4,
-        "velocity": 65
-      },
-      {
-        "track": 1,
-        "pitch": 63,
-        "start_step": 8,
-        "duration_steps": 4,
-        "velocity": 65
+        "duration_steps": 3,
+        "velocity": 72
       },
       {
         "track": 1,
         "pitch": 65,
-        "start_step": 12,
-        "duration_steps": 8,
-        "velocity": 65
+        "start_step": 7,
+        "duration_steps": 3,
+        "velocity": 72
+      },
+      {
+        "track": 1,
+        "pitch": 63,
+        "start_step": 10,
+        "duration_steps": 3,
+        "velocity": 72
+      },
+      {
+        "track": 1,
+        "pitch": 65,
+        "start_step": 13,
+        "duration_steps": 6,
+        "velocity": 72
       },
       {
         "track": 2,
         "pitch": 38,
         "start_step": 4,
         "duration_steps": 0,
-        "velocity": 73
+        "velocity": 83
       },
       {
         "track": 2,
         "pitch": 38,
         "start_step": 12,
         "duration_steps": 0,
-        "velocity": 73
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 2,
         "duration_steps": 0,
-        "velocity": 73
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 6,
         "duration_steps": 0,
-        "velocity": 73
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 10,
         "duration_steps": 0,
-        "velocity": 73
+        "velocity": 83
       },
       {
         "track": 3,
-        "pitch": 44,
+        "pitch": 42,
         "start_step": 14,
         "duration_steps": 0,
-        "velocity": 73
+        "velocity": 83
       }
     ]
   }
