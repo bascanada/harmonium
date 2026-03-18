@@ -2,10 +2,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use harmonium_core::{params::ControlMode, sequencer::RhythmMode};
+use harmonium_core::{EngineParams, params::ControlMode, sequencer::RhythmMode};
 use serde::Serialize;
-
-use crate::engine::EngineParams;
 
 /// Serializable engine state for the webview
 #[derive(Serialize, Clone)]

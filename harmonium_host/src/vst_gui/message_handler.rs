@@ -2,10 +2,12 @@
 
 use std::sync::{Arc, Mutex};
 
-use harmonium_core::{harmony::HarmonyMode, params::ControlMode, sequencer::RhythmMode};
+use harmonium_core::{
+    EngineParams, harmony::HarmonyMode, params::ControlMode, sequencer::RhythmMode,
+};
 use serde_json::Value;
 
-use crate::{engine::EngineParams, vst_plugin::HarmoniumParams};
+use crate::vst_plugin::HarmoniumParams;
 
 /// Handle an incoming message from the webview
 /// Returns true if the message was handled successfully

@@ -5,7 +5,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use harmonium_core::params::ControlMode;
+use harmonium_core::{
+    EngineParams,
+    params::{ControlMode, HarmonyState},
+};
 use nih_plug::prelude::*;
 use nih_plug_webview::{HTMLSource, WebViewEditor, http};
 use serde_json::Value;
@@ -14,7 +17,7 @@ use super::{
     message_handler::handle_message,
     state_serializer::{collect_state, create_state_update_message},
 };
-use crate::{engine::EngineParams, vst_plugin::HarmoniumParams};
+use crate::vst_plugin::HarmoniumParams;
 
 /// Extract message string from serde_json::Value
 /// Handles both String values (pre-serialized JSON) and Object values
@@ -42,7 +45,7 @@ pub fn create_editor(
     target_state: Arc<Mutex<EngineParams>>,
     control_mode: Arc<Mutex<ControlMode>>,
     params: Arc<HarmoniumParams>,
-    harmony_state_rx: Arc<Mutex<Option<rtrb::Consumer<crate::engine::HarmonyState>>>>,
+    harmony_state_rx: Arc<Mutex<Option<rtrb::Consumer<HarmonyState>>>>,
 ) -> Option<Box<dyn Editor>> {
     // Clone for the event loop closure
     let target_state_clone = target_state.clone();
@@ -96,7 +99,7 @@ pub fn create_editor(
         if let Ok(mut rx_opt) = harmony_state_rx_clone.lock() {
             if let Some(rx) = rx_opt.as_mut() {
                 // Drain all available states and keep only the latest
-                let mut latest: Option<crate::engine::HarmonyState> = None;
+                let mut latest: Option<HarmonyState> = None;
                 while let Ok(state) = rx.pop() {
                     latest = Some(state);
                 }
