@@ -42,6 +42,10 @@ pub struct MusicComposer {
     rng: ChaCha8Rng,
     sample_rate: f64,
 
+    // BPM override (user-set BPM persists through emotion changes)
+    bpm_override: Option<f32>,
+    emotion_mapped_bpm: f32,
+
     // Emotion mode
     emotion_mapper: EmotionMapper,
     emotion_mode: bool,
@@ -164,6 +168,8 @@ impl MusicComposer {
             musical_params,
             rng,
             sample_rate,
+            bpm_override: None,
+            emotion_mapped_bpm: bpm,
             emotion_mapper: EmotionMapper::new(),
             emotion_mode: false,
             cached_emotions: EngineParams::default(),
@@ -305,7 +311,14 @@ impl MusicComposer {
     // === Parameter setters (called directly, no command queue) ===
 
     pub fn set_bpm(&mut self, bpm: f32) {
-        self.musical_params.bpm = bpm.clamp(70.0, 180.0);
+        let clamped = bpm.clamp(70.0, 180.0);
+        self.bpm_override = Some(clamped);
+        self.musical_params.bpm = clamped;
+    }
+
+    pub fn reset_bpm(&mut self) {
+        self.bpm_override = None;
+        self.musical_params.bpm = self.emotion_mapped_bpm;
     }
 
     pub fn set_time_signature(&mut self, numerator: usize, denominator: usize) {
@@ -463,6 +476,12 @@ impl MusicComposer {
         new_params.gain_hat = self.musical_params.gain_hat;
         new_params.instrument_lead = self.musical_params.instrument_lead;
         new_params.instrument_bass = self.musical_params.instrument_bass;
+
+        // Store emotion-mapped BPM, then apply override if set
+        self.emotion_mapped_bpm = new_params.bpm;
+        if let Some(override_bpm) = self.bpm_override {
+            new_params.bpm = override_bpm;
+        }
 
         // Only store params — do NOT sync the generator here.
         // The generator gets synced explicitly by invalidate_after_preview()

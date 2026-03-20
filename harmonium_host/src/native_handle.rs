@@ -232,6 +232,12 @@ impl NativeHandle {
         }
     }
 
+    pub fn reset_bpm(&self) {
+        if let Ok(mut c) = self.composer.lock() {
+            c.reset_bpm();
+        }
+    }
+
     pub fn set_emotions(&self, arousal: f32, valence: f32, density: f32, tension: f32) {
         if let Ok(mut c) = self.composer.lock() {
             c.set_emotions(arousal, valence, density, tension);

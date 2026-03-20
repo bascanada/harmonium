@@ -15,8 +15,11 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum EngineCommand {
     // === GLOBAL ===
-    /// Set BPM (70-180)
+    /// Set BPM (70-180). Sets a user override that persists through emotion changes.
     SetBpm(f32),
+
+    /// Clear the user's BPM override, returning to emotion-mapped BPM
+    ResetBpm,
 
     /// Set master volume (0.0-1.0)
     SetMasterVolume(f32),

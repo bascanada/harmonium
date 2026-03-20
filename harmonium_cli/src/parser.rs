@@ -34,7 +34,13 @@ pub fn parse_command(line: &str) -> Result<EngineCommand> {
 
         // === UTILITY ===
         "state" | "show" | "status" => Ok(EngineCommand::GetState),
-        "reset" => Ok(EngineCommand::Reset),
+        "reset" => {
+            if tokens.get(1).copied() == Some("bpm") {
+                Ok(EngineCommand::ResetBpm)
+            } else {
+                Ok(EngineCommand::Reset)
+            }
+        }
 
         // === HELP ===
         "help" | "?" => Err(anyhow!("help")), // Special case handled by REPL
@@ -305,6 +311,18 @@ mod tests {
     fn test_parse_enable() {
         let cmd = parse_command("enable rhythm").unwrap();
         assert!(matches!(cmd, EngineCommand::EnableRhythm(true)));
+    }
+
+    #[test]
+    fn test_parse_reset_bpm() {
+        let cmd = parse_command("reset bpm").unwrap();
+        assert!(matches!(cmd, EngineCommand::ResetBpm));
+    }
+
+    #[test]
+    fn test_parse_reset_engine() {
+        let cmd = parse_command("reset").unwrap();
+        assert!(matches!(cmd, EngineCommand::Reset));
     }
 
     #[test]

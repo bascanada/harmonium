@@ -19,7 +19,7 @@ pub fn print_help() {
     print_section(
         "GLOBAL PARAMETERS",
         &[
-            ("set bpm <70-180>", "Set BPM (beats per minute)"),
+            ("set bpm <70-180>", "Set BPM (overrides emotion-mapped BPM)"),
             ("set volume <0-1>", "Set master volume"),
             ("set time <n/d>", "Set time signature (e.g., 4/4)"),
         ],
@@ -98,6 +98,7 @@ pub fn print_help() {
         &[
             ("state | show | status", "Show current engine state"),
             ("reset", "Reset engine to defaults"),
+            ("reset bpm", "Clear BPM override, return to emotion-mapped BPM"),
             ("help | ?", "Show this help message"),
             ("quit | exit", "Exit the CLI"),
         ],

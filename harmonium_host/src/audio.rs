@@ -415,4 +415,82 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_bpm_override_persists_through_emotion_change() {
+        let sample_rate = 44100.0;
+
+        let (mut composer, _playback, mut _cmd_tx, mut _report_rx, _recordings) =
+            create_offline_engine(None, AudioBackendType::FundSP, sample_rate)
+                .expect("create_offline_engine failed");
+
+        // Set explicit BPM override
+        composer.set_bpm(140.0);
+        assert!(
+            (composer.musical_params().bpm - 140.0).abs() < 0.01,
+            "BPM should be 140 after set_bpm"
+        );
+
+        // Switch to emotion mode and set emotions (which would normally change BPM)
+        composer.use_emotion_mode();
+        composer.set_emotions(0.9, 0.5, 0.7, 0.6);
+
+        // BPM should still be 140 because of the override
+        assert!(
+            (composer.musical_params().bpm - 140.0).abs() < 0.01,
+            "BPM should still be 140 after emotion change, got {}",
+            composer.musical_params().bpm
+        );
+    }
+
+    #[test]
+    fn test_reset_bpm_reverts_to_emotion_mapped() {
+        let sample_rate = 44100.0;
+
+        let (mut composer, _playback, mut _cmd_tx, mut _report_rx, _recordings) =
+            create_offline_engine(None, AudioBackendType::FundSP, sample_rate)
+                .expect("create_offline_engine failed");
+
+        // Switch to emotion mode and set emotions to establish a mapped BPM
+        composer.use_emotion_mode();
+        composer.set_emotions(0.9, 0.5, 0.7, 0.6);
+        let emotion_bpm = composer.musical_params().bpm;
+
+        // Override with explicit BPM
+        composer.set_bpm(140.0);
+        assert!(
+            (composer.musical_params().bpm - 140.0).abs() < 0.01,
+            "BPM should be 140 after override"
+        );
+
+        // Reset BPM override — should revert to emotion-mapped value
+        composer.reset_bpm();
+        assert!(
+            (composer.musical_params().bpm - emotion_bpm).abs() < 0.01,
+            "BPM should revert to emotion-mapped {} after reset, got {}",
+            emotion_bpm,
+            composer.musical_params().bpm
+        );
+    }
+
+    #[test]
+    fn test_set_bpm_without_emotion_mode() {
+        let sample_rate = 44100.0;
+
+        let (mut composer, _playback, mut _cmd_tx, mut _report_rx, _recordings) =
+            create_offline_engine(None, AudioBackendType::FundSP, sample_rate)
+                .expect("create_offline_engine failed");
+
+        // In direct mode, set_bpm should work normally
+        composer.set_bpm(155.0);
+        assert!((composer.musical_params().bpm - 155.0).abs() < 0.01, "BPM should be 155");
+
+        // Reset BPM reverts to the initial emotion_mapped_bpm (120.0 default)
+        composer.reset_bpm();
+        assert!(
+            (composer.musical_params().bpm - 120.0).abs() < 0.01,
+            "BPM should revert to default 120 after reset, got {}",
+            composer.musical_params().bpm
+        );
+    }
 }

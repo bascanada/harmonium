@@ -129,15 +129,16 @@ impl RecorderBackend {
     }
 
     fn start_midi(&mut self) {
-        // Add tempo meta event at the start (default 120 BPM = 500000 microseconds per quarter note)
-        // This will be overridden if the engine sends a tempo change
+        // Use actual BPM from musical params, falling back to 120 if unset
+        let bpm = if self.musicxml_params.bpm > 0.0 { self.musicxml_params.bpm } else { 120.0 };
+        let microseconds_per_beat = (60_000_000.0 / bpm) as u32;
         let track = vec![TrackEvent {
             delta: 0.into(),
-            kind: TrackEventKind::Meta(MetaMessage::Tempo(500000.into())),
+            kind: TrackEventKind::Meta(MetaMessage::Tempo(microseconds_per_beat.into())),
         }];
 
         self.midi_track = Some(track);
-        self.midi_steps_since_last = 0.0; // Reset to f64
+        self.midi_steps_since_last = 0.0;
     }
 
     fn stop_midi(&mut self) {
@@ -217,6 +218,22 @@ impl AudioRenderer for RecorderBackend {
                 self.current_samples_per_step = *samples_per_step;
             }
             AudioEvent::UpdateMusicalParams { params } => {
+                // Insert MIDI tempo change if BPM changed mid-recording
+                if self.midi_track.is_some() && (params.bpm - self.musicxml_params.bpm).abs() > 0.01
+                {
+                    let bpm = if params.bpm > 0.0 { params.bpm } else { 120.0 };
+                    let microseconds_per_beat = (60_000_000.0 / bpm) as u32;
+                    let delta = self.steps_to_ticks(self.midi_steps_since_last);
+                    if let Some(track) = &mut self.midi_track {
+                        self.midi_steps_since_last = 0.0;
+                        track.push(TrackEvent {
+                            delta: delta.into(),
+                            kind: TrackEventKind::Meta(MetaMessage::Tempo(
+                                microseconds_per_beat.into(),
+                            )),
+                        });
+                    }
+                }
                 self.musicxml_params = *params.clone();
             }
             AudioEvent::NoteOn { .. } | AudioEvent::NoteOff { .. } => {

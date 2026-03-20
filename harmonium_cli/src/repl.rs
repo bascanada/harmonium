@@ -584,6 +584,15 @@ fn dispatch_command(state: &mut ReplState, cmd: EngineCommand) -> Result<()> {
             print_success_msg(&format!("Key root set to {}", root));
         }
 
+        EngineCommand::ResetBpm => {
+            if let Ok(mut c) = state.composer.lock() {
+                c.reset_bpm();
+                c.invalidate_future();
+            }
+            state.send_invalidate();
+            print_success_msg("BPM override cleared, returning to emotion-mapped BPM");
+        }
+
         EngineCommand::Reset => {
             if let Ok(mut c) = state.composer.lock() {
                 c.reset();

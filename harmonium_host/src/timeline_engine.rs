@@ -61,6 +61,10 @@ pub struct TimelineEngine {
     rng: ChaCha8Rng,
     params_dirty: bool,
 
+    // === BPM OVERRIDE ===
+    bpm_override: Option<f32>,
+    emotion_mapped_bpm: f32,
+
     // === EMOTION MODE ===
     emotion_mapper: EmotionMapper,
     emotion_mode: bool,
@@ -213,6 +217,8 @@ impl TimelineEngine {
             musical_params,
             rng,
             params_dirty: false,
+            bpm_override: None,
+            emotion_mapped_bpm: bpm,
             emotion_mapper: EmotionMapper::new(),
             emotion_mode: false,
             cached_emotions: EngineParams::default(),
@@ -411,7 +417,23 @@ impl TimelineEngine {
         while let Ok(cmd) = self.command_rx.pop() {
             match cmd {
                 EngineCommand::SetBpm(bpm) => {
-                    self.musical_params.bpm = bpm.clamp(70.0, 180.0);
+                    let clamped = bpm.clamp(70.0, 180.0);
+                    self.bpm_override = Some(clamped);
+                    self.musical_params.bpm = clamped;
+                    let steps_per_beat = 4.0f64;
+                    let new_sps = (self.sample_rate * 60.0
+                        / (self.musical_params.bpm as f64)
+                        / steps_per_beat) as usize;
+                    if new_sps != self.samples_per_step {
+                        self.samples_per_step = new_sps;
+                        self.renderer
+                            .handle_event(AudioEvent::TimingUpdate { samples_per_step: new_sps });
+                    }
+                    self.params_dirty = true;
+                }
+                EngineCommand::ResetBpm => {
+                    self.bpm_override = None;
+                    self.musical_params.bpm = self.emotion_mapped_bpm;
                     let steps_per_beat = 4.0f64;
                     let new_sps = (self.sample_rate * 60.0
                         / (self.musical_params.bpm as f64)
@@ -599,6 +621,12 @@ impl TimelineEngine {
                         new_params.gain_bass = self.musical_params.gain_bass;
                         new_params.gain_snare = self.musical_params.gain_snare;
                         new_params.gain_hat = self.musical_params.gain_hat;
+
+                        // Store emotion-mapped BPM, then apply override if set
+                        self.emotion_mapped_bpm = new_params.bpm;
+                        if let Some(override_bpm) = self.bpm_override {
+                            new_params.bpm = override_bpm;
+                        }
 
                         // Apply to generator (updates sequencers, harmony, etc.)
                         self.generator.update_params(new_params.clone());
