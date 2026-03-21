@@ -107,7 +107,8 @@
         "duration_steps": 0,
         "velocity": 83
       }
-    ]
+    ],
+    "composition_bpm": 120.0
   },
   {
     "index": 2,
@@ -224,7 +225,8 @@
         "duration_steps": 0,
         "velocity": 83
       }
-    ]
+    ],
+    "composition_bpm": 120.0
   },
   {
     "index": 3,
@@ -341,7 +343,8 @@
         "duration_steps": 0,
         "velocity": 83
       }
-    ]
+    ],
+    "composition_bpm": 120.0
   },
   {
     "index": 4,
@@ -458,7 +461,8 @@
         "duration_steps": 0,
         "velocity": 83
       }
-    ]
+    ],
+    "composition_bpm": 120.0
   },
   {
     "index": 5,
@@ -575,7 +579,8 @@
         "duration_steps": 0,
         "velocity": 83
       }
-    ]
+    ],
+    "composition_bpm": 120.0
   },
   {
     "index": 6,
@@ -692,7 +697,8 @@
         "duration_steps": 0,
         "velocity": 83
       }
-    ]
+    ],
+    "composition_bpm": 120.0
   },
   {
     "index": 7,
@@ -809,7 +815,8 @@
         "duration_steps": 0,
         "velocity": 83
       }
-    ]
+    ],
+    "composition_bpm": 120.0
   },
   {
     "index": 8,
@@ -926,7 +933,8 @@
         "duration_steps": 0,
         "velocity": 83
       }
-    ]
+    ],
+    "composition_bpm": 120.0
   },
   {
     "index": 9,
@@ -1043,7 +1051,8 @@
         "duration_steps": 0,
         "velocity": 83
       }
-    ]
+    ],
+    "composition_bpm": 120.0
   },
   {
     "index": 10,
@@ -1160,7 +1169,8 @@
         "duration_steps": 0,
         "velocity": 83
       }
-    ]
+    ],
+    "composition_bpm": 120.0
   },
   {
     "index": 11,
@@ -1277,6 +1287,7 @@
         "duration_steps": 0,
         "velocity": 83
       }
-    ]
+    ],
+    "composition_bpm": 120.0
   }
 ]

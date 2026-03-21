@@ -53,6 +53,9 @@ pub struct MeasureSnapshot {
     pub chord_is_minor: bool,
     /// All notes in this measure (flattened across tracks)
     pub notes: Vec<NoteSnapshot>,
+    /// Emotion-mapped BPM (composition tempo, ignoring user override).
+    /// Used for tempo markings on the score.
+    pub composition_bpm: f32,
 }
 
 impl MeasureSnapshot {
@@ -84,6 +87,8 @@ impl MeasureSnapshot {
             chord_root_offset: measure.chord_context.root_offset,
             chord_is_minor: measure.chord_context.is_minor,
             notes,
+            // Default to measure tempo; overridden by composer with emotion-mapped BPM
+            composition_bpm: measure.tempo,
         }
     }
 }

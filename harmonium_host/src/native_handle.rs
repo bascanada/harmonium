@@ -238,6 +238,18 @@ impl NativeHandle {
         }
     }
 
+    pub fn bpm_override(&self) -> Option<f32> {
+        self.composer.lock().ok().and_then(|c| c.bpm_override())
+    }
+
+    pub fn emotion_mapped_bpm(&self) -> f32 {
+        self.composer
+            .lock()
+            .ok()
+            .map(|c| c.emotion_mapped_bpm())
+            .unwrap_or(120.0)
+    }
+
     pub fn set_emotions(&self, arousal: f32, valence: f32, density: f32, tension: f32) {
         if let Ok(mut c) = self.composer.lock() {
             c.set_emotions(arousal, valence, density, tension);
