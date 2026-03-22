@@ -202,8 +202,7 @@ impl MusicComposer {
             // ensure it's in shared pages and advance.
             if let Some(existing) = self.writehead.timeline.get_measure(bar_idx) {
                 self.publish_measure(existing.clone());
-                let mut snapshot =
-                    harmonium_core::report::MeasureSnapshot::from_measure(&existing);
+                let mut snapshot = harmonium_core::report::MeasureSnapshot::from_measure(&existing);
                 snapshot.composition_bpm = self.emotion_mapped_bpm;
                 self.pending_measure_snapshots.push(snapshot);
                 self.writehead.current_bar = bar_idx + 1;
@@ -218,8 +217,7 @@ impl MusicComposer {
             self.last_chord_root_offset = measure.chord_context.root_offset;
             self.last_chord_is_minor = measure.chord_context.is_minor;
 
-            let mut snapshot =
-                harmonium_core::report::MeasureSnapshot::from_measure(&measure);
+            let mut snapshot = harmonium_core::report::MeasureSnapshot::from_measure(&measure);
             snapshot.composition_bpm = self.emotion_mapped_bpm;
             self.pending_measure_snapshots.push(snapshot);
 

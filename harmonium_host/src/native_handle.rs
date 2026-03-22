@@ -243,11 +243,7 @@ impl NativeHandle {
     }
 
     pub fn emotion_mapped_bpm(&self) -> f32 {
-        self.composer
-            .lock()
-            .ok()
-            .map(|c| c.emotion_mapped_bpm())
-            .unwrap_or(120.0)
+        self.composer.lock().ok().map(|c| c.emotion_mapped_bpm()).unwrap_or(120.0)
     }
 
     pub fn set_emotions(&self, arousal: f32, valence: f32, density: f32, tension: f32) {

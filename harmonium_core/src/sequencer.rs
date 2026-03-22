@@ -421,6 +421,14 @@ pub fn generate_euclidean_bools(steps: usize, pulses: usize) -> Vec<bool> {
     result
 }
 
+/// Returns vertex counts that divide `total_steps` evenly,
+/// filtered to the musically useful range [2, total_steps/2].
+/// These produce beat-aligned lead triggers with clean note durations
+/// (quarter, eighth, half) — no dotted-eighth clutter.
+fn notation_safe_vertices(total_steps: usize) -> Vec<usize> {
+    (2..=total_steps / 2).filter(|d| total_steps % d == 0).collect()
+}
+
 // --- ALGORITHME PERFECT BALANCE / WELL-FORMED ---
 // Based on XronoMorph theory: superposition of regular polygons
 // Density controls polygon complexity (number of vertices)
@@ -502,13 +510,22 @@ pub fn generate_balanced_layers(
     let bass_gon = if density < 0.4 { kick_gon } else { Polygon::new(8, 0, 0.8) };
 
     // LAYER E: LEAD (Melody)
-    // Scale smoothly: 2 vertices at density=0 → 8 at density=1
-    // Keeps the melody musical (half-notes to eighth-notes in 4/4)
+    // Use only vertex counts that divide `steps` evenly so triggers land on
+    // beat/sub-beat boundaries → clean note durations (quarter, eighth, half).
+    let divisors = notation_safe_vertices(steps);
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let lead_vertices = (2.0 + density * 6.0).round() as usize;
-    let lead_vertices = lead_vertices.clamp(2, steps);
+    let lead_vertices = if divisors.is_empty() {
+        2
+    } else {
+        let idx = (density * (divisors.len() - 1) as f32).round() as usize;
+        divisors[idx.min(divisors.len() - 1)]
+    };
+    // Quantize offset to half-beat boundaries so tension shifts stay beat-aligned.
+    let interval = steps / lead_vertices;
+    let half_beat = ticks_per_beat / 2;
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let lead_offset = (tension * (steps / lead_vertices) as f32) as usize;
+    let raw_offset = (tension * interval as f32) as usize;
+    let lead_offset = if half_beat > 0 { (raw_offset / half_beat) * half_beat } else { raw_offset };
     let lead_gon = Polygon::new(lead_vertices, lead_offset, 0.7);
 
     // --- 2. RASTERIZATION (Collision Calculation) ---
@@ -756,14 +773,20 @@ pub fn generate_classic_groove(
     }
 
     // === LEAD PATTERNS ===
-    // Scale smoothly: beat interval at density=0, eighth note at density=1
+    // Snap melody interval to beat-aligned subdivisions (beat, eighth, sixteenth)
+    // so lead triggers produce clean note durations on the sheet.
     let melody_interval = {
         let max_interval = beat.max(1);
         let min_interval = eighth.max(1);
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let interval = (max_interval as f32 * (1.0 - density) + min_interval as f32 * density)
-            .round() as usize;
-        interval.max(1)
+        let raw = (max_interval as f32 * (1.0 - density) + min_interval as f32 * density).round()
+            as usize;
+        // Snap to nearest beat-aligned interval
+        [beat, eighth, sixteenth.max(1)]
+            .into_iter()
+            .filter(|&i| i > 0)
+            .min_by_key(|&i| (i as isize - raw as isize).unsigned_abs())
+            .unwrap_or(beat.max(1))
     };
     for i in (0..steps).step_by(melody_interval) {
         let jitter = if tension > 0.5 && sixteenth > 0 { sixteenth } else { 0 };
@@ -1264,5 +1287,115 @@ mod tests {
         assert!(!low_oddity_pattern.is_empty());
         assert!(!med_oddity_pattern.is_empty());
         assert!(!high_oddity_pattern.is_empty());
+    }
+
+    // ── Notation-safe lead vertex tests ──
+
+    #[test]
+    fn test_notation_safe_vertices_4_4() {
+        // 4/4 at 4 ticks/beat = 16 steps
+        assert_eq!(notation_safe_vertices(16), vec![2, 4, 8]);
+    }
+
+    #[test]
+    fn test_notation_safe_vertices_3_4() {
+        // 3/4 at 4 ticks/beat = 12 steps
+        assert_eq!(notation_safe_vertices(12), vec![2, 3, 4, 6]);
+    }
+
+    #[test]
+    fn test_notation_safe_vertices_7_8() {
+        // 7/8 at 4 ticks/beat = 14 steps
+        assert_eq!(notation_safe_vertices(14), vec![2, 7]);
+    }
+
+    #[test]
+    fn test_notation_safe_vertices_5_4() {
+        // 5/4 at 4 ticks/beat = 20 steps
+        assert_eq!(notation_safe_vertices(20), vec![2, 4, 5, 10]);
+    }
+
+    #[test]
+    fn test_balanced_lead_triggers_beat_aligned_4_4() {
+        let ts = TimeSignature::new(4, 4);
+        let ticks_per_beat = 4;
+        let steps = ts.steps_per_bar(ticks_per_beat); // 16
+
+        for &density in &[0.0, 0.25, 0.5, 0.75, 1.0] {
+            let pattern = generate_balanced_layers(density, 0.0, ts, ticks_per_beat);
+            let lead_positions: Vec<usize> =
+                pattern.iter().enumerate().filter(|(_, t)| t.lead).map(|(i, _)| i).collect();
+
+            assert!(!lead_positions.is_empty(), "density={density} should produce lead triggers");
+
+            // All lead triggers should be on positions divisible by 2 (eighth-note grid)
+            for &pos in &lead_positions {
+                assert_eq!(
+                    pos % 2,
+                    0,
+                    "density={density}: lead at step {pos} is not on eighth-note grid (steps={steps})"
+                );
+            }
+
+            // All gaps between consecutive leads should be notation-safe
+            for w in lead_positions.windows(2) {
+                let gap = w[1] - w[0];
+                assert!(
+                    [1, 2, 3, 4, 6, 8, 12, 16].contains(&gap),
+                    "density={density}: gap {gap} between steps {} and {} is not notation-safe",
+                    w[0],
+                    w[1]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_balanced_lead_triggers_beat_aligned_3_4() {
+        let ts = TimeSignature::new(3, 4);
+        let ticks_per_beat = 4;
+
+        for &density in &[0.0, 0.5, 1.0] {
+            let pattern = generate_balanced_layers(density, 0.0, ts, ticks_per_beat);
+            let lead_positions: Vec<usize> =
+                pattern.iter().enumerate().filter(|(_, t)| t.lead).map(|(i, _)| i).collect();
+
+            assert!(!lead_positions.is_empty(), "density={density} should produce lead triggers");
+
+            for w in lead_positions.windows(2) {
+                let gap = w[1] - w[0];
+                assert!(
+                    [1, 2, 3, 4, 6, 8, 12].contains(&gap),
+                    "3/4 density={density}: gap {gap} between steps {} and {} is not notation-safe",
+                    w[0],
+                    w[1]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_classic_groove_lead_beat_aligned() {
+        let ts = TimeSignature::new(4, 4);
+        let steps = ts.steps_per_bar(4); // 16
+
+        for &density in &[0.0, 0.5, 1.0] {
+            let pattern = generate_classic_groove(steps, density, 0.0, ts);
+            let lead_positions: Vec<usize> =
+                pattern.iter().enumerate().filter(|(_, t)| t.lead).map(|(i, _)| i).collect();
+
+            assert!(!lead_positions.is_empty(), "density={density} should produce lead triggers");
+
+            // All gaps should be clean subdivisions
+            for w in lead_positions.windows(2) {
+                let gap = w[1] - w[0];
+                assert!(
+                    [1, 2, 4, 8, 16].contains(&gap),
+                    "classic groove density={density}: gap {gap} between steps {} and {} is not beat-aligned",
+                    w[0],
+                    w[1]
+                );
+            }
+        }
     }
 }

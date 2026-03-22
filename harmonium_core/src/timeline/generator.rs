@@ -788,4 +788,107 @@ mod tests {
         assert!(xml.contains("<part-name>Bass</part-name>"));
         assert!(xml.contains("<part-name>Drums</part-name>"));
     }
+
+    /// Validate that generated lead notes only use notation-safe durations
+    /// across a range of density/tension parameters.
+    #[test]
+    fn test_lead_durations_are_notation_safe() {
+        const NOTATION_SAFE: [usize; 8] = [16, 12, 8, 6, 4, 3, 2, 1];
+
+        for &density in &[0.0, 0.25, 0.5, 0.75, 1.0] {
+            for &tension in &[0.0, 0.5, 1.0] {
+                let seq_primary = Sequencer::new(16, 4, 120.0);
+                let seq_secondary = Sequencer::new_with_rotation(12, 3, 120.0, 0);
+                let harmony = HarmonyNavigator::new(
+                    rust_music_theory::note::PitchSymbol::C,
+                    rust_music_theory::scale::ScaleType::PentatonicMajor,
+                    4,
+                );
+                let params = MusicalParams::default();
+                let state = CurrentState {
+                    bpm: 120.0,
+                    density,
+                    tension,
+                    smoothness: 0.7,
+                    valence: 0.3,
+                    arousal: 0.5,
+                };
+
+                let mut tgen = TimelineGenerator::new(
+                    seq_primary,
+                    seq_secondary,
+                    harmony,
+                    None,
+                    params,
+                    state,
+                );
+                let mut rng = rand::thread_rng();
+
+                for bar in 1..=8 {
+                    let measure = tgen.generate_measure(bar, &mut rng);
+                    for note in measure.notes_for_track(TrackId::Lead) {
+                        assert!(
+                            NOTATION_SAFE.contains(&note.duration_steps),
+                            "density={density}, tension={tension}, bar={bar}: \
+                             lead note at step {} has duration_steps={} which is not notation-safe",
+                            note.start_step,
+                            note.duration_steps,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Verify that PerfectBalance mode produces only clean subdivisions
+    /// (no dotted eighths) across the full density range.
+    #[test]
+    fn test_lead_durations_clean_subdivisions_balanced() {
+        // In 4/4 with notation_safe_vertices, we expect only 8, 4, or 2 step
+        // durations (half, quarter, eighth) — never 3 (dotted eighth).
+        let clean_4_4: std::collections::HashSet<usize> = [2, 4, 8].into_iter().collect();
+
+        for &density in &[0.0, 0.25, 0.5, 0.75, 1.0] {
+            let mut seq_primary =
+                Sequencer::new_with_mode(16, 4, 120.0, RhythmMode::PerfectBalance);
+            seq_primary.density = density;
+            seq_primary.tension = 0.0;
+            seq_primary.regenerate_pattern();
+            let seq_secondary = Sequencer::new_with_rotation(12, 3, 120.0, 0);
+            let harmony = HarmonyNavigator::new(
+                rust_music_theory::note::PitchSymbol::C,
+                rust_music_theory::scale::ScaleType::PentatonicMajor,
+                4,
+            );
+            let mut params = MusicalParams::default();
+            params.rhythm_density = density;
+            params.rhythm_mode = RhythmMode::PerfectBalance;
+            let state = CurrentState {
+                bpm: 120.0,
+                density,
+                tension: 0.0,
+                smoothness: 0.7,
+                valence: 0.3,
+                arousal: 0.5,
+            };
+
+            let mut tgen =
+                TimelineGenerator::new(seq_primary, seq_secondary, harmony, None, params, state);
+            let mut rng = rand::thread_rng();
+
+            for bar in 1..=16 {
+                let measure = tgen.generate_measure(bar, &mut rng);
+                for note in measure.notes_for_track(TrackId::Lead) {
+                    assert!(
+                        clean_4_4.contains(&note.duration_steps),
+                        "density={density}, bar={bar}: lead at step {} has duration_steps={} \
+                         (expected one of {:?})",
+                        note.start_step,
+                        note.duration_steps,
+                        clean_4_4,
+                    );
+                }
+            }
+        }
+    }
 }
