@@ -330,6 +330,12 @@ impl NativeHandle {
         }
     }
 
+    pub fn set_harmony_strategy(&self, strategy: harmonium_core::params::HarmonyStrategy) {
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_harmony_strategy(strategy);
+        }
+    }
+
     pub fn set_instrument_lead(&self, config: harmonium_core::params::InstrumentConfig) {
         if let Ok(mut c) = self.composer.lock() {
             c.set_instrument_lead(config);
