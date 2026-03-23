@@ -61,21 +61,21 @@
       {
         "track": 3,
         "pitch": 42,
-        "start_step": 0,
+        "start_step": 2,
         "duration_steps": 0,
         "velocity": 83
       },
       {
         "track": 3,
         "pitch": 42,
-        "start_step": 4,
+        "start_step": 6,
         "duration_steps": 0,
         "velocity": 83
       },
       {
         "track": 3,
         "pitch": 42,
-        "start_step": 8,
+        "start_step": 10,
         "duration_steps": 0,
         "velocity": 83
       }
