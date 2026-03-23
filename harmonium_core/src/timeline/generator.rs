@@ -53,6 +53,10 @@ pub struct TimelineGenerator {
     chord_name: String,
     current_chord_type: ChordType,
 
+    // === Chart mode ===
+    chord_chart: Vec<crate::harmony::Chord>,
+    chart_index: usize,
+
     // === Note ID counter ===
     next_note_id: NoteId,
 
@@ -74,6 +78,12 @@ impl TimelineGenerator {
         let current_progression =
             Progression::get_palette(current_state.valence, current_state.tension);
 
+        let chord_chart: Vec<crate::harmony::Chord> = musical_params
+            .chord_chart
+            .iter()
+            .filter_map(|name| crate::harmony::Chord::from_name(name.as_str()).ok())
+            .collect();
+
         Self {
             sequencer_primary,
             sequencer_secondary,
@@ -90,6 +100,8 @@ impl TimelineGenerator {
             chord_is_minor: false,
             chord_name: "I".to_string(),
             current_chord_type: ChordType::Major,
+            chord_chart,
+            chart_index: 0,
             next_note_id: 1,
             current_bar: 0,
         }
@@ -336,6 +348,9 @@ impl TimelineGenerator {
             HarmonyMode::Driver => {
                 self.advance_driver_harmony(bar_index, rng);
             }
+            HarmonyMode::Chart => {
+                self.advance_chart_harmony(bar_index);
+            }
         }
     }
 
@@ -394,6 +409,30 @@ impl TimelineGenerator {
                 self.chord_name = decision.next_chord.name();
                 self.current_chord_type = decision.next_chord.chord_type;
             }
+        }
+    }
+
+    /// Advance harmony in Chart mode — step through a fixed chord sequence, looping at end
+    fn advance_chart_harmony(&mut self, bar_index: usize) {
+        if self.chord_chart.is_empty() {
+            return;
+        }
+
+        let measures_per_chord = self.musical_params.harmony_measures_per_chord;
+        if bar_index.is_multiple_of(measures_per_chord) {
+            let chord = &self.chord_chart[self.chart_index];
+            let root_offset =
+                ((i32::from(chord.root)) - i32::from(self.musical_params.key_root) + 12) % 12;
+            let quality = chord.to_basic_quality();
+
+            self.harmony.set_chord_context(root_offset, quality);
+            self.chord_root_offset = root_offset;
+            self.chord_is_minor = chord.chord_type.is_minor();
+            self.chord_name = chord.name();
+            self.current_chord_type = chord.chord_type;
+
+            // Advance to next chord, wrapping at chart end
+            self.chart_index = (self.chart_index + 1) % self.chord_chart.len();
         }
     }
 
@@ -501,6 +540,16 @@ impl TimelineGenerator {
 
         // Melody
         self.harmony.set_hurst_factor(params.melody_smoothness);
+
+        // Re-parse chord chart when it changes
+        if self.musical_params.chord_chart != params.chord_chart {
+            self.chord_chart = params
+                .chord_chart
+                .iter()
+                .filter_map(|name| crate::harmony::Chord::from_name(name.as_str()).ok())
+                .collect();
+            self.chart_index = 0;
+        }
 
         self.musical_params = params;
     }
@@ -1003,6 +1052,131 @@ mod tests {
              stale pattern leaked after mode switch",
             lead_counts[0], lead_counts[1],
         );
+    }
+
+    /// Chart mode: fixed chord sequence cycles correctly
+    #[test]
+    fn test_chart_mode_cycles_chords() {
+        use arrayvec::ArrayString;
+
+        let seq_primary = Sequencer::new(16, 4, 120.0);
+        let seq_secondary = Sequencer::new_with_rotation(12, 3, 120.0, 0);
+        let harmony = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, 4);
+        let mut params = MusicalParams::default();
+        params.harmony_mode = HarmonyMode::Chart;
+        params.harmony_measures_per_chord = 1; // 1 chord per bar
+        params.chord_chart = vec![
+            ArrayString::from("Cmaj7").unwrap(),
+            ArrayString::from("Dm7").unwrap(),
+            ArrayString::from("G7").unwrap(),
+            ArrayString::from("Cmaj7").unwrap(),
+        ];
+        let state = CurrentState {
+            bpm: 120.0,
+            density: 0.5,
+            tension: 0.3,
+            smoothness: 0.7,
+            valence: 0.3,
+            arousal: 0.5,
+        };
+
+        let mut tgen =
+            TimelineGenerator::new(seq_primary, seq_secondary, harmony, None, params, state);
+        let mut rng = rand::thread_rng();
+
+        // Generate 8 bars — should cycle through 4-chord chart twice
+        let mut chord_names: Vec<String> = Vec::new();
+        for bar in 0..8 {
+            let _measure = tgen.generate_measure(bar, &mut rng);
+            chord_names.push(tgen.chord_name.clone());
+        }
+
+        // First 4 bars = first cycle, next 4 = second cycle
+        assert_eq!(chord_names[0], "Cmaj7");
+        assert_eq!(chord_names[1], "Dm7");
+        assert_eq!(chord_names[2], "G7");
+        assert_eq!(chord_names[3], "Cmaj7");
+        // Loop
+        assert_eq!(chord_names[4], "Cmaj7");
+        assert_eq!(chord_names[5], "Dm7");
+        assert_eq!(chord_names[6], "G7");
+        assert_eq!(chord_names[7], "Cmaj7");
+    }
+
+    /// Chart mode with measures_per_chord=2: chord changes every 2 bars
+    #[test]
+    fn test_chart_mode_measures_per_chord() {
+        use arrayvec::ArrayString;
+
+        let seq_primary = Sequencer::new(16, 4, 120.0);
+        let seq_secondary = Sequencer::new_with_rotation(12, 3, 120.0, 0);
+        let harmony = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, 4);
+        let mut params = MusicalParams::default();
+        params.harmony_mode = HarmonyMode::Chart;
+        params.harmony_measures_per_chord = 2;
+        params.chord_chart =
+            vec![ArrayString::from("Am7").unwrap(), ArrayString::from("D7").unwrap()];
+        let state = CurrentState {
+            bpm: 120.0,
+            density: 0.5,
+            tension: 0.3,
+            smoothness: 0.7,
+            valence: 0.3,
+            arousal: 0.5,
+        };
+
+        let mut tgen =
+            TimelineGenerator::new(seq_primary, seq_secondary, harmony, None, params, state);
+        let mut rng = rand::thread_rng();
+
+        let mut chord_names: Vec<String> = Vec::new();
+        for bar in 0..8 {
+            let _measure = tgen.generate_measure(bar, &mut rng);
+            chord_names.push(tgen.chord_name.clone());
+        }
+
+        // Am7 for bars 0-1, D7 for bars 2-3, Am7 for 4-5, D7 for 6-7
+        assert_eq!(chord_names[0], "Am7");
+        assert_eq!(chord_names[1], "Am7");
+        assert_eq!(chord_names[2], "D7");
+        assert_eq!(chord_names[3], "D7");
+        assert_eq!(chord_names[4], "Am7");
+        assert_eq!(chord_names[5], "Am7");
+    }
+
+    /// Chart mode with flat notation input normalizes to sharps
+    #[test]
+    fn test_chart_mode_flat_input() {
+        use arrayvec::ArrayString;
+
+        let seq_primary = Sequencer::new(16, 4, 120.0);
+        let seq_secondary = Sequencer::new_with_rotation(12, 3, 120.0, 0);
+        let harmony = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, 4);
+        let mut params = MusicalParams::default();
+        params.harmony_mode = HarmonyMode::Chart;
+        params.harmony_measures_per_chord = 1;
+        params.chord_chart =
+            vec![ArrayString::from("Bbmaj7").unwrap(), ArrayString::from("Ebm7").unwrap()];
+        let state = CurrentState {
+            bpm: 120.0,
+            density: 0.5,
+            tension: 0.3,
+            smoothness: 0.7,
+            valence: 0.3,
+            arousal: 0.5,
+        };
+
+        let mut tgen =
+            TimelineGenerator::new(seq_primary, seq_secondary, harmony, None, params, state);
+        let mut rng = rand::thread_rng();
+
+        let _measure = tgen.generate_measure(0, &mut rng);
+        // Bb normalizes to A# in display
+        assert_eq!(tgen.chord_name, "A#maj7");
+
+        let _measure = tgen.generate_measure(1, &mut rng);
+        // Eb normalizes to D#
+        assert_eq!(tgen.chord_name, "D#m7");
     }
 
     /// Verify that PerfectBalance mode produces only clean subdivisions

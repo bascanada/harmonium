@@ -176,6 +176,7 @@ pub fn collect_state(
         state.harmony_mode = match dp.harmony_mode {
             harmonium_core::harmony::HarmonyMode::Basic => 0,
             harmonium_core::harmony::HarmonyMode::Driver => 1,
+            harmonium_core::harmony::HarmonyMode::Chart => 2,
         };
         // Melody/Voicing
         state.melody_smoothness = dp.melody_smoothness;

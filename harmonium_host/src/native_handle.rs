@@ -264,6 +264,18 @@ impl NativeHandle {
         }
     }
 
+    pub fn set_rhythm_density(&self, density: f32) {
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_rhythm_density(density);
+        }
+    }
+
+    pub fn set_rhythm_tension(&self, tension: f32) {
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_rhythm_tension(tension);
+        }
+    }
+
     pub fn enable_melody(&self, enabled: bool) {
         if let Ok(mut c) = self.composer.lock() {
             c.enable_melody(enabled);
@@ -330,9 +342,25 @@ impl NativeHandle {
         }
     }
 
+    pub fn set_harmony_mode(&self, mode: harmonium_core::harmony::HarmonyMode) {
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_harmony_mode(mode);
+        }
+    }
+
     pub fn set_harmony_strategy(&self, strategy: harmonium_core::params::HarmonyStrategy) {
         if let Ok(mut c) = self.composer.lock() {
             c.set_harmony_strategy(strategy);
+        }
+    }
+
+    pub fn set_chord_chart(&self, chart: &[String]) {
+        if let Ok(mut c) = self.composer.lock() {
+            let chart_arr: Vec<arrayvec::ArrayString<16>> = chart
+                .iter()
+                .filter_map(|s| arrayvec::ArrayString::try_from(s.as_str()).ok())
+                .collect();
+            c.set_chord_chart(chart_arr);
         }
     }
 

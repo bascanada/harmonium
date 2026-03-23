@@ -37,6 +37,7 @@ pub enum BevyHarmonyMode {
     #[default]
     Basic,
     Driver,
+    Chart,
 }
 
 impl From<BevyHarmonyMode> for HarmonyMode {
@@ -44,6 +45,7 @@ impl From<BevyHarmonyMode> for HarmonyMode {
         match mode {
             BevyHarmonyMode::Basic => Self::Basic,
             BevyHarmonyMode::Driver => Self::Driver,
+            BevyHarmonyMode::Chart => Self::Chart,
         }
     }
 }
@@ -53,6 +55,7 @@ impl From<HarmonyMode> for BevyHarmonyMode {
         match mode {
             HarmonyMode::Basic => Self::Basic,
             HarmonyMode::Driver => Self::Driver,
+            HarmonyMode::Chart => Self::Chart,
         }
     }
 }

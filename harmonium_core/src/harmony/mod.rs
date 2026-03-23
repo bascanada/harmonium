@@ -39,6 +39,8 @@ pub enum HarmonyMode {
     Basic,
     /// `HarmonicDriver` avancé (Steedman + Neo-Riemannian + LCC)
     Driver,
+    /// Fixed chord chart — cycles through a user-provided chord sequence
+    Chart,
 }
 
 /// Contexte harmonique passé aux stratégies

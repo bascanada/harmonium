@@ -140,7 +140,13 @@ fn parse_set_command(tokens: &[&str]) -> Result<EngineCommand> {
             let mode = match value.to_lowercase().as_str() {
                 "basic" | "b" => HarmonyMode::Basic,
                 "driver" | "d" => HarmonyMode::Driver,
-                _ => return Err(anyhow!("Unknown harmony mode: {}. Use: basic, driver", value)),
+                "chart" | "c" => HarmonyMode::Chart,
+                _ => {
+                    return Err(anyhow!(
+                        "Unknown harmony mode: {}. Use: basic, driver, chart",
+                        value
+                    ))
+                }
             };
             Ok(EngineCommand::SetHarmonyMode(mode))
         }

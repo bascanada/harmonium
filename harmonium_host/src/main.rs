@@ -174,6 +174,7 @@ fn main() {
                     harmony_mode = match args[i + 1].to_lowercase().as_str() {
                         "basic" => HarmonyMode::Basic,
                         "driver" => HarmonyMode::Driver,
+                        "chart" => HarmonyMode::Chart,
                         _ => {
                             log::warn(&format!(
                                 "Unknown harmony mode '{}', using Driver",
