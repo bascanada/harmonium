@@ -264,6 +264,18 @@ impl NativeHandle {
         }
     }
 
+    pub fn set_rhythm_density(&self, density: f32) {
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_rhythm_density(density);
+        }
+    }
+
+    pub fn set_rhythm_tension(&self, tension: f32) {
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_rhythm_tension(tension);
+        }
+    }
+
     pub fn enable_melody(&self, enabled: bool) {
         if let Ok(mut c) = self.composer.lock() {
             c.enable_melody(enabled);
