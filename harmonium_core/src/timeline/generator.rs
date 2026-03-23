@@ -451,29 +451,44 @@ impl TimelineGenerator {
     }
 
     pub fn update_params(&mut self, params: MusicalParams) {
-        // Detect mode changes
+        // Detect harmony mode changes
         if self.musical_params.harmony_mode != params.harmony_mode {
             self.harmony_mode = params.harmony_mode;
         }
 
-        // Update sequencer parameters
-        if self.sequencer_primary.mode != params.rhythm_mode {
+        // Update sequencer density/tension FIRST — PerfectBalance and ClassicGroove
+        // use these during pattern generation, so they must be set before any
+        // regenerate_pattern() or prepare_next_bar() calls.
+        self.sequencer_primary.tension = params.rhythm_tension;
+        self.sequencer_primary.density = params.rhythm_density;
+
+        // Track whether the current pattern needs regenerating
+        let mode_changed = self.sequencer_primary.mode != params.rhythm_mode;
+        let density_changed =
+            (self.musical_params.rhythm_density - params.rhythm_density).abs() > f32::EPSILON;
+        let tension_changed =
+            (self.musical_params.rhythm_tension - params.rhythm_tension).abs() > f32::EPSILON;
+
+        // Update sequencer mode and step count
+        if mode_changed {
             self.sequencer_primary.mode = params.rhythm_mode;
             self.sequencer_primary.upgrade_to_steps(params.rhythm_steps);
         }
 
         if self.sequencer_primary.pulses != params.rhythm_pulses {
             self.sequencer_primary.pulses = params.rhythm_pulses.min(self.sequencer_primary.steps);
-            self.sequencer_primary.prepare_next_bar();
         }
 
         if self.sequencer_primary.rotation != params.rhythm_rotation {
             self.sequencer_primary.rotation = params.rhythm_rotation;
-            self.sequencer_primary.prepare_next_bar();
         }
 
-        self.sequencer_primary.tension = params.rhythm_tension;
-        self.sequencer_primary.density = params.rhythm_density;
+        // Regenerate the CURRENT pattern when mode, density, or tension changed.
+        // Without this, bar 0 uses the stale pattern from construction while
+        // subsequent bars get the correct pattern from prepare_next_bar().
+        if mode_changed || density_changed || tension_changed {
+            self.sequencer_primary.regenerate_pattern();
+        }
 
         // Secondary sequencer
         self.sequencer_secondary.pulses =
@@ -838,6 +853,152 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Diagnostic: Compare note density of bar 0 vs subsequent bars across
+    /// all rhythm modes and density levels. Uses deterministic seed.
+    #[test]
+    fn test_first_bar_density_not_higher_than_subsequent() {
+        use rand::SeedableRng;
+        use rand_chacha::ChaCha8Rng;
+
+        let num_bars = 16;
+        let seeds: [u64; 5] = [42, 123, 999, 7777, 54321];
+
+        let configs: Vec<(&str, RhythmMode, f32, f32)> = vec![
+            ("euclidean-default", RhythmMode::Euclidean, 0.5, 0.3),
+            ("euclidean-high-density", RhythmMode::Euclidean, 0.8, 0.3),
+            ("balanced-default", RhythmMode::PerfectBalance, 0.5, 0.3),
+            ("balanced-high-density", RhythmMode::PerfectBalance, 0.8, 0.5),
+            ("groove-default", RhythmMode::ClassicGroove, 0.5, 0.3),
+            ("groove-high-density", RhythmMode::ClassicGroove, 0.8, 0.5),
+        ];
+
+        for (label, mode, density, tension) in &configs {
+            for &seed in &seeds {
+                let mut rng = ChaCha8Rng::seed_from_u64(seed);
+
+                let mut seq_primary = Sequencer::new_with_mode(16, 4, 120.0, *mode);
+                seq_primary.density = *density;
+                seq_primary.tension = *tension;
+                seq_primary.regenerate_pattern();
+
+                let seq_secondary = Sequencer::new_with_rotation(12, 3, 120.0, 0);
+                let harmony = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, 4);
+                let mut params = MusicalParams::default();
+                params.rhythm_mode = *mode;
+                params.rhythm_density = *density;
+                params.rhythm_tension = *tension;
+                let state = CurrentState {
+                    bpm: 120.0,
+                    density: *density,
+                    tension: *tension,
+                    smoothness: 0.7,
+                    valence: 0.3,
+                    arousal: 0.5,
+                };
+
+                let mut tgen = TimelineGenerator::new(
+                    seq_primary,
+                    seq_secondary,
+                    harmony,
+                    None,
+                    params,
+                    state,
+                );
+
+                let mut lead_counts: Vec<usize> = Vec::new();
+                let mut total_counts: Vec<usize> = Vec::new();
+
+                for bar in 0..num_bars {
+                    let measure = tgen.generate_measure(bar, &mut rng);
+                    lead_counts.push(measure.notes_for_track(TrackId::Lead).len());
+                    total_counts.push(measure.total_notes());
+                }
+
+                let bar0_lead = lead_counts[0] as f64;
+                let rest_lead_avg: f64 =
+                    lead_counts[1..].iter().sum::<usize>() as f64 / (num_bars - 1) as f64;
+                let bar0_total = total_counts[0] as f64;
+                let rest_total_avg: f64 =
+                    total_counts[1..].iter().sum::<usize>() as f64 / (num_bars - 1) as f64;
+
+                if rest_lead_avg > 0.0 {
+                    assert!(
+                        bar0_lead <= rest_lead_avg * 1.5,
+                        "{label} seed={seed}: Bar 0 lead ({bar0_lead}) > 1.5x avg ({rest_lead_avg:.1})"
+                    );
+                }
+                if rest_total_avg > 0.0 {
+                    assert!(
+                        bar0_total <= rest_total_avg * 1.5,
+                        "{label} seed={seed}: Bar 0 total ({bar0_total}) > 1.5x avg ({rest_total_avg:.1})"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Reproduce the practice app initialization: composer creates with Euclidean,
+    /// then update_params switches to PerfectBalance. Bar 0 should use the correct mode.
+    #[test]
+    fn test_mode_switch_bar0_uses_correct_pattern() {
+        use rand::SeedableRng;
+        use rand_chacha::ChaCha8Rng;
+
+        // Step 1: Create with Euclidean (mimics MusicComposer::new)
+        let seq_primary = Sequencer::new(16, 4, 120.0);
+        let seq_secondary = Sequencer::new_with_rotation(12, 3, 120.0, 0);
+        let harmony = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, 4);
+        let state = CurrentState {
+            bpm: 120.0,
+            density: 0.5,
+            tension: 0.3,
+            smoothness: 0.7,
+            valence: 0.3,
+            arousal: 0.5,
+        };
+        let mut params = MusicalParams::default();
+
+        let mut tgen = TimelineGenerator::new(
+            seq_primary,
+            seq_secondary,
+            harmony,
+            None,
+            params.clone(),
+            state,
+        );
+
+        // Step 2: Switch to PerfectBalance with high density (mimics sync_generator)
+        params.rhythm_mode = RhythmMode::PerfectBalance;
+        params.rhythm_density = 0.8;
+        params.rhythm_tension = 0.5;
+        tgen.update_params(params);
+
+        // Step 3: Generate bars — bar 0 should match bar 1+
+        let mut rng = ChaCha8Rng::seed_from_u64(42);
+        let mut total_counts: Vec<usize> = Vec::new();
+        let mut lead_counts: Vec<usize> = Vec::new();
+
+        for bar in 0..8 {
+            let measure = tgen.generate_measure(bar, &mut rng);
+            total_counts.push(measure.total_notes());
+            lead_counts.push(measure.notes_for_track(TrackId::Lead).len());
+        }
+
+        // Bar 0 must NOT differ from subsequent bars
+        assert_eq!(
+            total_counts[0], total_counts[1],
+            "Bar 0 total ({}) differs from bar 1 ({}) — \
+             stale pattern leaked after mode switch",
+            total_counts[0], total_counts[1],
+        );
+        assert_eq!(
+            lead_counts[0], lead_counts[1],
+            "Bar 0 lead ({}) differs from bar 1 ({}) — \
+             stale pattern leaked after mode switch",
+            lead_counts[0], lead_counts[1],
+        );
     }
 
     /// Verify that PerfectBalance mode produces only clean subdivisions
