@@ -1179,6 +1179,153 @@ mod tests {
         assert_eq!(tgen.chord_name, "D#m7");
     }
 
+    /// Integration test: chart mode generates music with correct chord context
+    /// in each measure AND lead notes are influenced by the active chord.
+    #[test]
+    fn test_chart_mode_integration_chord_context_and_notes() {
+        use std::collections::HashSet;
+
+        use arrayvec::ArrayString;
+        use rand::SeedableRng;
+        use rand_chacha::ChaCha8Rng;
+
+        // ii-V-I in C major — a standard jazz progression
+        let chart = vec![
+            ArrayString::from("Dm7").unwrap(),   // D F A C
+            ArrayString::from("G7").unwrap(),    // G B D F
+            ArrayString::from("Cmaj7").unwrap(), // C E G B
+        ];
+
+        let seq_primary = Sequencer::new(16, 4, 120.0);
+        let seq_secondary = Sequencer::new_with_rotation(12, 3, 120.0, 0);
+        let harmony = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, 4);
+        let mut params = MusicalParams::default();
+        params.harmony_mode = HarmonyMode::Chart;
+        params.harmony_measures_per_chord = 1;
+        params.chord_chart = chart;
+        params.key_root = 0; // C
+        let state = CurrentState {
+            bpm: 120.0,
+            density: 0.5,
+            tension: 0.3,
+            smoothness: 0.7,
+            valence: 0.3,
+            arousal: 0.5,
+        };
+
+        let mut tgen =
+            TimelineGenerator::new(seq_primary, seq_secondary, harmony, None, params, state);
+        let mut rng = ChaCha8Rng::seed_from_u64(42);
+
+        let expected_chords = ["Dm7", "G7", "Cmaj7", "Dm7", "G7", "Cmaj7"];
+        // Chord tones (pitch classes) for each chord
+        let chord_tones: [HashSet<u8>; 3] = [
+            [2, 5, 9, 0].into_iter().collect(),  // Dm7: D F A C
+            [7, 11, 2, 5].into_iter().collect(), // G7: G B D F
+            [0, 4, 7, 11].into_iter().collect(), // Cmaj7: C E G B
+        ];
+
+        for (bar, expected_name) in expected_chords.iter().enumerate() {
+            let measure = tgen.generate_measure(bar, &mut rng);
+
+            // 1. Verify chord_context in the measure matches the chart
+            assert_eq!(
+                measure.chord_context.chord_name, *expected_name,
+                "Bar {bar}: chord_context.chord_name should be \"{expected_name}\", \
+                 got \"{}\"",
+                measure.chord_context.chord_name
+            );
+
+            // 2. Verify the measure produces notes
+            let lead_notes = measure.notes_for_track(TrackId::Lead);
+            assert!(
+                !lead_notes.is_empty(),
+                "Bar {bar} ({expected_name}): expected lead notes but got none"
+            );
+
+            // 3. Verify lead notes are influenced by the chord:
+            //    At least some notes should be chord tones (pitch % 12 in the chord's set).
+            //    We don't require 100% — melody can use passing tones — but a majority
+            //    should be chord tones or scale tones.
+            let active_tones = &chord_tones[bar % 3];
+            let chord_tone_count =
+                lead_notes.iter().filter(|n| active_tones.contains(&(n.pitch % 12))).count();
+            let ratio = chord_tone_count as f64 / lead_notes.len() as f64;
+
+            // At least 20% of notes should be chord tones (conservative threshold —
+            // pentatonic scale + chord context biases notes toward chord tones)
+            assert!(
+                ratio >= 0.2,
+                "Bar {bar} ({expected_name}): only {chord_tone_count}/{} lead notes \
+                 ({:.0}%) are chord tones — expected ≥20%. Pitches: {:?}, chord tones: {:?}",
+                lead_notes.len(),
+                ratio * 100.0,
+                lead_notes.iter().map(|n| n.pitch % 12).collect::<Vec<_>>(),
+                active_tones,
+            );
+        }
+    }
+
+    /// Integration test: chart mode through NativeHandle-like pipeline.
+    /// Generates 12 bars with a 4-chord chart, verifies all measures have
+    /// correct chord names and the chart loops correctly.
+    #[test]
+    fn test_chart_mode_full_pipeline_loop() {
+        use arrayvec::ArrayString;
+        use rand::SeedableRng;
+        use rand_chacha::ChaCha8Rng;
+
+        let chart = vec![
+            ArrayString::from("Am7").unwrap(),
+            ArrayString::from("Dm7").unwrap(),
+            ArrayString::from("G7").unwrap(),
+            ArrayString::from("Cmaj7").unwrap(),
+        ];
+
+        let seq_primary = Sequencer::new(16, 4, 120.0);
+        let seq_secondary = Sequencer::new_with_rotation(12, 3, 120.0, 0);
+        let harmony = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, 4);
+        let mut params = MusicalParams::default();
+        params.harmony_mode = HarmonyMode::Chart;
+        params.harmony_measures_per_chord = 1;
+        params.chord_chart = chart;
+        let state = CurrentState {
+            bpm: 120.0,
+            density: 0.5,
+            tension: 0.3,
+            smoothness: 0.7,
+            valence: 0.3,
+            arousal: 0.5,
+        };
+
+        let mut tgen =
+            TimelineGenerator::new(seq_primary, seq_secondary, harmony, None, params, state);
+        let mut rng = ChaCha8Rng::seed_from_u64(123);
+
+        let expected = ["Am7", "Dm7", "G7", "Cmaj7"];
+        let mut total_notes = 0;
+
+        for bar in 0..12 {
+            let measure = tgen.generate_measure(bar, &mut rng);
+
+            // Chord should cycle: bar % 4
+            let expected_chord = expected[bar % 4];
+            assert_eq!(
+                measure.chord_context.chord_name, expected_chord,
+                "Bar {bar}: expected \"{expected_chord}\", got \"{}\"",
+                measure.chord_context.chord_name
+            );
+
+            // Every bar should produce music
+            let notes = measure.total_notes();
+            assert!(notes > 0, "Bar {bar} ({expected_chord}): no notes generated");
+            total_notes += notes;
+        }
+
+        // 12 bars should produce substantial music
+        assert!(total_notes > 50, "Expected >50 notes across 12 bars, got {total_notes}");
+    }
+
     /// Verify that PerfectBalance mode produces only clean subdivisions
     /// (no dotted eighths) across the full density range.
     #[test]
