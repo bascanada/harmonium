@@ -295,34 +295,10 @@ fn parse_root(s: &str) -> Option<(PitchClass, &str)> {
     if let Some(acc) = rest.chars().next() {
         match acc {
             '#' => Some(((base + 1) % 12, &rest[1..])),
-            'b' => {
-                // Disambiguate: "b" after B could be a flat OR start of a suffix.
-                // "Bb" = A# (10), but "Bdim" should parse as B + "dim".
-                // Heuristic: if the letter is 'B' and the next char after 'b' is
-                // lowercase (like "dim", "m7"), treat 'b' as start of suffix, not flat.
-                // Exception: "Bb" alone or "Bb7", "Bbm" etc. where 'b' IS the flat.
-                // Since only 'B' is ambiguous (others like "Db" can't start a suffix),
-                // we check: is this 'B' followed by 'b' and then a non-alpha or end?
-                // Actually, simpler: flats only apply when the NEXT char after 'b' is
-                // not a lowercase letter that could be part of a note name... but that's
-                // complex. Safest: 'b' is always flat for non-B roots. For B root,
-                // 'b' is flat only if followed by end-of-string, a digit, '#', '/',
-                // uppercase, or another 'b'.
-                if letter.eq_ignore_ascii_case(&'B') {
-                    let after_b = rest.get(1..2).and_then(|s| s.chars().next());
-                    match after_b {
-                        None | Some('/') | Some('#') => Some(((base + 11) % 12, &rest[1..])),
-                        Some(c) if c.is_ascii_uppercase() || c.is_ascii_digit() => {
-                            Some(((base + 11) % 12, &rest[1..]))
-                        }
-                        // "Bb" followed by lowercase: could be "Bbm7", "Bbmaj7", etc.
-                        // The 'b' IS a flat sign here (Bb = A#)
-                        Some(_) => Some(((base + 11) % 12, &rest[1..])),
-                    }
-                } else {
-                    Some(((base + 11) % 12, &rest[1..]))
-                }
-            }
+            // 'b' is always treated as a flat sign. This is unambiguous because
+            // chord quality suffixes never start with 'b' — they start with 'm',
+            // 'd', 's', 'a', '+', or a digit. So "Bb" = A#, "Bbm7" = A#m7, etc.
+            'b' => Some(((base + 11) % 12, &rest[1..])),
             _ => Some((base, rest)),
         }
     } else {

@@ -78,11 +78,7 @@ impl TimelineGenerator {
         let current_progression =
             Progression::get_palette(current_state.valence, current_state.tension);
 
-        let chord_chart: Vec<crate::harmony::Chord> = musical_params
-            .chord_chart
-            .iter()
-            .filter_map(|name| crate::harmony::Chord::from_name(name.as_str()).ok())
-            .collect();
+        let chord_chart = Self::parse_chord_chart(&musical_params.chord_chart);
 
         Self {
             sequencer_primary,
@@ -543,15 +539,19 @@ impl TimelineGenerator {
 
         // Re-parse chord chart when it changes
         if self.musical_params.chord_chart != params.chord_chart {
-            self.chord_chart = params
-                .chord_chart
-                .iter()
-                .filter_map(|name| crate::harmony::Chord::from_name(name.as_str()).ok())
-                .collect();
+            self.chord_chart = Self::parse_chord_chart(&params.chord_chart);
             self.chart_index = 0;
         }
 
         self.musical_params = params;
+    }
+
+    /// Parse chord names into Chord structs, skipping invalid entries.
+    fn parse_chord_chart(chart_names: &[arrayvec::ArrayString<16>]) -> Vec<crate::harmony::Chord> {
+        chart_names
+            .iter()
+            .filter_map(|name| crate::harmony::Chord::from_name(name.as_str()).ok())
+            .collect()
     }
 
     fn next_id(&mut self) -> NoteId {
