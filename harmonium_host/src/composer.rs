@@ -373,6 +373,9 @@ impl MusicComposer {
     pub fn set_harmony_strategy(&mut self, s: harmonium_core::params::HarmonyStrategy) {
         self.musical_params.harmony_strategy = s;
     }
+    pub fn set_chord_chart(&mut self, chart: Vec<arrayvec::ArrayString<16>>) {
+        self.musical_params.chord_chart = chart;
+    }
     pub fn set_harmony_tension(&mut self, t: f32) {
         self.musical_params.harmony_tension = t.clamp(0.0, 1.0);
     }

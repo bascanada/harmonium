@@ -437,6 +437,12 @@ pub struct MusicalParams {
     #[serde(default)]
     pub key_root: u8,
 
+    /// Fixed chord chart (chord names like "Cmaj7", "Dm7", "G7").
+    /// When non-empty and `harmony_mode == Chart`, the generator cycles through
+    /// these chords instead of generating procedurally. Auto-loops at chart end.
+    #[serde(default)]
+    pub chord_chart: Vec<ArrayString<16>>,
+
     // ═══════════════════════════════════════════════════════════════════
     // MÉLODIE / VOICING
     // ═══════════════════════════════════════════════════════════════════
@@ -614,6 +620,7 @@ impl Default for MusicalParams {
             harmony_valence: 0.3,
             harmony_measures_per_chord: default_measures_per_chord(),
             key_root: 0, // C
+            chord_chart: Vec::new(),
 
             // Mélodie / Voicing
             melody_smoothness: default_smoothness(),
@@ -691,6 +698,13 @@ impl MusicalParams {
     #[must_use]
     pub const fn rhythm_mode(mut self, mode: RhythmMode) -> Self {
         self.rhythm_mode = mode;
+        self
+    }
+
+    /// Builder pattern: set chord chart
+    #[must_use]
+    pub fn chord_chart(mut self, chart: Vec<ArrayString<16>>) -> Self {
+        self.chord_chart = chart;
         self
     }
 

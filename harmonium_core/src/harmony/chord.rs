@@ -247,8 +247,101 @@ impl ChordType {
     }
 }
 
+// ── Chord name parsing ──
+
+/// Error returned by `Chord::from_name()`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChordParseError {
+    /// Input string was empty or only whitespace
+    EmptyInput,
+    /// Could not parse a valid root note (e.g., "X7")
+    InvalidRoot,
+    /// Could not match a chord quality suffix (e.g., "Cmaj9")
+    InvalidQuality(String),
+    /// Could not parse the bass note in a slash chord (e.g., "C/X")
+    InvalidBass(String),
+}
+
+impl std::fmt::Display for ChordParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyInput => write!(f, "empty chord name"),
+            Self::InvalidRoot => write!(f, "invalid root note"),
+            Self::InvalidQuality(s) => write!(f, "unrecognized chord quality: \"{s}\""),
+            Self::InvalidBass(s) => write!(f, "invalid bass note: \"{s}\""),
+        }
+    }
+}
+
+impl std::error::Error for ChordParseError {}
+
+/// Parse a root note from the beginning of a string.
+/// Returns `(PitchClass, remaining_str)` on success.
+/// Handles sharps (`C#`, `F#`) and flats (`Db`, `Bb`, `Ab`, etc.).
+fn parse_root(s: &str) -> Option<(PitchClass, &str)> {
+    let mut chars = s.chars();
+    let letter = chars.next()?;
+    let base = match letter.to_ascii_uppercase() {
+        'C' => 0,
+        'D' => 2,
+        'E' => 4,
+        'F' => 5,
+        'G' => 7,
+        'A' => 9,
+        'B' => 11,
+        _ => return None,
+    };
+    let rest = &s[letter.len_utf8()..];
+    if let Some(acc) = rest.chars().next() {
+        match acc {
+            '#' => Some(((base + 1) % 12, &rest[1..])),
+            // 'b' is always treated as a flat sign. This is unambiguous because
+            // chord quality suffixes never start with 'b' — they start with 'm',
+            // 'd', 's', 'a', '+', or a digit. So "Bb" = A#, "Bbm7" = A#m7, etc.
+            'b' => Some(((base + 11) % 12, &rest[1..])),
+            _ => Some((base, rest)),
+        }
+    } else {
+        Some((base, rest))
+    }
+}
+
+/// Parse a chord type suffix from the beginning of a string.
+/// Returns `(ChordType, remaining_str)` on success.
+/// Matches longest prefixes first to avoid ambiguity.
+fn parse_chord_type(s: &str) -> Option<(ChordType, &str)> {
+    // Ordered longest-first to prevent partial matches
+    const SUFFIXES: &[(&str, ChordType)] = &[
+        ("mMaj7", ChordType::MinorMajor7),
+        ("m7b5", ChordType::HalfDiminished),
+        ("7sus4", ChordType::Dominant7Sus4),
+        ("maj7", ChordType::Major7),
+        ("dim7", ChordType::Diminished7),
+        ("add9", ChordType::Add9),
+        ("sus2", ChordType::Sus2),
+        ("sus4", ChordType::Sus4),
+        ("7#5", ChordType::Augmented7),
+        ("dim", ChordType::Diminished),
+        ("m7", ChordType::Minor7),
+        ("m6", ChordType::Minor6),
+        ("7", ChordType::Dominant7),
+        ("6", ChordType::Major6),
+        ("m", ChordType::Minor),
+        ("+", ChordType::Augmented),
+    ];
+
+    for &(suffix, chord_type) in SUFFIXES {
+        if let Some(rest) = s.strip_prefix(suffix) {
+            return Some((chord_type, rest));
+        }
+    }
+
+    // Empty suffix = Major
+    Some((ChordType::Major, s))
+}
+
 /// Un accord avec contexte harmonique complet
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Chord {
     /// Fondamentale (0-11)
     pub root: PitchClass,
@@ -366,6 +459,48 @@ impl Chord {
         }
 
         total_distance
+    }
+
+    /// Parse a chord from its name (e.g., "Cmaj7", "Dm7b5", "Bb7", "F#m/C#").
+    ///
+    /// This is the inverse of [`Chord::name()`]. Input is normalized to sharps
+    /// (e.g., "Bb" → root 10 which displays as "A#").
+    pub fn from_name(s: &str) -> Result<Self, ChordParseError> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Err(ChordParseError::EmptyInput);
+        }
+
+        // Split on '/' for slash chords — but only the LAST '/' counts as bass separator
+        let (chord_part, bass_part) = if let Some(slash_pos) = s.rfind('/') {
+            // Only treat as slash chord if there's content after the slash
+            let after = &s[slash_pos + 1..];
+            if after.is_empty() { (s, None) } else { (&s[..slash_pos], Some(after)) }
+        } else {
+            (s, None)
+        };
+
+        let (root, remainder) = parse_root(chord_part).ok_or(ChordParseError::InvalidRoot)?;
+
+        let (chord_type, leftover) = parse_chord_type(remainder)
+            .ok_or_else(|| ChordParseError::InvalidQuality(remainder.to_string()))?;
+
+        if !leftover.is_empty() {
+            return Err(ChordParseError::InvalidQuality(remainder.to_string()));
+        }
+
+        let mut chord = Self::new(root, chord_type);
+
+        if let Some(bass_str) = bass_part {
+            let (bass_pc, bass_leftover) = parse_root(bass_str)
+                .ok_or_else(|| ChordParseError::InvalidBass(bass_str.to_string()))?;
+            if !bass_leftover.is_empty() {
+                return Err(ChordParseError::InvalidBass(bass_str.to_string()));
+            }
+            chord = chord.with_bass(bass_pc);
+        }
+
+        Ok(chord)
     }
 
     /// Nom complet de l'accord (ex: "C#m7")
@@ -528,5 +663,146 @@ mod tests {
         assert!(ChordType::Augmented.is_ambiguous());
         assert!(ChordType::Diminished7.is_ambiguous());
         assert!(!ChordType::Major.is_ambiguous());
+    }
+
+    // ── from_name() tests ──
+
+    #[test]
+    fn test_from_name_round_trip_all_types() {
+        // Round-trip: name() → from_name() should preserve root and chord_type
+        let types = [
+            ChordType::Major,
+            ChordType::Minor,
+            ChordType::Augmented,
+            ChordType::Diminished,
+            ChordType::Dominant7,
+            ChordType::Major7,
+            ChordType::Minor7,
+            ChordType::HalfDiminished,
+            ChordType::Diminished7,
+            ChordType::Sus2,
+            ChordType::Sus4,
+            ChordType::MinorMajor7,
+            ChordType::Augmented7,
+            ChordType::Major6,
+            ChordType::Minor6,
+            ChordType::Dominant7Sus4,
+            ChordType::Add9,
+        ];
+        for root in 0..12u8 {
+            for &ct in &types {
+                let original = Chord::new(root, ct);
+                let name = original.name();
+                let parsed = Chord::from_name(&name).unwrap_or_else(|e| {
+                    panic!("Failed to parse \"{name}\" (root={root}, type={ct:?}): {e}")
+                });
+                assert_eq!(parsed.root, root, "root mismatch for \"{name}\"");
+                assert_eq!(parsed.chord_type, ct, "type mismatch for \"{name}\"");
+            }
+        }
+    }
+
+    #[test]
+    fn test_from_name_flat_notation() {
+        // Flats should parse correctly (normalized to sharp internally)
+        let cases = [
+            ("Db", 1, ChordType::Major),
+            ("Eb", 3, ChordType::Major),
+            ("Gb", 6, ChordType::Major),
+            ("Ab", 8, ChordType::Major),
+            ("Bb", 10, ChordType::Major),
+            ("Bbm7", 10, ChordType::Minor7),
+            ("Ebmaj7", 3, ChordType::Major7),
+            ("Abm7b5", 8, ChordType::HalfDiminished),
+            ("Gb7", 6, ChordType::Dominant7),
+        ];
+        for (input, expected_root, expected_type) in cases {
+            let parsed = Chord::from_name(input)
+                .unwrap_or_else(|e| panic!("Failed to parse \"{input}\": {e}"));
+            assert_eq!(parsed.root, expected_root, "root for \"{input}\"");
+            assert_eq!(parsed.chord_type, expected_type, "type for \"{input}\"");
+        }
+    }
+
+    #[test]
+    fn test_from_name_slash_chords() {
+        let parsed = Chord::from_name("Dm7/A").unwrap();
+        assert_eq!(parsed.root, 2);
+        assert_eq!(parsed.chord_type, ChordType::Minor7);
+        assert_eq!(parsed.bass, Some(9)); // A = 9
+
+        let parsed = Chord::from_name("C/G").unwrap();
+        assert_eq!(parsed.root, 0);
+        assert_eq!(parsed.chord_type, ChordType::Major);
+        assert_eq!(parsed.bass, Some(7));
+
+        let parsed = Chord::from_name("F#m7/C#").unwrap();
+        assert_eq!(parsed.root, 6);
+        assert_eq!(parsed.chord_type, ChordType::Minor7);
+        assert_eq!(parsed.bass, Some(1));
+
+        let parsed = Chord::from_name("Bbmaj7/D").unwrap();
+        assert_eq!(parsed.root, 10);
+        assert_eq!(parsed.chord_type, ChordType::Major7);
+        assert_eq!(parsed.bass, Some(2));
+    }
+
+    #[test]
+    fn test_from_name_errors() {
+        assert_eq!(Chord::from_name(""), Err(ChordParseError::EmptyInput));
+        assert_eq!(Chord::from_name("   "), Err(ChordParseError::EmptyInput));
+        assert!(matches!(Chord::from_name("X7"), Err(ChordParseError::InvalidRoot)));
+        assert!(matches!(Chord::from_name("Cblah"), Err(ChordParseError::InvalidQuality(_))));
+        assert!(matches!(Chord::from_name("C/X"), Err(ChordParseError::InvalidBass(_))));
+    }
+
+    #[test]
+    fn test_from_name_b_root_disambiguation() {
+        // "B" alone = B Major (root 11)
+        let parsed = Chord::from_name("B").unwrap();
+        assert_eq!(parsed.root, 11);
+        assert_eq!(parsed.chord_type, ChordType::Major);
+
+        // "Bm" = B Minor
+        let parsed = Chord::from_name("Bm").unwrap();
+        assert_eq!(parsed.root, 11);
+        assert_eq!(parsed.chord_type, ChordType::Minor);
+
+        // "Bb" = Bb Major (root 10)
+        let parsed = Chord::from_name("Bb").unwrap();
+        assert_eq!(parsed.root, 10);
+        assert_eq!(parsed.chord_type, ChordType::Major);
+
+        // "Bbm" = Bb Minor
+        let parsed = Chord::from_name("Bbm").unwrap();
+        assert_eq!(parsed.root, 10);
+        assert_eq!(parsed.chord_type, ChordType::Minor);
+
+        // "Bdim" = B Diminished
+        let parsed = Chord::from_name("Bdim").unwrap();
+        assert_eq!(parsed.root, 11);
+        assert_eq!(parsed.chord_type, ChordType::Diminished);
+
+        // "Bb7" = Bb Dominant7
+        let parsed = Chord::from_name("Bb7").unwrap();
+        assert_eq!(parsed.root, 10);
+        assert_eq!(parsed.chord_type, ChordType::Dominant7);
+
+        // "Bmaj7" = B Major7
+        let parsed = Chord::from_name("Bmaj7").unwrap();
+        assert_eq!(parsed.root, 11);
+        assert_eq!(parsed.chord_type, ChordType::Major7);
+
+        // "Bbmaj7" = Bb Major7
+        let parsed = Chord::from_name("Bbmaj7").unwrap();
+        assert_eq!(parsed.root, 10);
+        assert_eq!(parsed.chord_type, ChordType::Major7);
+    }
+
+    #[test]
+    fn test_from_name_whitespace_trimmed() {
+        let parsed = Chord::from_name("  Cm7  ").unwrap();
+        assert_eq!(parsed.root, 0);
+        assert_eq!(parsed.chord_type, ChordType::Minor7);
     }
 }

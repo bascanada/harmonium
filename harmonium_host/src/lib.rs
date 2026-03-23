@@ -250,11 +250,12 @@ impl Handle {
 
     // === Harmony Mode ===
 
-    /// Set harmony mode (0=Basic, 1=Driver)
+    /// Set harmony mode (0=Basic, 1=Driver, 2=Chart)
     pub fn set_harmony_mode(&mut self, mode: u8) {
         let harmony_mode = match mode {
             0 => HarmonyMode::Basic,
             1 => HarmonyMode::Driver,
+            2 => HarmonyMode::Chart,
             _ => HarmonyMode::Driver,
         };
         let _ = self.controller.set_harmony_mode(harmony_mode);
@@ -267,6 +268,7 @@ impl Handle {
             .map(|s| match s.harmony_mode {
                 HarmonyMode::Basic => 0,
                 HarmonyMode::Driver => 1,
+                HarmonyMode::Chart => 2,
             })
             .unwrap_or(1)
     }
@@ -727,6 +729,7 @@ impl Handle {
         let harmony_mode = match mode {
             0 => HarmonyMode::Basic,
             1 => HarmonyMode::Driver,
+            2 => HarmonyMode::Chart,
             _ => HarmonyMode::Driver,
         };
         let _ = self.controller.set_harmony_mode(harmony_mode);
