@@ -475,18 +475,22 @@ impl TimelineGenerator {
             self.sequencer_primary.upgrade_to_steps(params.rhythm_steps);
         }
 
-        if self.sequencer_primary.pulses != params.rhythm_pulses {
-            self.sequencer_primary.pulses = params.rhythm_pulses.min(self.sequencer_primary.steps);
+        let new_pulses = params.rhythm_pulses.min(self.sequencer_primary.steps);
+        let pulses_changed = self.sequencer_primary.pulses != new_pulses;
+        if pulses_changed {
+            self.sequencer_primary.pulses = new_pulses;
         }
 
-        if self.sequencer_primary.rotation != params.rhythm_rotation {
+        let rotation_changed = self.sequencer_primary.rotation != params.rhythm_rotation;
+        if rotation_changed {
             self.sequencer_primary.rotation = params.rhythm_rotation;
         }
 
-        // Regenerate the CURRENT pattern when mode, density, or tension changed.
+        // Regenerate the CURRENT pattern when any pattern-affecting param changed.
         // Without this, bar 0 uses the stale pattern from construction while
         // subsequent bars get the correct pattern from prepare_next_bar().
-        if mode_changed || density_changed || tension_changed {
+        if mode_changed || density_changed || tension_changed || pulses_changed || rotation_changed
+        {
             self.sequencer_primary.regenerate_pattern();
         }
 
