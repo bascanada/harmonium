@@ -299,6 +299,7 @@ impl MusicComposer {
     /// Use this when you want to regenerate from scratch with current settings.
     pub fn reset_timeline(&mut self) {
         self.writehead.reset();
+        self.generator.reset_chart_index();
         self.generator.update_params(self.musical_params.clone());
         if let Ok(mut pages) = self.shared_pages.lock() {
             pages.clear();

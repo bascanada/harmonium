@@ -546,6 +546,13 @@ impl TimelineGenerator {
         self.musical_params = params;
     }
 
+    /// Reset chart index to 0 so the next generation starts from the first chord.
+    /// Call this when regenerating the timeline from scratch.
+    pub fn reset_chart_index(&mut self) {
+        self.chart_index = 0;
+        self.current_bar = 0;
+    }
+
     /// Parse chord names into Chord structs, skipping invalid entries.
     fn parse_chord_chart(chart_names: &[arrayvec::ArrayString<16>]) -> Vec<crate::harmony::Chord> {
         chart_names
