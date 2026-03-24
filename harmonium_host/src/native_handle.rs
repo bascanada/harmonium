@@ -348,6 +348,12 @@ impl NativeHandle {
         }
     }
 
+    pub fn set_harmony_measures_per_chord(&self, measures: usize) {
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_harmony_measures_per_chord(measures);
+        }
+    }
+
     pub fn set_harmony_strategy(&self, strategy: harmonium_core::params::HarmonyStrategy) {
         if let Ok(mut c) = self.composer.lock() {
             c.set_harmony_strategy(strategy);
