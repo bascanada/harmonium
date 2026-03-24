@@ -13,42 +13,42 @@
 	import MorphVisualization from '$lib/components/visualizations/MorphVisualization.svelte';
 	import init, { get_available_backends } from 'harmonium';
 
-	let bridge: HarmoniumBridge | null = null;
-	let state: EngineState = createEmptyState();
+	let bridge: HarmoniumBridge | null = $state(null);
+	let engineState: EngineState = $state(createEmptyState());
 	let unsubscribe: (() => void) | null = null;
-	let isPlaying = false;
-	let error = '';
+	let isPlaying = $state(false);
+	let error = $state('');
 
 	// Audio Backend Selection (before starting)
-	let selectedBackend: AudioBackendType = 'odin2';
-	let availableBackends: AudioBackendType[] = ['fundsp'];
+	let selectedBackend: AudioBackendType = $state('odin2');
+	let availableBackends: AudioBackendType[] = $state(['fundsp']);
 
 	// Algorithm selection (before starting)
-	let algorithm = 0;
-	let polySteps = 48;
+	let algorithm = $state(0);
+	let polySteps = $state(48);
 
 	// Harmony mode selection (before starting)
-	let harmonyMode = 1;
+	let harmonyMode = $state(1);
 
 	// Detect if we're in audio-rendering mode (web) or MIDI-only mode (VST)
 	const isAudioMode = typeof window !== 'undefined' && !('ipc' in window);
 
 	// Step tracking for visualizations
-	let totalSteps = 0;
+	let totalSteps = $state(0);
 	let lastEngineStep = -1;
 	let lastPrimarySteps = 16;
 	let lastRhythmMode = 0;
 	let lastIsEmotionMode = true;
 
 	// Progression chords tracking
-	let progressionChords: string[] = [];
+	let progressionChords: string[] = $state([]);
 
 	// Recording State
-	let isRecordingWav = false;
-	let isRecordingMidi = false;
-	let isRecordingMusicXml = false;
+	let isRecordingWav = $state(false);
+	let isRecordingMidi = $state(false);
+	let isRecordingMusicXml = $state(false);
 
-	// Access WASM handle for recording (bridge doesn't expose recording methods yet)
+	// Access WASM handle for recording
 	function getHandle() {
 		return bridge && (bridge as any).handle;
 	}
@@ -93,7 +93,6 @@
 		const handle = getHandle();
 		if (!handle) return;
 
-		// Loop to get all finished recordings
 		while (true) {
 			const recording = handle.pop_finished_recording();
 			if (!recording) break;
@@ -120,7 +119,6 @@
 	onMount(() => {
 		const interval = setInterval(checkRecordings, 1000);
 
-		// Fetch available backends
 		(async () => {
 			try {
 				await init();
@@ -142,7 +140,6 @@
 
 	async function togglePlay() {
 		if (isPlaying) {
-			// Stop
 			unsubscribe?.();
 			bridge?.disconnect();
 			bridge = null;
@@ -156,24 +153,19 @@
 				throw new Error('Web Audio API is not supported in this browser');
 			}
 
-			// Create and connect bridge
 			bridge = new WasmBridge();
 			await bridge.connect(undefined, selectedBackend);
 
-			// Set algorithm and harmony mode (before starting main loop)
 			bridge.setAlgorithm(algorithm);
 			bridge.setHarmonyMode(harmonyMode);
 			bridge.setPolySteps(polySteps);
 
-			// Set initial emotional parameters to ensure proper visualization state
 			bridge.setArousal(0.5);
 			bridge.setValence(0.3);
 			bridge.setDensity(0.5);
 			bridge.setTension(0.3);
 
-			// Subscribe to state updates
 			unsubscribe = bridge.subscribe((newState) => {
-				// Reset step tracking when mode or steps change
 				const rhythmModeChanged = newState.rhythmMode !== lastRhythmMode;
 				const stepsChanged = newState.primarySteps !== lastPrimarySteps;
 				const emotionModeChanged = newState.isEmotionMode !== lastIsEmotionMode;
@@ -185,7 +177,6 @@
 					lastIsEmotionMode = newState.isEmotionMode;
 				}
 
-				// Track continuous step counter
 				const rawStep = newState.currentStep;
 				if (rawStep !== lastEngineStep) {
 					let delta = rawStep - lastEngineStep;
@@ -200,7 +191,6 @@
 					lastEngineStep = rawStep;
 				}
 
-				// Update progression chords
 				if (newState.progressionLength !== progressionChords.length) {
 					progressionChords = Array(newState.progressionLength).fill('?');
 				}
@@ -213,10 +203,9 @@
 					progressionChords = [...progressionChords];
 				}
 
-				state = newState;
+				engineState = newState;
 			});
 
-			// Reset counters
 			totalSteps = 0;
 			lastEngineStep = -1;
 
@@ -490,11 +479,11 @@
 		{/if}
 	</div>
 
-	{#if isPlaying && state.key && state.scale}
+	{#if isPlaying && engineState.key && engineState.scale}
 		<div class="mt-2 flex flex-col items-center gap-2">
 			<div class="font-mono text-xl text-purple-300">
-				Global Key: {state.key}
-				{state.scale}
+				Global Key: {engineState.key}
+				{engineState.scale}
 			</div>
 			<div class="flex items-center gap-2">
 				<span
@@ -510,13 +499,13 @@
 			</div>
 			<!-- Live status bar -->
 			<div class="mt-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 font-mono text-xs text-neutral-400">
-				<span>Gen Bar <span class="text-neutral-200">{state.currentMeasure}</span> | Step <span class="text-neutral-200">{state.currentStep}/{state.primarySteps}</span></span>
+				<span>Gen Bar <span class="text-neutral-200">{engineState.currentMeasure}</span> | Step <span class="text-neutral-200">{engineState.currentStep}/{engineState.primarySteps}</span></span>
 				<span class="text-neutral-600">|</span>
-				<span>{state.bpm} bpm</span>
+				<span>{engineState.bpm} bpm</span>
 				<span class="text-neutral-600">|</span>
-				<span>A<span class="text-cyan-300">{state.arousal.toFixed(2)}</span> V<span class="text-cyan-300">{state.valence.toFixed(2)}</span> D<span class="text-cyan-300">{state.density.toFixed(2)}</span> T<span class="text-cyan-300">{state.tension.toFixed(2)}</span></span>
+				<span>A<span class="text-cyan-300">{engineState.arousal.toFixed(2)}</span> V<span class="text-cyan-300">{engineState.valence.toFixed(2)}</span> D<span class="text-cyan-300">{engineState.density.toFixed(2)}</span> T<span class="text-cyan-300">{engineState.tension.toFixed(2)}</span></span>
 				<span class="text-neutral-600">|</span>
-				<span class="text-neutral-500">{state.isEmotionMode ? 'EMO' : 'DIR'}</span>
+				<span class="text-neutral-500">{engineState.isEmotionMode ? 'EMO' : 'DIR'}</span>
 			</div>
 		</div>
 	{/if}
@@ -533,32 +522,32 @@
 				<!-- Left: Visualizations -->
 				<div class="flex flex-col gap-6">
 					<RhythmVisualizer
-						rhythmMode={state.rhythmMode}
-						primarySteps={state.primarySteps}
-						primaryPulses={state.primaryPulses}
-						primaryRotation={state.primaryRotation}
-						primaryPattern={state.primaryPattern}
-						secondarySteps={state.secondarySteps}
-						secondaryPulses={state.secondaryPulses}
-						secondaryRotation={state.secondaryRotation}
-						secondaryPattern={state.secondaryPattern}
+						rhythmMode={engineState.rhythmMode}
+						primarySteps={engineState.primarySteps}
+						primaryPulses={engineState.primaryPulses}
+						primaryRotation={engineState.primaryRotation}
+						primaryPattern={engineState.primaryPattern}
+						secondarySteps={engineState.secondarySteps}
+						secondaryPulses={engineState.secondaryPulses}
+						secondaryRotation={engineState.secondaryRotation}
+						secondaryPattern={engineState.secondaryPattern}
 						currentStep={totalSteps}
-						rhythmDensity={state.rhythmDensity}
-						rhythmTension={state.rhythmTension}
+						rhythmDensity={engineState.rhythmDensity}
+						rhythmTension={engineState.rhythmTension}
 					/>
 
 					<ChordProgression
-						currentChord={state.currentChord}
-						currentMeasure={state.currentMeasure}
-						isMinorChord={state.isMinorChord}
-						progressionName={state.progressionName}
+						currentChord={engineState.currentChord}
+						currentMeasure={engineState.currentMeasure}
+						isMinorChord={engineState.isMinorChord}
+						progressionName={engineState.progressionName}
 						{progressionChords}
-						harmonyMode={state.harmonyMode}
+						harmonyMode={engineState.harmonyMode}
 					/>
 
 					{#if bridge}
 						{#key bridge}
-							<MorphVisualization {bridge} {state} />
+							<MorphVisualization {bridge} state={engineState} />
 						{/key}
 					{/if}
 				</div>
@@ -566,7 +555,7 @@
 				<!-- Right: Controls -->
 				{#if bridge}
 					{#key bridge}
-						<ControlPanel {state} {bridge} />
+						<ControlPanel state={engineState} {bridge} />
 					{/key}
 				{/if}
 			</div>

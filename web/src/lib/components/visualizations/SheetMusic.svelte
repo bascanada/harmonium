@@ -6,9 +6,11 @@
    */
   import { onMount } from 'svelte';
 
-  export let barNumber = 1;
-  export let timeSignature = { numerator: 4, denominator: 4 };
-  export let pattern: boolean[] = [];
+  let {
+    barNumber = 1,
+    timeSignature = { numerator: 4, denominator: 4 },
+    pattern = [] as boolean[]
+  } = $props();
 
   let container: HTMLDivElement;
 

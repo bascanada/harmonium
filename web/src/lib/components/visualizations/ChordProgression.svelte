@@ -1,10 +1,12 @@
 <script lang="ts">
-	export let currentChord = 'I';
-	export let currentMeasure = 1;
-	export let isMinorChord = false;
-	export let progressionName = '';
-	export let progressionChords: string[] = [];
-	export let harmonyMode = 1; // 0 = Basic, 1 = Driver
+	let {
+		currentChord = 'I',
+		currentMeasure = 1,
+		isMinorChord = false,
+		progressionName = '',
+		progressionChords = [] as string[],
+		harmonyMode = 1
+	} = $props();
 </script>
 
 <div class="rounded-xl border border-neutral-700 bg-neutral-800 p-6 shadow-xl">

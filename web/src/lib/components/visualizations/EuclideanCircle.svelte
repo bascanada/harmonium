@@ -1,52 +1,59 @@
 <script lang="ts">
-	export let steps = 16;
-	export let pulses = 4;
-	export let rotation = 0;
-	export let color = '#ff3e00';
-	export let label = '';
-	export let currentStep = 0;
-	export let radius = 150;
-	// Pattern optionnel fourni par le moteur (prioritaire sur le calcul local)
-	export let externalPattern: boolean[] | null = null;
+	let {
+		steps = 16,
+		pulses = 4,
+		rotation = 0,
+		color = '#ff3e00',
+		label = '',
+		currentStep = 0,
+		radius = 150,
+		externalPattern = null as boolean[] | null
+	} = $props();
 
 	// Fonction utilitaire pour générer le pattern de Bjorklund (Euclidien)
 	// Utilisé seulement si externalPattern n'est pas fourni
-	function getPattern(steps: number, pulses: number): boolean[] {
-		let pattern = new Array(steps).fill(false);
-		if (steps === 0) return pattern;
+	function getPattern(s: number, p: number): boolean[] {
+		let pat = new Array(s).fill(false);
+		if (s === 0) return pat;
 		let bucket = 0;
-		for (let i = 0; i < steps; i++) {
-			bucket += pulses;
-			if (bucket >= steps) {
-				bucket -= steps;
-				pattern[i] = true;
+		for (let i = 0; i < s; i++) {
+			bucket += p;
+			if (bucket >= s) {
+				bucket -= s;
+				pat[i] = true;
 			}
 		}
-		return pattern;
+		return pat;
 	}
 
 	// Utiliser le pattern externe s'il est fourni, sinon calculer localement
-	$: pattern = externalPattern ?? getPattern(steps, pulses);
+	let pattern = $derived(externalPattern ?? getPattern(steps, pulses));
 	// Note: Le pattern externe est déjà rotaté par le moteur, pas besoin de re-rotater
-	$: rotated = externalPattern
-		? pattern
-		: [...pattern.slice(steps - rotation), ...pattern.slice(0, steps - rotation)];
+	let rotated = $derived(
+		externalPattern
+			? pattern
+			: [...pattern.slice(steps - rotation), ...pattern.slice(0, steps - rotation)]
+	);
 
-	$: points = Array.from({ length: steps }).map((_, i) => {
-		const angle = (i * 2 * Math.PI) / steps - Math.PI / 2;
-		const r = 45;
-		return {
-			x: 50 + r * Math.cos(angle),
-			y: 50 + r * Math.sin(angle),
-			active: rotated[i],
-			isCurrent: currentStep % steps === i
-		};
-	});
+	let points = $derived(
+		Array.from({ length: steps }).map((_, i) => {
+			const angle = (i * 2 * Math.PI) / steps - Math.PI / 2;
+			const r = 45;
+			return {
+				x: 50 + r * Math.cos(angle),
+				y: 50 + r * Math.sin(angle),
+				active: rotated[i],
+				isCurrent: currentStep % steps === i
+			};
+		})
+	);
 
-	$: path = points
-		.filter((p) => p.active)
-		.map((p) => `${p.x},${p.y}`)
-		.join(' ');
+	let path = $derived(
+		points
+			.filter((p) => p.active)
+			.map((p) => `${p.x},${p.y}`)
+			.join(' ')
+	);
 </script>
 
 <div class="circle-container" style="width: {radius * 2}px; height: {radius * 2}px;">

@@ -1,27 +1,20 @@
 <script lang="ts">
 	import EuclideanCircle from './EuclideanCircle.svelte';
 
-	// Rhythm mode (0 = Euclidean, 1 = PerfectBalance)
-	export let rhythmMode = 0;
-
-	// Primary rhythm
-	export let primarySteps = 16;
-	export let primaryPulses = 4;
-	export let primaryRotation = 0;
-	export let primaryPattern: boolean[] = [];
-
-	// Secondary rhythm (for Euclidean polyrhythm)
-	export let secondarySteps = 12;
-	export let secondaryPulses = 3;
-	export let secondaryRotation = 0;
-	export let secondaryPattern: boolean[] = [];
-
-	// Current step for animation
-	export let currentStep = 0;
-
-	// Density/Tension for PerfectBalance mode display
-	export let rhythmDensity = 0.5;
-	export let rhythmTension = 0.3;
+	let {
+		rhythmMode = 0,
+		primarySteps = 16,
+		primaryPulses = 4,
+		primaryRotation = 0,
+		primaryPattern = [] as boolean[],
+		secondarySteps = 12,
+		secondaryPulses = 3,
+		secondaryRotation = 0,
+		secondaryPattern = [] as boolean[],
+		currentStep = 0,
+		rhythmDensity = 0.5,
+		rhythmTension = 0.3
+	} = $props();
 </script>
 
 <div class="rounded-lg border border-neutral-700 bg-neutral-800 p-4 shadow-xl">

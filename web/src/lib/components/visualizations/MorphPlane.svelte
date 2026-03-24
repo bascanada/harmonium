@@ -1,34 +1,26 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-
-	// Props
-	export let title = '';
-	export let xAxisLabel = 'X';
-	export let yAxisLabel = 'Y';
-
-	// Axis ranges (default 0-1)
-	export let xMin = 0;
-	export let xMax = 1;
-	export let yMin = 0;
-	export let yMax = 1;
-
-	// Points to visualize and control
-	// Each point has: id, x, y, label, color, editable
-	export let points: Array<{
-		id: string;
-		x: number;
-		y: number;
-		label?: string;
-		color?: string;
-		editable?: boolean;
-		size?: number; // visual size
-	}> = [];
-
-	// Callbacks
-	export let onPointChange: (id: string, x: number, y: number) => void = () => {};
+	let {
+		title = '',
+		xAxisLabel = 'X',
+		yAxisLabel = 'Y',
+		xMin = 0,
+		xMax = 1,
+		yMin = 0,
+		yMax = 1,
+		points = [] as Array<{
+			id: string;
+			x: number;
+			y: number;
+			label?: string;
+			color?: string;
+			editable?: boolean;
+			size?: number;
+		}>,
+		onPointChange = (() => {}) as (id: string, x: number, y: number) => void
+	} = $props();
 
 	let container: HTMLDivElement;
-	let draggingPointId: string | null = null;
+	let draggingPointId: string | null = $state(null);
 
 	// Convert value to percentage (0-100)
 	function toPercentX(val: number) {
