@@ -354,6 +354,12 @@ impl NativeHandle {
         }
     }
 
+    pub fn set_key_root(&self, root: u8) {
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_key_root(root);
+        }
+    }
+
     pub fn set_harmony_strategy(&self, strategy: harmonium_core::params::HarmonyStrategy) {
         if let Ok(mut c) = self.composer.lock() {
             c.set_harmony_strategy(strategy);

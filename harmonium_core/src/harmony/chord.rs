@@ -605,6 +605,28 @@ impl Chord {
 
         None
     }
+
+    /// Return a new chord transposed by the given number of semitones.
+    /// Root and bass (if present) are shifted; chord_type and extensions are preserved.
+    #[must_use]
+    pub fn transposed(&self, semitones: i32) -> Self {
+        Self {
+            root: ((i32::from(self.root) + semitones).rem_euclid(12)) as u8,
+            chord_type: self.chord_type,
+            bass: self.bass.map(|b| ((i32::from(b) + semitones).rem_euclid(12)) as u8),
+            extensions: self.extensions.clone(),
+            lcc_level: self.lcc_level,
+        }
+    }
+}
+
+/// Transpose a chord name string by the given semitones.
+/// Returns the transposed name, or the original if parsing fails.
+pub fn transpose_chord_name(name: &str, semitones: i32) -> String {
+    match Chord::from_name(name) {
+        Ok(chord) => chord.transposed(semitones).name(),
+        Err(_) => name.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -804,5 +826,65 @@ mod tests {
         let parsed = Chord::from_name("  Cm7  ").unwrap();
         assert_eq!(parsed.root, 0);
         assert_eq!(parsed.chord_type, ChordType::Minor7);
+    }
+
+    #[test]
+    fn test_transposed_up_2_semitones() {
+        let bb7 = Chord::from_name("Bb7").unwrap();
+        let transposed = bb7.transposed(2);
+        assert_eq!(transposed.root, 0); // Bb(10) + 2 = C(0)
+        assert_eq!(transposed.chord_type, ChordType::Dominant7);
+        assert_eq!(transposed.name(), "C7");
+    }
+
+    #[test]
+    fn test_transposed_wraps_around() {
+        let b7 = Chord::from_name("B7").unwrap();
+        let transposed = b7.transposed(2);
+        assert_eq!(transposed.root, 1); // B(11) + 2 = C#(1)
+        assert_eq!(transposed.name(), "C#7");
+    }
+
+    #[test]
+    fn test_transposed_negative() {
+        let c7 = Chord::from_name("C7").unwrap();
+        let transposed = c7.transposed(-2);
+        assert_eq!(transposed.root, 10); // C(0) - 2 = Bb(10)
+        assert_eq!(transposed.name(), "A#7"); // renders as sharp
+    }
+
+    #[test]
+    fn test_transposed_zero_is_identity() {
+        let dm7 = Chord::from_name("Dm7").unwrap();
+        let transposed = dm7.transposed(0);
+        assert_eq!(transposed.root, dm7.root);
+        assert_eq!(transposed.chord_type, dm7.chord_type);
+    }
+
+    #[test]
+    fn test_transposed_slash_chord() {
+        let slash = Chord::from_name("C/G").unwrap();
+        let transposed = slash.transposed(2);
+        assert_eq!(transposed.root, 2); // C(0) + 2 = D
+        assert_eq!(transposed.bass, Some(9)); // G(7) + 2 = A
+    }
+
+    #[test]
+    fn test_transposed_round_trip_12() {
+        let chord = Chord::from_name("Ebmaj7").unwrap();
+        let round_trip = chord.transposed(12);
+        assert_eq!(round_trip.root, chord.root);
+        assert_eq!(round_trip.chord_type, chord.chord_type);
+    }
+
+    #[test]
+    fn test_transpose_chord_name_valid() {
+        assert_eq!(transpose_chord_name("Bb7", 2), "C7");
+        assert_eq!(transpose_chord_name("Dm7", 5), "Gm7");
+    }
+
+    #[test]
+    fn test_transpose_chord_name_invalid() {
+        assert_eq!(transpose_chord_name("XYZ", 2), "XYZ");
     }
 }
