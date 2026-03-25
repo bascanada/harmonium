@@ -176,9 +176,12 @@ pub struct EngineReport {
     pub rhythm_mode: RhythmMode,
 
     // === NOTES TRIGGERED (this tick) ===
-    /// Notes triggered in this tick (pre-allocated capacity)
-    /// This Vec is created once and reused, not allocated per tick
+    /// Notes triggered since the last report (pre-allocated capacity)
     pub notes: Vec<NoteEvent>,
+
+    /// Sample offset within the audio buffer where these notes were triggered.
+    /// Used by the VST plugin for sample-accurate MIDI timing.
+    pub sample_offset: u32,
 
     // === NEW MEASURES (pushed when Writehead generates) ===
     /// Newly generated measures since the last report.
@@ -220,6 +223,7 @@ impl Default for EngineReport {
             secondary_pattern: [false; 192],
             rhythm_mode: RhythmMode::default(),
             notes: Vec::with_capacity(16), // Pre-allocated
+            sample_offset: 0,
             new_measures: Vec::new(),
             musical_params: MusicalParams::default(),
             session_key: ArrayString::new(),

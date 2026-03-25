@@ -10,7 +10,7 @@ workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [[bin]]
-name = "harmonium"
+name = "harmonium-cli"
 path = "src/main.rs"
 required-features = ["standalone"]
 

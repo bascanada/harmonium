@@ -94,6 +94,12 @@ pub struct TimelineEngine {
 
     // Pending measure snapshots to include in the next report
     pending_measure_snapshots: Vec<harmonium_core::report::MeasureSnapshot>,
+
+    // Pending note events to include in the next report (for VST MIDI output)
+    pending_notes: Vec<harmonium_core::report::NoteEvent>,
+
+    // Current sample offset within process_buffer (for accurate MIDI timing)
+    current_sample_offset: u32,
 }
 
 impl TimelineEngine {
@@ -233,6 +239,8 @@ impl TimelineEngine {
             offline: false,
             output_muted: false,
             pending_measure_snapshots: Vec::new(),
+            pending_notes: Vec::with_capacity(16),
+            current_sample_offset: 0,
         }
     }
 
@@ -325,6 +333,7 @@ impl TimelineEngine {
 
             if self.sample_counter >= self.samples_per_step {
                 self.sample_counter = 0;
+                self.current_sample_offset = processed as u32;
                 if !self.offline {
                     crate::realtime::rt_check::exit_audio_context();
                 }
@@ -388,6 +397,7 @@ impl TimelineEngine {
         let events = self.playhead.tick();
 
         // Forward events to renderer, filtering out NoteOn for muted channels
+        // Also capture note events for VST MIDI output
         for event in events {
             if let AudioEvent::NoteOn { channel, .. } = &event {
                 if self
@@ -400,12 +410,32 @@ impl TimelineEngine {
                     continue;
                 }
             }
+            // Capture NoteOn/NoteOff for report (VST MIDI output)
+            match &event {
+                AudioEvent::NoteOn { note, velocity, channel } => {
+                    self.pending_notes.push(harmonium_core::report::NoteEvent {
+                        note_midi: *note,
+                        velocity: *velocity,
+                        channel: *channel,
+                        is_note_on: true,
+                    });
+                }
+                AudioEvent::NoteOff { note, channel } => {
+                    self.pending_notes.push(harmonium_core::report::NoteEvent {
+                        note_midi: *note,
+                        velocity: 0,
+                        channel: *channel,
+                        is_note_on: false,
+                    });
+                }
+                _ => {}
+            }
             self.renderer.handle_event(event.clone());
         }
 
-        // Send report periodically
+        // Send report periodically, or immediately if we have note events
         let current_step = self.playhead.position.step_in_bar(4);
-        if current_step.is_multiple_of(4) {
+        if current_step.is_multiple_of(4) || !self.pending_notes.is_empty() {
             self.send_report();
         }
     }
@@ -916,6 +946,13 @@ impl TimelineEngine {
         report.musical_params = self.musical_params.clone();
         report.session_key = ArrayString::from(&self.config.key).unwrap_or_default();
         report.session_scale = ArrayString::from(&self.config.scale).unwrap_or_default();
+
+        // Drain pending note events into this report
+        if !self.pending_notes.is_empty() {
+            report.notes = std::mem::take(&mut self.pending_notes);
+            self.pending_notes = Vec::with_capacity(16);
+        }
+        report.sample_offset = self.current_sample_offset;
 
         // Drain pending measure snapshots into this report
         if !self.pending_measure_snapshots.is_empty() {

@@ -3,10 +3,21 @@ BUNDLE_DIR := target/bundled
 DIST_DIR := dist
 VST3_PATH := $(BUNDLE_DIR)/harmonium.vst3
 CLAP_PATH := $(BUNDLE_DIR)/harmonium.clap
-APP_PATH := $(BUNDLE_DIR)/harmonium.app
-INSTALL_VST3 := ~/Library/Audio/Plug-Ins/VST3
-INSTALL_CLAP := ~/Library/Audio/Plug-Ins/CLAP
-PLUGINVAL := /Applications/pluginval.app/Contents/MacOS/pluginval
+
+# OS-aware paths
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Linux)
+  APP_PATH := $(BUNDLE_DIR)/harmonium
+  INSTALL_VST3 := ~/.vst3
+  INSTALL_CLAP := ~/.clap
+  PLUGINVAL :=
+  LINUX_ARCH := $(shell uname -m)-linux
+else
+  APP_PATH := $(BUNDLE_DIR)/harmonium.app
+  INSTALL_VST3 := ~/Library/Audio/Plug-Ins/VST3
+  INSTALL_CLAP := ~/Library/Audio/Plug-Ins/CLAP
+  PLUGINVAL := /Applications/pluginval.app/Contents/MacOS/pluginval
+endif
 
 .PHONY: run test web/build web/build-vst web/serve web/install models/download vst vst/install vst/uninstall vst/clean vst/validate vst/run release release/cli release/plugins release/clean
 
@@ -36,14 +47,14 @@ test/lab-export:
 ## Build VST3 and CLAP plugins with GUI (release)
 vst: web/build-vst
 	@echo "Building VST3 & CLAP plugins..."
-	cargo xtask bundle harmonium --release --no-default-features --features vst-gui
+	cargo xtask bundle harmonium --release --no-default-features --features "vst vst-gui odin2"
 	@echo "Plugins built:"
 	@ls -lh $(BUNDLE_DIR)/*.vst3 $(BUNDLE_DIR)/*.clap 2>/dev/null || true
 
 ## Build VST3 and CLAP plugins with GUI (debug)
 vst/debug: web/build-vst
 	@echo "Building VST3 & CLAP plugins (debug)..."
-	cargo xtask bundle harmonium --no-default-features --features vst-gui
+	cargo xtask bundle harmonium --no-default-features --features "vst vst-gui odin2"
 
 ## Install plugins to system directories
 vst/install: vst
@@ -51,13 +62,49 @@ vst/install: vst
 	@mkdir -p $(INSTALL_VST3) $(INSTALL_CLAP)
 	@cp -r $(VST3_PATH) $(INSTALL_VST3)/
 	@cp -r $(CLAP_PATH) $(INSTALL_CLAP)/
+ifeq ($(UNAME_S),Darwin)
 	@echo "Removing quarantine (bypass Gatekeeper for unsigned plugins)..."
 	@xattr -cr $(INSTALL_VST3)/harmonium.vst3
 	@xattr -cr $(INSTALL_CLAP)/harmonium.clap
+endif
 	@echo "Installed to:"
 	@echo "   - $(INSTALL_VST3)/harmonium.vst3"
 	@echo "   - $(INSTALL_CLAP)/harmonium.clap"
 	@echo "Restart your DAW to detect the new plugins"
+
+## Install debug plugins to system directories
+vst/install-debug: vst/debug
+	@echo "Installing debug plugins..."
+	@mkdir -p $(INSTALL_VST3) $(INSTALL_CLAP)
+	@cp -r $(VST3_PATH) $(INSTALL_VST3)/
+	@cp -r $(CLAP_PATH) $(INSTALL_CLAP)/
+ifeq ($(UNAME_S),Darwin)
+	@echo "Removing quarantine..."
+	@xattr -cr $(INSTALL_VST3)/harmonium.vst3
+	@xattr -cr $(INSTALL_CLAP)/harmonium.clap
+endif
+	@echo "Installed debug versions to $(INSTALL_VST3)/harmonium.vst3"
+
+## Build and install debug VST3, then launch Carla
+vst/test: vst/install-debug
+	@echo "🎸 Launching Carla with Harmonium..."
+ifeq ($(UNAME_S),Linux)
+	@if command -v carla-single >/dev/null 2>&1; then \
+		carla-single vst3 $(INSTALL_VST3)/harmonium.vst3/Contents/$(LINUX_ARCH)/harmonium.so; \
+	else \
+		carla $(INSTALL_VST3)/harmonium.vst3/Contents/$(LINUX_ARCH)/harmonium.so; \
+	fi
+else
+	@echo "Carla test only configured for Linux. On macOS, use 'make vst/run'."
+endif
+
+## Watch for changes and rebuild/reinstall debug VST3
+vst/watch:
+	@if command -v cargo-watch >/dev/null 2>&1; then \
+		cargo watch -x 'xtask bundle harmonium --no-default-features --features vst-gui' -s 'make vst/install-debug'; \
+	else \
+		echo "cargo-watch not found. Install with: cargo install cargo-watch"; \
+	fi
 
 ## Clean/uninstall manually installed plugins (run before using brew)
 vst/clean:
@@ -87,7 +134,22 @@ vst/validate: vst
 ## Run the standalone VST app (GUI)
 vst/run: vst
 	@echo "🎹 Launching standalone app..."
+ifeq ($(UNAME_S),Darwin)
 	@open $(APP_PATH)
+else
+	@chmod +x $(APP_PATH)
+	$(APP_PATH)
+endif
+
+## Run the debug standalone VST app (GUI)
+vst/run-debug: vst/debug
+	@echo "🎹 Launching debug standalone app..."
+ifeq ($(UNAME_S),Darwin)
+	@open $(APP_PATH)
+else
+	@chmod +x $(APP_PATH)
+	$(APP_PATH)
+endif
 
 ## Show plugin sizes
 vst/info:

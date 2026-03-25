@@ -9,20 +9,57 @@ use nih_plug::prelude::*;
 const GM_KICK: u8 = 36; // C1 - Bass Drum
 const GM_SNARE: u8 = 38; // D1 - Snare
 const GM_HIHAT_CLOSED: u8 = 42; // F#1 - Closed Hi-Hat
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use harmonium_audio::backend::vst_midi_backend::VstMidiBackend;
-use harmonium_core::{HarmoniumController, harmony::HarmonyMode, sequencer::RhythmMode};
+use harmonium_core::{
+    HarmoniumController, EngineParams,
+    harmony::HarmonyMode,
+    params::{ControlMode, HarmonyState},
+    sequencer::RhythmMode,
+};
 
 use crate::timeline_engine::TimelineEngine;
+
+/// Snapshot of last-synced parameter values for dirty-tracking
+#[derive(Default)]
+#[allow(dead_code)]
+struct ParamSnapshot {
+    control_mode: bool,
+    arousal: f32,
+    valence: f32,
+    density: f32,
+    tension: f32,
+    smoothness: f32,
+    bpm: f32,
+    rhythm_mode: bool,
+    rhythm_steps: i32,
+    rhythm_pulses: i32,
+    rhythm_rotation: i32,
+    harmony_mode: bool,
+    enable_rhythm: bool,
+    enable_harmony: bool,
+    enable_melody: bool,
+    enable_voicing: bool,
+    mute_bass: bool,
+    mute_lead: bool,
+    mute_snare: bool,
+    mute_hat: bool,
+}
 
 /// Main Harmonium VST Plugin
 pub struct HarmoniumPlugin {
     params: Arc<HarmoniumParams>,
     engine: Option<TimelineEngine>,
     controller: Option<harmonium_core::HarmoniumController>,
-    midi_backend: Arc<Mutex<VstMidiBackend>>,
+    /// Target state for emotional mapping (shared with GUI)
+    target_state: Arc<std::sync::Mutex<EngineParams>>,
+    /// Control mode and live state (shared with GUI)
+    control_mode_state: Arc<std::sync::Mutex<ControlMode>>,
+    /// Harmony state receiver (shared with GUI)
+    harmony_state_rx: Arc<std::sync::Mutex<Option<rtrb::Consumer<HarmonyState>>>>,
     sample_rate: f32,
+    last_synced: ParamSnapshot,
 }
 
 /// Plugin parameters exposed to the DAW
@@ -206,9 +243,17 @@ impl Default for HarmoniumParams {
 impl Default for HarmoniumPlugin {
     fn default() -> Self {
         let params = Arc::new(HarmoniumParams::default());
-        let midi_backend = Arc::new(Mutex::new(VstMidiBackend::new()));
 
-        Self { params, engine: None, controller: None, midi_backend, sample_rate: 44100.0 }
+        Self {
+            params,
+            engine: None,
+            controller: None,
+            target_state: Arc::new(std::sync::Mutex::new(EngineParams::default())),
+            control_mode_state: Arc::new(std::sync::Mutex::new(ControlMode::default())),
+            harmony_state_rx: Arc::new(std::sync::Mutex::new(None)),
+            sample_rate: 44100.0,
+            last_synced: ParamSnapshot::default(),
+        }
     }
 }
 
@@ -228,78 +273,111 @@ impl HarmoniumPlugin {
         }
     }
 
-    /// Sync plugin parameters to engine state
+    /// Sync plugin parameters to engine state (only sends changed values)
     fn sync_params_to_engine(&mut self) {
         use harmonium_core::EngineCommand;
 
         if let Some(ref mut controller) = self.controller {
+            let snap = &mut self.last_synced;
+
+            // Control mode
             let emotion_mode = self.params.control_mode.value();
+            if emotion_mode != snap.control_mode {
+                snap.control_mode = emotion_mode;
+                let _ = if emotion_mode {
+                    controller.send(EngineCommand::UseEmotionMode)
+                } else {
+                    controller.send(EngineCommand::UseDirectMode)
+                };
+            }
 
-            // Set control mode
-            let _ = if emotion_mode {
-                controller.send(EngineCommand::UseEmotionMode)
-            } else {
-                controller.send(EngineCommand::UseDirectMode)
-            };
-
-            // Module enables (work in both modes)
-            let _ = controller.send(EngineCommand::EnableRhythm(self.params.enable_rhythm.value()));
-            let _ =
-                controller.send(EngineCommand::EnableHarmony(self.params.enable_harmony.value()));
-            let _ = controller.send(EngineCommand::EnableMelody(self.params.enable_melody.value()));
-            let _ =
-                controller.send(EngineCommand::EnableVoicing(self.params.enable_voicing.value()));
+            // Module enables
+            macro_rules! sync_bool {
+                ($param:ident, $cmd:expr) => {
+                    let v = self.params.$param.value();
+                    if v != snap.$param {
+                        snap.$param = v;
+                        let _ = controller.send($cmd(v));
+                    }
+                };
+            }
+            sync_bool!(enable_rhythm, EngineCommand::EnableRhythm);
+            sync_bool!(enable_harmony, EngineCommand::EnableHarmony);
+            sync_bool!(enable_melody, EngineCommand::EnableMelody);
+            sync_bool!(enable_voicing, EngineCommand::EnableVoicing);
 
             // Channel mutes
-            let _ = controller.send(EngineCommand::SetChannelMute {
-                channel: 0,
-                muted: self.params.mute_bass.value(),
-            });
-            let _ = controller.send(EngineCommand::SetChannelMute {
-                channel: 1,
-                muted: self.params.mute_lead.value(),
-            });
-            let _ = controller.send(EngineCommand::SetChannelMute {
-                channel: 2,
-                muted: self.params.mute_snare.value(),
-            });
-            let _ = controller.send(EngineCommand::SetChannelMute {
-                channel: 3,
-                muted: self.params.mute_hat.value(),
-            });
+            macro_rules! sync_mute {
+                ($param:ident, $ch:expr) => {
+                    let v = self.params.$param.value();
+                    if v != snap.$param {
+                        snap.$param = v;
+                        let _ = controller.send(EngineCommand::SetChannelMute {
+                            channel: $ch,
+                            muted: v,
+                        });
+                    }
+                };
+            }
+            sync_mute!(mute_bass, 0);
+            sync_mute!(mute_lead, 1);
+            sync_mute!(mute_snare, 2);
+            sync_mute!(mute_hat, 3);
 
             if emotion_mode {
-                // Emotion mode - send emotional parameters
-                let _ = controller.send(EngineCommand::SetEmotionParams {
-                    arousal: self.params.arousal.value(),
-                    valence: self.params.valence.value(),
-                    density: self.params.density.value(),
-                    tension: self.params.tension.value(),
-                });
+                let arousal = self.params.arousal.value();
+                let valence = self.params.valence.value();
+                let density = self.params.density.value();
+                let tension = self.params.tension.value();
+                if arousal != snap.arousal || valence != snap.valence
+                    || density != snap.density || tension != snap.tension
+                {
+                    snap.arousal = arousal;
+                    snap.valence = valence;
+                    snap.density = density;
+                    snap.tension = tension;
+                    let _ = controller.send(EngineCommand::SetEmotionParams {
+                        arousal, valence, density, tension,
+                    });
+                }
             } else {
-                // Direct mode - send technical parameters
-                let _ = controller.send(EngineCommand::SetBpm(self.params.bpm.value()));
-                let rhythm_mode = if self.params.rhythm_mode.value() {
-                    RhythmMode::PerfectBalance
-                } else {
-                    RhythmMode::Euclidean
-                };
-                let _ = controller.send(EngineCommand::SetRhythmMode(rhythm_mode));
-                let _ = controller
-                    .send(EngineCommand::SetRhythmSteps(self.params.rhythm_steps.value() as usize));
-                let _ = controller.send(EngineCommand::SetRhythmPulses(
-                    self.params.rhythm_pulses.value() as usize,
-                ));
-                let _ = controller.send(EngineCommand::SetRhythmRotation(
-                    self.params.rhythm_rotation.value() as usize,
-                ));
+                let bpm = self.params.bpm.value();
+                if bpm != snap.bpm {
+                    snap.bpm = bpm;
+                    let _ = controller.send(EngineCommand::SetBpm(bpm));
+                }
 
-                let harmony_mode = if self.params.harmony_mode.value() {
-                    HarmonyMode::Driver
-                } else {
-                    HarmonyMode::Basic
-                };
-                let _ = controller.send(EngineCommand::SetHarmonyMode(harmony_mode));
+                let rm = self.params.rhythm_mode.value();
+                if rm != snap.rhythm_mode {
+                    snap.rhythm_mode = rm;
+                    let rhythm_mode = if rm { RhythmMode::PerfectBalance } else { RhythmMode::Euclidean };
+                    let _ = controller.send(EngineCommand::SetRhythmMode(rhythm_mode));
+                }
+
+                let steps = self.params.rhythm_steps.value();
+                if steps != snap.rhythm_steps {
+                    snap.rhythm_steps = steps;
+                    let _ = controller.send(EngineCommand::SetRhythmSteps(steps as usize));
+                }
+
+                let pulses = self.params.rhythm_pulses.value();
+                if pulses != snap.rhythm_pulses {
+                    snap.rhythm_pulses = pulses;
+                    let _ = controller.send(EngineCommand::SetRhythmPulses(pulses as usize));
+                }
+
+                let rot = self.params.rhythm_rotation.value();
+                if rot != snap.rhythm_rotation {
+                    snap.rhythm_rotation = rot;
+                    let _ = controller.send(EngineCommand::SetRhythmRotation(rot as usize));
+                }
+
+                let hm = self.params.harmony_mode.value();
+                if hm != snap.harmony_mode {
+                    snap.harmony_mode = hm;
+                    let harmony_mode = if hm { HarmonyMode::Driver } else { HarmonyMode::Basic };
+                    let _ = controller.send(EngineCommand::SetHarmonyMode(harmony_mode));
+                }
             }
         }
     }
@@ -344,12 +422,7 @@ impl Plugin for HarmoniumPlugin {
     ) -> bool {
         self.sample_rate = buffer_config.sample_rate;
 
-        // Create a wrapper backend that we can access from outside
-        let backend = VstMidiBackend::new();
-        self.midi_backend = Arc::new(Mutex::new(backend));
-
-        // Create a backend clone for the engine
-        // We need to create a new one because we can't clone Arc<Mutex<>> into Box<dyn>
+        // Create backend for the engine
         let engine_backend = Box::new(VstMidiBackend::new());
 
         // Create command/report queues for engine communication
@@ -369,12 +442,8 @@ impl Plugin for HarmoniumPlugin {
     }
 
     fn reset(&mut self) {
-        // Clear any pending MIDI events
-        if let Ok(mut backend) = self.midi_backend.lock() {
-            backend.clear();
-        } else {
-            nih_log!("[WARN] Failed to lock midi_backend in reset");
-        }
+        // Reset param snapshot so all params re-sync on next process()
+        self.last_synced = ParamSnapshot::default();
     }
 
     fn process(
@@ -409,46 +478,50 @@ impl Plugin for HarmoniumPlugin {
         let mut temp_buffer = vec![0.0f32; num_samples * internal_channels];
         engine.process_buffer(&mut temp_buffer, internal_channels);
 
+        // Copy synthesized audio from temp_buffer back to VST output buffer
+        // Note: nih-plug handles the mapping to channel buffers
+        let mut samples_iter = temp_buffer.chunks_exact(internal_channels);
+        for i in 0..num_samples {
+            if let Some(frame) = samples_iter.next() {
+                for channel in 0..buffer.channels().min(internal_channels) {
+                    buffer.as_slice()[channel][i] = frame[channel];
+                }
+            }
+        }
+
         // Poll for reports from engine and convert to MIDI events
         if let Some(ref mut controller) = self.controller {
             let reports = controller.poll_reports();
             for report in reports {
-                // Convert note events from report to MIDI output
+                // Use sample offset from report for accurate timing
+                // Clamp to valid range (must be < num_samples)
+                let timing = report.sample_offset.min((num_samples - 1) as u32);
+
                 for note_event in &report.notes {
                     // Channel mapping: 0=Bass/Kick, 1=Lead/Melody, 2=Snare, 3=Hat
-                    //
                     // Drum channels (0,2,3) are remapped to GM standard notes
                     // Melody channel (1) keeps original musical notes
                     let midi_note =
                         Self::map_note_for_channel(note_event.channel, note_event.note_midi);
 
-                    // Send NoteOn at start of buffer
-                    context.send_event(NoteEvent::NoteOn {
-                        timing: 0,
-                        voice_id: None,
-                        channel: note_event.channel,
-                        note: midi_note,
-                        velocity: note_event.velocity as f32 / 127.0,
-                    });
-
-                    // Send NoteOff near end of buffer (timing must be < num_samples)
-                    // Use last sample of buffer to ensure it's valid
-                    let note_off_timing = (num_samples - 1) as u32;
-                    context.send_event(NoteEvent::NoteOff {
-                        timing: note_off_timing,
-                        voice_id: None,
-                        channel: note_event.channel,
-                        note: midi_note,
-                        velocity: 0.0,
-                    });
+                    if note_event.is_note_on {
+                        context.send_event(NoteEvent::NoteOn {
+                            timing,
+                            voice_id: None,
+                            channel: note_event.channel,
+                            note: midi_note,
+                            velocity: note_event.velocity as f32 / 127.0,
+                        });
+                    } else {
+                        context.send_event(NoteEvent::NoteOff {
+                            timing,
+                            voice_id: None,
+                            channel: note_event.channel,
+                            note: midi_note,
+                            velocity: 0.0,
+                        });
+                    }
                 }
-            }
-        }
-
-        // Clear the audio output (we're a MIDI generator, not an audio plugin)
-        for channel_samples in buffer.iter_samples() {
-            for sample in channel_samples {
-                *sample = 0.0;
             }
         }
 
@@ -458,8 +531,12 @@ impl Plugin for HarmoniumPlugin {
     /// Create the GUI editor (when vst-gui feature is enabled)
     #[cfg(feature = "vst-gui")]
     fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
-        // TODO: Update VST GUI to use controller instead of old communication layer (Phase 4)
-        None
+        crate::vst_gui::create_editor(
+            self.target_state.clone(),
+            self.control_mode_state.clone(),
+            self.params.clone(),
+            self.harmony_state_rx.clone(),
+        )
     }
 }
 
@@ -481,3 +558,6 @@ impl Vst3Plugin for HarmoniumPlugin {
 // Export the plugin
 nih_export_clap!(HarmoniumPlugin);
 nih_export_vst3!(HarmoniumPlugin);
+
+#[cfg(feature = "standalone")]
+nih_export_standalone!(HarmoniumPlugin);
