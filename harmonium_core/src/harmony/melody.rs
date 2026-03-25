@@ -34,6 +34,8 @@ pub struct HarmonyNavigator {
     // === CHROMATIC PASSING TONES (CORELIB-22) ===
     chromatic_offset: i32, // ±1 semitone offset applied to next note (0 = diatonic)
     tension: f32,          // Harmony tension (0.0-1.0), controls chromatic probability
+    // === REGISTER EXPLORATION (CORELIB-12) ===
+    bars_in_register: u8,  // How many bars spent near current octave
 }
 
 impl HarmonyNavigator {
@@ -78,6 +80,7 @@ impl HarmonyNavigator {
             consecutive_direction: 0,
             chromatic_offset: 0,
             tension: 0.3,
+            bars_in_register: 0,
         }
     }
 
@@ -289,6 +292,31 @@ impl HarmonyNavigator {
     ) -> f32 {
         // Au début d'une mesure, on décide si on réutilise le motif précédent
         if is_new_measure {
+            self.bars_in_register += 1;
+
+            // === REGISTER EXPLORATION (CORELIB-12) ===
+            // After 3+ bars in same register, jump to a different octave.
+            // Widens pitch_range toward reference (~80 semitones).
+            let octave = self.scale_len as i32;
+            if self.bars_in_register >= 3 && rng.next_f32() < 0.5 {
+                // Choose jump size: 1 or 2 octaves
+                let jump_size = if rng.next_f32() < 0.3 { octave * 2 } else { octave };
+                // Bias direction away from current position for exploration
+                let jump = if self.current_index > octave {
+                    -jump_size
+                } else if self.current_index < -octave {
+                    jump_size
+                } else if rng.next_f32() < 0.5 {
+                    jump_size
+                } else {
+                    -jump_size
+                };
+                self.current_index += jump;
+                let max_range = self.scale_len as i32 * 3;
+                self.current_index = self.current_index.clamp(-max_range, max_range);
+                self.bars_in_register = 0;
+            }
+
             // CORELIB-21: Reduced from 50% to 30% — less motif repetition for more variety
             let repeat = rng.next_f32() < 0.3;
             self.playing_motif = repeat && !self.motif_buffer.is_empty();
