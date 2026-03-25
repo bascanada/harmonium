@@ -16,6 +16,48 @@ use serde::{Deserialize, Serialize};
 
 use crate::{harmony::HarmonyMode, sequencer::RhythmMode};
 
+/// Controls for musical variety and anti-repetition.
+///
+/// Every field is tunable — by presets, UI sliders, or a future RL agent (CORELIB-13).
+/// Default values produce a balanced mix of structure and surprise.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct VarietyParams {
+    /// Phrase arc amplitude jitter ±range (0.0 = deterministic, 0.3 = very loose)
+    pub phrase_arc_jitter: f32,
+    /// Section arc offset jitter ±range (0.0 = fixed AABA, 0.15 = very varied)
+    pub section_arc_jitter: f32,
+    /// Random velocity jitter ±range in MIDI units (0 = deterministic, 15 = wild)
+    pub velocity_jitter: f32,
+    /// Bias toward new material vs motif replay (0.0 = all replay, 1.0 = all new)
+    pub motif_new_material_bias: f32,
+    /// Fractal GPS influence multiplier (1.0 = passive, 3.0 = dominant)
+    pub fractal_boost: f32,
+    /// Fractal target amplitude in scale degrees (10 = narrow, 30 = very wide)
+    pub fractal_range: f32,
+    /// Walking bass pitch variety (0.0 = root only, 1.0 = full palette)
+    pub walking_bass_variety: f32,
+    /// Rhythmic cell variety (0.0 = sustain only, 1.0 = max subdivision)
+    pub rhythmic_cell_variety: f32,
+    /// Rest probability scalar (0.0 = no rests, 2.0 = very sparse)
+    pub rest_probability: f32,
+}
+
+impl Default for VarietyParams {
+    fn default() -> Self {
+        Self {
+            phrase_arc_jitter: 0.20,
+            section_arc_jitter: 0.08,
+            velocity_jitter: 7.0,
+            motif_new_material_bias: 0.6,
+            fractal_boost: 1.8,
+            fractal_range: 22.0,
+            walking_bass_variety: 0.7,
+            rhythmic_cell_variety: 0.5,
+            rest_probability: 1.0,
+        }
+    }
+}
+
 /// Scale type for melody generation (CORELIB-22)
 ///
 /// Controls the pitch-class vocabulary available to the melody generator.
@@ -515,6 +557,10 @@ pub struct MusicalParams {
     #[serde(default)]
     pub melody_scale_type: MelodyScaleType,
 
+    /// Variety/anti-repetition controls (CORELIB-13 tunable)
+    #[serde(default)]
+    pub variety: VarietyParams,
+
     /// Densité de voicing (0.0-1.0)
     /// Contrôle la probabilité de jouer des accords vs notes seules
     #[serde(default = "default_density")]
@@ -689,6 +735,7 @@ impl Default for MusicalParams {
             // Mélodie / Voicing
             melody_smoothness: default_smoothness(),
             melody_scale_type: MelodyScaleType::default(),
+            variety: VarietyParams::default(),
             voicing_density: default_density(),
             voicing_tension: default_tension(),
             melody_octave: default_octave(),

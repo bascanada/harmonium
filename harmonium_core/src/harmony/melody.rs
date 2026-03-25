@@ -36,6 +36,10 @@ pub struct HarmonyNavigator {
     tension: f32,          // Harmony tension (0.0-1.0), controls chromatic probability
     // === REGISTER EXPLORATION (CORELIB-12) ===
     bars_in_register: u8, // How many bars spent near current octave
+    // === VARIETY PARAMS (tunable, set from VarietyParams) ===
+    fractal_boost: f32,           // Fractal GPS influence multiplier (default 1.8)
+    fractal_range: f32,           // Fractal target amplitude (default 22.0)
+    motif_new_material_bias: f32, // 0.0=all replay, 1.0=all new (default 0.6)
 }
 
 impl HarmonyNavigator {
@@ -81,6 +85,9 @@ impl HarmonyNavigator {
             chromatic_offset: 0,
             tension: 0.3,
             bars_in_register: 0,
+            fractal_boost: 1.8,
+            fractal_range: 22.0,
+            motif_new_material_bias: 0.6,
         }
     }
 
@@ -201,7 +208,7 @@ impl HarmonyNavigator {
         // 1. LE GPS (Bruit Fractal) : Quelle est la "tendance" globale ?
         let fractal_drift = self.pink_noise.next_value(rng);
         let center_index = 0;
-        let target_index = center_index + (fractal_drift * 18.0) as i32;
+        let target_index = center_index + (fractal_drift * self.fractal_range) as i32;
 
         // 2. LE CONDUCTEUR (Markov) : Quels sont les mouvements musicaux valides ?
         let normalized_index = self.current_index.rem_euclid(self.scale_len as i32);
@@ -213,8 +220,7 @@ impl HarmonyNavigator {
         // This preserves the broadened interval distribution from get_weighted_steps.
         let mut final_weights = Vec::with_capacity(original_weights.len());
         let current_dist = (target_index - self.current_index).abs();
-        // Mild boost: 1.3x for steps toward target (was 2.6x)
-        let fractal_boost = 1.3_f32;
+        let fractal_boost = self.fractal_boost;
 
         for (i, &step) in steps.iter().enumerate() {
             let predicted_index = self.current_index + step;
@@ -332,12 +338,17 @@ impl HarmonyNavigator {
             } else {
                 let r = rng.next_f32();
                 let t = self.tension;
-                // Thresholds: [0..exact][..invert][..fragment][..sequence][..new]
-                let exact_thresh = 0.20 - t * 0.10; // 20% at low T, 10% at high T
-                let invert_thresh = exact_thresh + 0.15; // +15%
-                let fragment_thresh = invert_thresh + 0.10 + t * 0.10; // 10-20%
-                let sequence_thresh = fragment_thresh + 0.15; // +15%
-                // Remainder = new material
+                let bias = self.motif_new_material_bias; // 0.6 = 60% new material
+
+                // Replay budget = 1.0 - bias (e.g. 0.4 at default)
+                let replay_budget = (1.0 - bias).max(0.0);
+                // Distribute replay budget across techniques
+                let exact_thresh = replay_budget * (0.15 - t * 0.05);
+                let invert_thresh = exact_thresh + replay_budget * 0.12;
+                let fragment_thresh = invert_thresh + replay_budget * (0.10 + t * 0.08);
+                let sequence_thresh = fragment_thresh + replay_budget * 0.12;
+                let embellish_thresh = sequence_thresh + replay_budget * 0.08;
+                // Remainder = new material = bias + leftover
 
                 if r < exact_thresh {
                     // Exact repeat
@@ -352,9 +363,18 @@ impl HarmonyNavigator {
                     self.motif_buffer.truncate(half);
                     self.playing_motif = true;
                 } else if r < sequence_thresh {
-                    // Sequence: transpose all steps by +1 or +2 (shift register)
+                    // Sequence: transpose by +1 or +2
                     let shift = if rng.next_f32() < 0.5 { 1 } else { 2 };
                     self.current_index += shift;
+                    self.playing_motif = true;
+                } else if r < embellish_thresh {
+                    // Embellished replay: perturb each interval by ±1
+                    self.motif_buffer = self.motif_buffer.iter().map(|&s| {
+                        let perturbation = if rng.next_f32() < 0.3 { 1 }
+                            else if rng.next_f32() < 0.5 { -1 }
+                            else { 0 };
+                        s + perturbation
+                    }).collect();
                     self.playing_motif = true;
                 } else {
                     // New material
@@ -485,6 +505,13 @@ impl HarmonyNavigator {
     /// Set harmony tension level — controls chromatic passing tone probability (CORELIB-22)
     pub const fn set_tension(&mut self, tension: f32) {
         self.tension = tension.clamp(0.0, 1.0);
+    }
+
+    /// Set variety params from MusicalParams (tunable for CORELIB-13)
+    pub fn set_variety(&mut self, fractal_boost: f32, fractal_range: f32, motif_bias: f32) {
+        self.fractal_boost = fractal_boost.clamp(0.5, 4.0);
+        self.fractal_range = fractal_range.clamp(5.0, 40.0);
+        self.motif_new_material_bias = motif_bias.clamp(0.0, 1.0);
     }
 }
 

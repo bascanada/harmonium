@@ -19,7 +19,8 @@ pub use export::{
     write_musicxml_with_chords,
 };
 pub use params::{
-    EngineParams, InstrumentConfig, MelodyScaleType, MusicalParams, key_root_to_pitch_symbol,
+    EngineParams, InstrumentConfig, MelodyScaleType, MusicalParams, VarietyParams,
+    key_root_to_pitch_symbol,
 };
 pub use report::{EngineReport, MeasureSnapshot, NoteEvent, NoteSnapshot};
 pub use sequencer::Sequencer;

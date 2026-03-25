@@ -62,6 +62,10 @@ pub struct TimelineGenerator {
 
     // === Bar counter ===
     current_bar: usize,
+
+    // === Phrase arc state (variable length) ===
+    phrase_len: usize,
+    phrase_bar_counter: usize,
 }
 
 impl TimelineGenerator {
@@ -100,6 +104,8 @@ impl TimelineGenerator {
             chart_index: 0,
             next_note_id: 1,
             current_bar: 0,
+            phrase_len: 4,
+            phrase_bar_counter: 0,
         }
     }
 
@@ -117,12 +123,12 @@ impl TimelineGenerator {
         steps_per_bar: usize,
         bar_index: usize,
         phrase_len: usize,
+        rng: &mut dyn RngCore,
     ) -> u8 {
         let tpb = self.sequencer_primary.ticks_per_beat;
 
-        // === Beat-level accents (wider range for CORELIB-6) ===
+        // === Beat-level accents ===
         let beat_offset: i16 = if tpb > 0 && step % tpb == 0 {
-            // On a beat
             let beat_in_bar = step / tpb;
             if beat_in_bar % 2 == 0 {
                 18 // Strong beats (1, 3): +18
@@ -133,22 +139,24 @@ impl TimelineGenerator {
             -20 // Offbeats: -20
         };
 
-        // === Phrase-level dynamics (crescendo/decrescendo over phrase_len bars) ===
+        // === Phrase-level dynamics ===
         let bar_in_phrase = bar_index % phrase_len;
         let phrase_progress = bar_in_phrase as f32 / phrase_len as f32;
-        // Arc shape: rises first half, falls second half
-        // peak at 0.5, range ±20 velocity
         let phrase_offset = if phrase_progress < 0.5 {
-            (phrase_progress * 2.0 * 20.0) as i16 // 0 → +20
+            (phrase_progress * 2.0 * 20.0) as i16
         } else {
-            ((1.0 - phrase_progress) * 2.0 * 20.0) as i16 // +20 → 0
+            ((1.0 - phrase_progress) * 2.0 * 20.0) as i16
         };
 
-        // === Step-within-bar dynamics (slight crescendo toward end of bar) ===
+        // === Step-within-bar dynamics ===
         let bar_progress = step as f32 / steps_per_bar.max(1) as f32;
-        let bar_offset = (bar_progress * 10.0) as i16; // 0 → +10
+        let bar_offset = (bar_progress * 10.0) as i16;
 
-        let final_vel = base_vel as i16 + beat_offset + phrase_offset + bar_offset;
+        // === Velocity jitter (variety.velocity_jitter) ===
+        let jitter_range = self.musical_params.variety.velocity_jitter;
+        let jitter = ((rng.next_f32() - 0.5) * 2.0 * jitter_range) as i16;
+
+        let final_vel = base_vel as i16 + beat_offset + phrase_offset + bar_offset + jitter;
         final_vel.clamp(20, 127) as u8
     }
 
@@ -156,36 +164,42 @@ impl TimelineGenerator {
     ///
     /// This ticks both sequencers through all steps in the measure, calling
     /// the same melody/harmony/rhythm functions in identical order as tick().
-    /// Compute phrase arc modifier (CORELIB-4).
-    ///
-    /// Returns a value in [-0.20, +0.20] following a sine-like arc over 4-bar phrases.
-    /// Bar 0: establish (low), Bar 1: develop (rising), Bar 2: climax (peak), Bar 3: resolve (falling)
-    fn phrase_arc_modifier(bar_index: usize) -> f32 {
-        const PHRASE_LEN: usize = 4;
-        let phase = (bar_index % PHRASE_LEN) as f32 / PHRASE_LEN as f32;
-        // Sine arc: peaks at bar 2 (phase=0.5), troughs at bar 0 and bar 3
+    /// Phrase arc with variable length and jitter (CORELIB-4 + anti-repetition).
+    /// Uses `variety.phrase_arc_jitter` for amplitude randomness.
+    fn phrase_arc_modifier(&mut self, rng: &mut dyn RngCore) -> f32 {
+        let jitter_range = self.musical_params.variety.phrase_arc_jitter;
+
+        // Re-roll phrase length at phrase boundary (3, 4, or 5 bars)
+        if self.phrase_bar_counter >= self.phrase_len {
+            self.phrase_bar_counter = 0;
+            let r = rng.next_f32();
+            self.phrase_len = if r < 0.25 { 3 } else if r < 0.75 { 4 } else { 5 };
+        }
+
+        let phase = self.phrase_bar_counter as f32 / self.phrase_len as f32;
         let arc = (phase * std::f32::consts::PI).sin();
-        // Scale to ±0.20
-        (arc - 0.5) * 0.40
+
+        // Amplitude jitter: ±jitter_range around 1.0
+        let jitter = 1.0 + (rng.next_f32() - 0.5) * 2.0 * jitter_range;
+
+        self.phrase_bar_counter += 1;
+        (arc - 0.5) * 0.40 * jitter
     }
 
-    /// Section-level dynamic contrast (CORELIB-7).
-    ///
-    /// Creates AABA-like form over 32 bars with contrasting energy:
-    /// - Section A  (bars  0-7):  moderate (0.0)
-    /// - Section B  (bars  8-15): quiet    (-0.25)
-    /// - Section A' (bars 16-23): climax   (+0.25)
-    /// - Section B' (bars 24-31): resolve  (-0.10)
-    /// Returns arousal/density offset for the current bar.
-    fn section_arc_modifier(bar_index: usize) -> f32 {
+    /// Section-level dynamic contrast with jitter (CORELIB-7 + anti-repetition).
+    /// Uses `variety.section_arc_jitter` for per-section randomness.
+    fn section_arc_modifier(&self, bar_index: usize, rng: &mut dyn RngCore) -> f32 {
+        let jitter_range = self.musical_params.variety.section_arc_jitter;
         const SECTION_LEN: usize = 8;
-        match (bar_index / SECTION_LEN) % 4 {
-            0 => 0.0,   // A: moderate
-            1 => -0.25, // B: quiet (drop)
-            2 => 0.25,  // A': climax (peak)
-            3 => -0.10, // B': resolve (gentle landing)
+        let base = match (bar_index / SECTION_LEN) % 4 {
+            0 => 0.0,
+            1 => -0.25,
+            2 => 0.25,
+            3 => -0.10,
             _ => 0.0,
-        }
+        };
+        let jitter = (rng.next_f32() - 0.5) * 2.0 * jitter_range;
+        base + jitter
     }
 
     pub fn generate_measure(&mut self, bar_index: usize, rng: &mut dyn RngCore) -> Measure {
@@ -195,16 +209,13 @@ impl TimelineGenerator {
         // params affect the writehead directly, next bar uses new values.
         self.snap_current_state();
 
-        // === SECTION ARC (CORELIB-7) ===
-        // Large-scale form: contrasting 8-bar sections for velocity_range
-        let section = Self::section_arc_modifier(bar_index);
+        // === SECTION ARC (CORELIB-7) — with jitter ===
+        let section = self.section_arc_modifier(bar_index, rng);
         self.current_state.arousal = (self.current_state.arousal + section).clamp(0.0, 1.0);
         self.current_state.density = (self.current_state.density + section * 0.5).clamp(0.05, 1.0);
 
-        // === PHRASE ARC (CORELIB-4) ===
-        // Modulate density and tension over 4-bar phrases to create
-        // establish → develop → climax → resolve structure.
-        let arc = Self::phrase_arc_modifier(bar_index);
+        // === PHRASE ARC (CORELIB-4) — with variable length + jitter ===
+        let arc = self.phrase_arc_modifier(rng);
         self.current_state.density = (self.current_state.density + arc).clamp(0.05, 1.0);
         self.current_state.tension = (self.current_state.tension + arc * 0.5).clamp(0.0, 1.0);
         self.current_state.arousal = (self.current_state.arousal + arc * 0.3).clamp(0.0, 1.0);
@@ -255,30 +266,60 @@ impl TimelineGenerator {
             let base_vel =
                 self.musical_params.vel_base_bass + (self.current_state.arousal * 25.0) as u8;
 
+            let variety = self.musical_params.variety.walking_bass_variety;
+
             for beat in 0..num_beats {
                 let beat_step = beat * tpb;
-                if beat_step >= steps {
-                    break;
+                if beat_step >= steps { break; }
+
+                // Rest insertion on non-downbeats (scaled by variety)
+                if beat > 0 && rng.next_f32() < 0.10 * variety {
+                    continue;
                 }
 
+                let r = rng.next_f32();
                 let pitch = match beat % 4 {
-                    0 => root,                                                         // Beat 1: root
-                    1 => root + if rng.next_f32() < 0.5 { third_interval } else { 7 }, // Beat 2: 3rd or 5th
+                    0 => {
+                        // Beat 1: root, occasionally 5th below or octave up
+                        if r < (1.0 - 0.25 * variety) { root }
+                        else if r < (1.0 - 0.10 * variety) { root - 5 }
+                        else { root + 12 }
+                    }
+                    1 => {
+                        // Beat 2: expanded palette scaled by variety
+                        if r < 0.30 { root + third_interval }
+                        else if r < 0.60 { root + 7 }
+                        else if r < (0.60 + 0.20 * variety) { root + 9 }
+                        else { root + 5 }
+                    }
                     2 => {
-                        // Beat 3: passing tone (scalar step between beat 2 and beat 4)
-                        root + 5 // Perfect 4th as common passing tone
+                        // Beat 3: passing tones — wider palette
+                        if r < 0.25 { root + 5 }
+                        else if r < 0.50 { root + 2 }
+                        else if r < 0.70 { root + 7 }
+                        else if r < (0.70 + 0.15 * variety) { root + 10 } // b7 (bluesy)
+                        else { root + third_interval }
                     }
                     3 => {
-                        // Beat 4: chromatic approach to next bar's root
-                        if rng.next_f32() < 0.5 { root + 11 } else { root - 1 } // approach from below/above
+                        // Beat 4: approach notes
+                        if r < 0.30 { root + 11 }
+                        else if r < 0.55 { root - 1 }
+                        else if r < (0.55 + 0.20 * variety) { root - 2 }
+                        else if r < (0.75 + 0.15 * variety) { root + 10 }
+                        else { root + 5 }
                     }
                     _ => root,
                 };
 
                 let midi_note =
                     self.musical_params.instrument_bass.apply(pitch.clamp(28, 60) as u8);
-                let vel = self.shape_velocity(base_vel, beat_step, steps, bar_index, 4);
-                let duration = tpb.min(steps - beat_step); // Quarter note duration
+                let vel = self.shape_velocity(base_vel, beat_step, steps, bar_index, 4, rng);
+                // Variable duration: occasionally short (8th note feel)
+                let duration = if rng.next_f32() < 0.15 * variety {
+                    (tpb / 2).max(1).min(steps - beat_step)
+                } else {
+                    tpb.min(steps - beat_step)
+                };
 
                 measure.add_note(
                     TrackId::Bass,
@@ -396,7 +437,7 @@ impl TimelineGenerator {
 
                     let base_vel = self.musical_params.vel_base_bass
                         + (self.current_state.arousal * 25.0) as u8;
-                    let vel = self.shape_velocity(base_vel, step, steps, bar_index, 4);
+                    let vel = self.shape_velocity(base_vel, step, steps, bar_index, 4, rng);
 
                     measure.add_note(
                         TrackId::Bass,
@@ -484,7 +525,7 @@ impl TimelineGenerator {
                                 (m, step + cell_offset)
                             };
 
-                            let vel = self.shape_velocity(base_vel, vel_step, steps, bar_index, 4);
+                            let vel = self.shape_velocity(base_vel, vel_step, steps, bar_index, 4, rng);
                             measure.add_note(
                                 TrackId::Lead,
                                 TimelineNote {
@@ -500,7 +541,7 @@ impl TimelineGenerator {
                         }
                     } else {
                         // Single sustained note (original behavior)
-                        let solo_vel = self.shape_velocity(base_vel, step, steps, bar_index, 4);
+                        let solo_vel = self.shape_velocity(base_vel, step, steps, bar_index, 4, rng);
                         measure.add_note(
                             TrackId::Lead,
                             TimelineNote {
@@ -745,57 +786,62 @@ impl TimelineGenerator {
     /// Returns a `Vec<usize>` of notation-safe durations that sum to approximately `gap`.
     /// Higher density → more subdivision, shorter notes.
     fn pick_rhythmic_cell(gap: usize, density: f32, rng: &mut dyn RngCore) -> Vec<usize> {
-        // Rhythmic cell patterns organized by subdivision level.
-        // Each pattern is designed to sum close to common gap sizes.
+        // Fuzzy density: add randomness so same density doesn't always pick same branch
+        let d = (density + (rng.next_f32() - 0.5) * 0.2).clamp(0.0, 1.0);
+
         match gap {
-            // Quarter note gap (4 steps): split into 8ths or dotted patterns
             4 => {
                 let r = rng.next_f32();
-                if density < 0.4 {
-                    vec![3, 1] // dotted-8th + 16th
-                } else if r < 0.4 {
-                    vec![2, 2] // two 8ths
-                } else if r < 0.7 {
-                    vec![1, 1, 2] // two 16ths + 8th
+                if d < 0.4 {
+                    if r < 0.5 { vec![3, 1] } else { vec![4] }
+                } else if r < 0.25 {
+                    vec![2, 2]
+                } else if r < 0.45 {
+                    vec![1, 1, 2]
+                } else if r < 0.65 {
+                    vec![2, 1, 1]
+                } else if r < 0.80 {
+                    vec![1, 3]        // 16th + dotted-8th
                 } else {
-                    vec![2, 1, 1] // 8th + two 16ths
+                    vec![1, 1, 1, 1]  // four 16ths
                 }
             }
-            // Half note gap (8 steps): richer subdivision
             8 => {
                 let r = rng.next_f32();
-                if density < 0.3 {
-                    vec![6, 2] // dotted-quarter + 8th
-                } else if r < 0.3 {
-                    vec![4, 4] // two quarters
-                } else if r < 0.5 {
-                    vec![4, 2, 2] // quarter + two 8ths
-                } else if r < 0.7 {
-                    vec![2, 2, 4] // two 8ths + quarter
+                if d < 0.3 {
+                    if r < 0.5 { vec![6, 2] } else { vec![5, 3] }
+                } else if r < 0.20 {
+                    vec![4, 4]
+                } else if r < 0.35 {
+                    vec![4, 2, 2]
+                } else if r < 0.50 {
+                    vec![2, 2, 4]
+                } else if r < 0.65 {
+                    vec![2, 2, 2, 2]
+                } else if r < 0.80 {
+                    vec![3, 3, 2]     // triplet feel
                 } else {
-                    vec![2, 2, 2, 2] // four 8ths
+                    vec![2, 4, 2]     // short-long-short
                 }
             }
-            // Dotted quarter (6 steps)
             6 => {
                 let r = rng.next_f32();
-                if r < 0.4 {
-                    vec![4, 2] // quarter + 8th
-                } else if r < 0.7 {
-                    vec![2, 4] // 8th + quarter
-                } else {
-                    vec![2, 2, 2] // three 8ths
-                }
+                if r < 0.25 { vec![4, 2] }
+                else if r < 0.45 { vec![2, 4] }
+                else if r < 0.65 { vec![2, 2, 2] }
+                else if r < 0.80 { vec![3, 1, 2] }
+                else { vec![1, 1, 4] }
             }
-            // Dotted half or longer (12+ steps)
             12..=usize::MAX => {
                 let r = rng.next_f32();
-                if density < 0.3 {
-                    vec![8, gap - 8] // half + remainder
-                } else if r < 0.4 {
-                    vec![4, 4, gap - 8] // two quarters + remainder
+                if d < 0.3 {
+                    if r < 0.5 { vec![8, gap - 8] }
+                    else { vec![6, 2, gap - 8] }
+                } else if r < 0.3 {
+                    vec![4, 4, gap - 8]
+                } else if r < 0.6 {
+                    vec![2, 2, 4, gap - 8]
                 } else {
-                    // Split into quarter notes
                     let mut cell = Vec::new();
                     let mut remaining = gap;
                     while remaining > 0 {
@@ -806,7 +852,6 @@ impl TimelineGenerator {
                     cell
                 }
             }
-            // Short gaps (1-3): no subdivision
             _ => vec![gap],
         }
     }
@@ -910,6 +955,11 @@ impl TimelineGenerator {
         // Melody
         self.harmony.set_hurst_factor(params.melody_smoothness);
         self.harmony.set_tension(params.harmony_tension);
+        self.harmony.set_variety(
+            params.variety.fractal_boost,
+            params.variety.fractal_range,
+            params.variety.motif_new_material_bias,
+        );
 
         // Re-parse chord chart when it changes
         if self.musical_params.chord_chart != params.chord_chart {
