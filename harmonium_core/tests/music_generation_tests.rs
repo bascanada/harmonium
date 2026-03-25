@@ -690,3 +690,424 @@ fn test_alto_sax_lead_export() {
 
     generate_timeline_export("alto_sax_lead", &params, &alto, &InstrumentConfig::default(), 8, 42);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HARMONIUM_LAB EXPORTS (Timeline-based MIDI + JSON + MusicXML)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Generate measures using TimelineGenerator and export MIDI, JSON, and MusicXML
+/// for consumption by harmonium_lab evaluation pipeline.
+fn generate_lab_export(
+    name: &str,
+    params: &MusicalParams,
+    num_measures: usize,
+    seed: u64,
+) {
+    use harmonium_core::{
+        harmony::melody::HarmonyNavigator,
+        params::CurrentState,
+        report::MeasureSnapshot,
+        timeline::{
+            ScoreTimeline, TimelineGenerator, timeline_to_musicxml, write_midi,
+        },
+    };
+    use rust_music_theory::{note::PitchSymbol, scale::ScaleType};
+
+    setup_output_dir();
+
+    let seq_primary = Sequencer::new(params.rhythm_steps, params.rhythm_pulses, params.bpm);
+    let seq_secondary = Sequencer::new_with_rotation(12, 3, params.bpm, 0);
+    let harmony =
+        HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, params.melody_octave);
+    let driver = HarmonicDriver::new(params.key_root);
+    let state = CurrentState {
+        bpm: params.bpm,
+        density: params.rhythm_density,
+        tension: params.harmony_tension,
+        smoothness: params.melody_smoothness,
+        valence: params.harmony_valence,
+        arousal: 0.5,
+    };
+
+    let mut tgen = TimelineGenerator::new(
+        seq_primary,
+        seq_secondary,
+        harmony,
+        Some(driver),
+        params.clone(),
+        state.clone(),
+    );
+
+    let mut rng = TestRng::new(seed);
+    let mut timeline = ScoreTimeline::new(num_measures + 1);
+
+    for bar in 1..=num_measures {
+        let measure = tgen.generate_measure(bar, &mut rng);
+        timeline.push_measure(measure);
+    }
+
+    // 1. Export MusicXML
+    let xml = timeline_to_musicxml(&timeline, &format!("Harmonium Lab - {name}"));
+    let xml_path = Path::new(OUTPUT_DIR).join(format!("{name}.musicxml"));
+    std::fs::write(&xml_path, &xml).unwrap_or_else(|_| panic!("Failed to write {name}.musicxml"));
+
+    // 2. Export MIDI
+    let midi_path = Path::new(OUTPUT_DIR).join(format!("{name}.mid"));
+    write_midi(&timeline, &midi_path).unwrap_or_else(|_| panic!("Failed to write {name}.mid"));
+
+    // 3. Export MeasureSnapshot JSON (same format as golden test files)
+    let snapshots: Vec<MeasureSnapshot> = timeline
+        .measures()
+        .iter()
+        .map(|m| {
+            let mut snapshot = MeasureSnapshot::from_measure(m);
+            snapshot.composition_bpm = state.bpm;
+            snapshot
+        })
+        .collect();
+    let json = serde_json::to_string_pretty(&snapshots)
+        .unwrap_or_else(|_| panic!("Failed to serialize {name} measures"));
+    let json_path = Path::new(OUTPUT_DIR).join(format!("{name}.json"));
+    std::fs::write(&json_path, &json)
+        .unwrap_or_else(|_| panic!("Failed to write {name}.json"));
+
+    // 4. Export scenario metadata JSON
+    let scenario_meta = serde_json::json!({
+        "scenario": name,
+        "params": {
+            "bpm": state.bpm,
+            "density": state.density,
+            "tension": state.tension,
+            "smoothness": state.smoothness,
+            "valence": state.valence,
+            "arousal": state.arousal,
+        },
+        "bars": num_measures,
+        "seed": seed,
+        "key_root": params.key_root,
+        "rhythm_mode": format!("{:?}", params.rhythm_mode),
+        "time_signature": format!("{}/{}", params.time_signature.numerator, params.time_signature.denominator),
+    });
+    let meta_path = Path::new(OUTPUT_DIR).join(format!("{name}_scenario.json"));
+    std::fs::write(&meta_path, serde_json::to_string_pretty(&scenario_meta).unwrap())
+        .unwrap_or_else(|_| panic!("Failed to write {name}_scenario.json"));
+
+    println!(
+        "Lab export: {} → .musicxml + .mid + .json + _scenario.json ({} measures)",
+        name, num_measures,
+    );
+}
+
+/// Helper: configure a scenario and export with multiple seeds.
+fn lab_scenario(
+    base_name: &str,
+    params: &MusicalParams,
+    bars: usize,
+    seeds: &[u64],
+) {
+    for &seed in seeds {
+        let name = if seeds.len() == 1 {
+            base_name.to_string()
+        } else {
+            format!("{base_name}_s{seed}")
+        };
+        generate_lab_export(&name, params, bars, seed);
+    }
+}
+
+/// Standard seeds for multi-seed scenarios
+const SEEDS: [u64; 4] = [42, 123, 456, 789];
+/// Bars per scenario
+const BARS: usize = 32;
+
+#[test]
+#[ignore]
+fn generate_all_lab_exports() {
+    println!("\n========================================");
+    println!("Generating harmonium_lab exports...");
+    println!("Output: {OUTPUT_DIR}/");
+    println!("========================================\n");
+
+    // ─── AMBIENT SCENARIOS (low tension, high smoothness) ─────────
+
+    // Calm ambient — C major, Euclidean sparse
+    let mut p = MusicalParams::default();
+    p.bpm = 80.0;
+    p.rhythm_mode = RhythmMode::Euclidean;
+    p.rhythm_steps = 16;
+    p.rhythm_pulses = 3;
+    p.rhythm_density = 0.25;
+    p.harmony_tension = 0.15;
+    p.harmony_valence = 0.3;
+    p.melody_smoothness = 0.8;
+    p.key_root = 0;
+    lab_scenario("lab_ambient_calm_c", &p, BARS, &SEEDS);
+
+    // Ambient warm — Eb major, even sparser
+    p.bpm = 72.0;
+    p.rhythm_pulses = 2;
+    p.rhythm_density = 0.15;
+    p.harmony_tension = 0.1;
+    p.harmony_valence = 0.5;
+    p.melody_smoothness = 0.9;
+    p.key_root = 3; // Eb
+    lab_scenario("lab_ambient_warm_eb", &p, BARS, &SEEDS);
+
+    // Ambient dark — A minor, slight tension
+    p.bpm = 76.0;
+    p.rhythm_pulses = 3;
+    p.rhythm_density = 0.2;
+    p.harmony_tension = 0.2;
+    p.harmony_valence = -0.4;
+    p.melody_smoothness = 0.85;
+    p.key_root = 9; // A
+    lab_scenario("lab_ambient_dark_am", &p, BARS, &SEEDS);
+
+    // ─── JAZZ CALM SCENARIOS (ballads, slow standards) ────────────
+
+    // Jazz ballad — F major, ClassicGroove
+    let mut p = MusicalParams::default();
+    p.bpm = 90.0;
+    p.rhythm_mode = RhythmMode::ClassicGroove;
+    p.rhythm_steps = 16;
+    p.rhythm_density = 0.4;
+    p.harmony_tension = 0.35;
+    p.harmony_valence = 0.2;
+    p.melody_smoothness = 0.6;
+    p.harmony_measures_per_chord = 1;
+    p.key_root = 5; // F
+    lab_scenario("lab_jazz_ballad_f", &p, BARS, &SEEDS);
+
+    // Jazz ballad — Bb major, slower
+    p.bpm = 76.0;
+    p.rhythm_density = 0.35;
+    p.harmony_tension = 0.3;
+    p.harmony_valence = 0.3;
+    p.melody_smoothness = 0.65;
+    p.key_root = 10; // Bb
+    lab_scenario("lab_jazz_ballad_bb", &p, BARS, &SEEDS);
+
+    // Jazz ballad — D minor
+    p.bpm = 84.0;
+    p.harmony_tension = 0.35;
+    p.harmony_valence = -0.5;
+    p.melody_smoothness = 0.55;
+    p.key_root = 2; // D minor
+    lab_scenario("lab_jazz_ballad_dm", &p, BARS, &SEEDS);
+
+    // ─── JAZZ MEDIUM SCENARIOS (swing, mid-tempo) ─────────────────
+
+    // Jazz medium — G major, Euclidean swing
+    let mut p = MusicalParams::default();
+    p.bpm = 140.0;
+    p.rhythm_mode = RhythmMode::Euclidean;
+    p.rhythm_steps = 16;
+    p.rhythm_pulses = 5;
+    p.rhythm_density = 0.55;
+    p.harmony_tension = 0.5;
+    p.harmony_valence = 0.5;
+    p.melody_smoothness = 0.4;
+    p.harmony_measures_per_chord = 1;
+    p.key_root = 7; // G
+    lab_scenario("lab_jazz_medium_g", &p, BARS, &SEEDS);
+
+    // Jazz medium — C major, ClassicGroove
+    p.bpm = 130.0;
+    p.rhythm_mode = RhythmMode::ClassicGroove;
+    p.rhythm_density = 0.5;
+    p.harmony_tension = 0.45;
+    p.harmony_valence = 0.4;
+    p.melody_smoothness = 0.45;
+    p.key_root = 0; // C
+    lab_scenario("lab_jazz_medium_c", &p, BARS, &SEEDS);
+
+    // Jazz uptempo — F major
+    p.bpm = 160.0;
+    p.rhythm_mode = RhythmMode::Euclidean;
+    p.rhythm_pulses = 7;
+    p.rhythm_density = 0.65;
+    p.harmony_tension = 0.55;
+    p.harmony_valence = 0.6;
+    p.melody_smoothness = 0.35;
+    p.key_root = 5; // F
+    lab_scenario("lab_jazz_uptempo_f", &p, BARS, &SEEDS);
+
+    // ─── PRACTICE / TRAINING SCENARIOS ────────────────────────────
+
+    // Practice easy — C major, steady
+    let mut p = MusicalParams::default();
+    p.bpm = 100.0;
+    p.rhythm_mode = RhythmMode::ClassicGroove;
+    p.rhythm_steps = 16;
+    p.rhythm_density = 0.35;
+    p.harmony_tension = 0.25;
+    p.harmony_valence = 0.4;
+    p.melody_smoothness = 0.6;
+    p.harmony_measures_per_chord = 2;
+    p.key_root = 0; // C
+    lab_scenario("lab_practice_easy_c", &p, BARS, &SEEDS);
+
+    // Practice medium — G major
+    p.bpm = 110.0;
+    p.rhythm_density = 0.45;
+    p.harmony_tension = 0.35;
+    p.harmony_valence = 0.5;
+    p.melody_smoothness = 0.5;
+    p.harmony_measures_per_chord = 1;
+    p.key_root = 7; // G
+    lab_scenario("lab_practice_medium_g", &p, BARS, &SEEDS);
+
+    // Practice blues — Bb, higher tension
+    p.bpm = 105.0;
+    p.rhythm_density = 0.5;
+    p.harmony_tension = 0.4;
+    p.harmony_valence = -0.1;
+    p.melody_smoothness = 0.45;
+    p.key_root = 10; // Bb
+    lab_scenario("lab_practice_blues_bb", &p, BARS, &SEEDS);
+
+    // ─── DRAMATIC / HIGH-TENSION SCENARIOS ────────────────────────
+
+    // Dramatic — D minor, Neo-Riemannian territory
+    let mut p = MusicalParams::default();
+    p.bpm = 120.0;
+    p.rhythm_mode = RhythmMode::PerfectBalance;
+    p.rhythm_steps = 48;
+    p.rhythm_density = 0.6;
+    p.rhythm_tension = 0.7;
+    p.harmony_tension = 0.7;
+    p.harmony_valence = -0.3;
+    p.melody_smoothness = 0.3;
+    p.key_root = 2; // D
+    lab_scenario("lab_dramatic_high_dm", &p, BARS, &SEEDS);
+
+    // Dramatic intense — E minor, very high tension
+    p.bpm = 132.0;
+    p.rhythm_density = 0.7;
+    p.rhythm_tension = 0.8;
+    p.harmony_tension = 0.85;
+    p.harmony_valence = -0.6;
+    p.melody_smoothness = 0.2;
+    p.key_root = 4; // E
+    lab_scenario("lab_dramatic_intense_em", &p, BARS, &SEEDS);
+
+    // Cinematic — Ab major, wide voicings
+    p.bpm = 108.0;
+    p.rhythm_density = 0.45;
+    p.rhythm_tension = 0.5;
+    p.harmony_tension = 0.6;
+    p.harmony_valence = 0.1;
+    p.melody_smoothness = 0.5;
+    p.key_root = 8; // Ab
+    lab_scenario("lab_cinematic_ab", &p, BARS, &SEEDS);
+
+    // ─── ODD METER SCENARIOS ──────────────────────────────────────
+
+    // Waltz 3/4 — Eb major
+    let mut p = MusicalParams::default();
+    p.time_signature = harmonium_core::params::TimeSignature::new(3, 4);
+    p.bpm = 120.0;
+    p.rhythm_mode = RhythmMode::ClassicGroove;
+    p.rhythm_steps = 12;
+    p.rhythm_density = 0.45;
+    p.harmony_tension = 0.3;
+    p.harmony_valence = 0.5;
+    p.melody_smoothness = 0.55;
+    p.harmony_measures_per_chord = 2;
+    p.key_root = 3; // Eb
+    lab_scenario("lab_waltz_eb", &p, BARS, &SEEDS);
+
+    // 5/4 groove — G minor
+    p.time_signature = harmonium_core::params::TimeSignature::new(5, 4);
+    p.bpm = 110.0;
+    p.rhythm_steps = 20;
+    p.rhythm_density = 0.5;
+    p.harmony_tension = 0.45;
+    p.harmony_valence = -0.2;
+    p.melody_smoothness = 0.4;
+    p.harmony_measures_per_chord = 1;
+    p.key_root = 7; // G
+    lab_scenario("lab_5_4_gm", &p, BARS, &SEEDS);
+
+    // ─── KEY VARIETY (same params, different keys) ────────────────
+
+    let mut p = MusicalParams::default();
+    p.bpm = 110.0;
+    p.rhythm_mode = RhythmMode::ClassicGroove;
+    p.rhythm_steps = 16;
+    p.rhythm_density = 0.45;
+    p.harmony_tension = 0.35;
+    p.harmony_valence = 0.3;
+    p.melody_smoothness = 0.5;
+    p.harmony_measures_per_chord = 1;
+
+    for (key_root, key_name) in [
+        (0, "c"), (2, "d"), (4, "e"), (5, "f"),
+        (7, "g"), (9, "a"), (10, "bb"),
+    ] {
+        p.key_root = key_root;
+        generate_lab_export(
+            &format!("lab_keys_{key_name}"),
+            &p,
+            BARS,
+            42,
+        );
+    }
+
+    // ─── RHYTHM MODE COMPARISON (same harmony, different rhythms) ─
+
+    let mut p = MusicalParams::default();
+    p.bpm = 120.0;
+    p.rhythm_density = 0.5;
+    p.harmony_tension = 0.4;
+    p.harmony_valence = 0.3;
+    p.melody_smoothness = 0.5;
+    p.key_root = 0;
+
+    p.rhythm_mode = RhythmMode::Euclidean;
+    p.rhythm_steps = 16;
+    p.rhythm_pulses = 5;
+    generate_lab_export("lab_rhythm_euclidean", &p, BARS, 42);
+
+    p.rhythm_mode = RhythmMode::ClassicGroove;
+    p.rhythm_steps = 16;
+    generate_lab_export("lab_rhythm_classic", &p, BARS, 42);
+
+    p.rhythm_mode = RhythmMode::PerfectBalance;
+    p.rhythm_steps = 48;
+    generate_lab_export("lab_rhythm_perfect_balance", &p, BARS, 42);
+
+    // ─── TENSION SWEEP (same base, tension 0.1 → 0.9) ────────────
+
+    let mut p = MusicalParams::default();
+    p.bpm = 110.0;
+    p.rhythm_mode = RhythmMode::ClassicGroove;
+    p.rhythm_steps = 16;
+    p.rhythm_density = 0.45;
+    p.harmony_valence = 0.2;
+    p.melody_smoothness = 0.5;
+    p.key_root = 0;
+
+    for tension_pct in [10, 25, 40, 55, 70, 85] {
+        p.harmony_tension = tension_pct as f32 / 100.0;
+        p.rhythm_tension = tension_pct as f32 / 200.0; // half of harmony tension
+        generate_lab_export(
+            &format!("lab_tension_{tension_pct:02}"),
+            &p,
+            BARS,
+            42,
+        );
+    }
+
+    // Count total files
+    let count = std::fs::read_dir(OUTPUT_DIR)
+        .map(|d| d.filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "mid"))
+            .filter(|e| e.file_name().to_string_lossy().starts_with("lab_"))
+            .count())
+        .unwrap_or(0);
+
+    println!("\n========================================");
+    println!("Done! {count} lab MIDI files generated.");
+    println!("========================================\n");
+}

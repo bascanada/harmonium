@@ -26,6 +26,9 @@ test:
 test/sheet:
 	cargo test -p harmonium_core --test music_generation_tests generate_all_music_tests -- --ignored --nocapture
 
+test/lab-export:
+	cargo test -p harmonium_core --test music_generation_tests generate_all_lab_exports -- --ignored --nocapture
+
 # ════════════════════════════════════════════════════════════════════
 # VST / CLAP PLUGIN
 # ════════════════════════════════════════════════════════════════════
