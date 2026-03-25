@@ -231,6 +231,29 @@ impl TimelineGenerator {
 
             let is_in_fill_zone = step >= fill_zone_start;
 
+            // === CORELIB-5: Mid-bar chord change at very high tension ===
+            // At tension > 0.75, change chord halfway through the bar
+            if step == steps / 2
+                && self.current_state.tension > 0.75
+                && self.musical_params.enable_harmony
+                && self.harmony_mode == HarmonyMode::Driver
+            {
+                if let Some(ref mut driver) = self.harmonic_driver {
+                    let decision = driver.next_chord(
+                        self.current_state.tension,
+                        self.current_state.valence,
+                        rng,
+                    );
+                    let root_offset = driver.root_offset();
+                    let quality = driver.to_basic_quality();
+                    self.harmony.set_chord_context(root_offset, quality);
+                    self.chord_root_offset = root_offset;
+                    self.chord_is_minor = driver.is_minor();
+                    self.chord_name = decision.next_chord.name();
+                    self.current_chord_type = decision.next_chord.chord_type;
+                }
+            }
+
             // === BASS (CORELIB-3: decoupled from kick, musically varied) ===
             if rhythm_enabled
                 && trigger_primary.kick
@@ -531,6 +554,17 @@ impl TimelineGenerator {
         }
     }
 
+    /// Compute tension-driven measures-per-chord (CORELIB-5)
+    fn harmonic_rhythm_rate(tension: f32) -> usize {
+        if tension < 0.25 {
+            3 // Slow: ambient/meditative
+        } else if tension < 0.5 {
+            2 // Normal
+        } else {
+            1 // Fast: every bar (+ potential mid-bar at very high tension)
+        }
+    }
+
     /// Advance harmony in Basic mode (quadrant-based progressions)
     fn advance_basic_harmony(&mut self, bar_index: usize) {
         // Palette selection with hysteresis (every 4 bars)
@@ -549,8 +583,8 @@ impl TimelineGenerator {
             }
         }
 
-        // Chord progression
-        let measures_per_chord = if self.current_state.tension > 0.6 { 1 } else { 2 };
+        // CORELIB-5: Dynamic harmonic rhythm based on tension
+        let measures_per_chord = Self::harmonic_rhythm_rate(self.current_state.tension);
         if bar_index.is_multiple_of(measures_per_chord) {
             self.progression_index = (self.progression_index + 1) % self.current_progression.len();
             let chord = &self.current_progression[self.progression_index];
@@ -571,7 +605,8 @@ impl TimelineGenerator {
 
     /// Advance harmony in Driver mode (Steedman + Neo-Riemannian + Parsimonious)
     fn advance_driver_harmony(&mut self, bar_index: usize, rng: &mut dyn RngCore) {
-        let measures_per_chord = if self.current_state.tension > 0.6 { 1 } else { 2 };
+        // CORELIB-5: Dynamic harmonic rhythm
+        let measures_per_chord = Self::harmonic_rhythm_rate(self.current_state.tension);
         if bar_index.is_multiple_of(measures_per_chord) {
             if let Some(ref mut driver) = self.harmonic_driver {
                 let decision =
