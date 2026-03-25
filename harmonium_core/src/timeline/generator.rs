@@ -103,6 +103,55 @@ impl TimelineGenerator {
         }
     }
 
+    /// Calculate velocity with beat-level accents and phrase-level dynamics (CORELIB-6)
+    ///
+    /// - `base_vel`: base velocity from arousal/params
+    /// - `step`: step index within the bar
+    /// - `steps_per_bar`: total steps in the bar
+    /// - `bar_index`: current bar number (for phrase dynamics)
+    /// - `phrase_len`: bars per phrase (typically 4 or 8)
+    fn shape_velocity(
+        &self,
+        base_vel: u8,
+        step: usize,
+        steps_per_bar: usize,
+        bar_index: usize,
+        phrase_len: usize,
+    ) -> u8 {
+        let tpb = self.sequencer_primary.ticks_per_beat;
+
+        // === Beat-level accents (wider range for CORELIB-6) ===
+        let beat_offset: i16 = if tpb > 0 && step % tpb == 0 {
+            // On a beat
+            let beat_in_bar = step / tpb;
+            if beat_in_bar % 2 == 0 {
+                18 // Strong beats (1, 3): +18
+            } else {
+                -8 // Weak beats (2, 4): -8
+            }
+        } else {
+            -20 // Offbeats: -20
+        };
+
+        // === Phrase-level dynamics (crescendo/decrescendo over phrase_len bars) ===
+        let bar_in_phrase = bar_index % phrase_len;
+        let phrase_progress = bar_in_phrase as f32 / phrase_len as f32;
+        // Arc shape: rises first half, falls second half
+        // peak at 0.5, range ±20 velocity
+        let phrase_offset = if phrase_progress < 0.5 {
+            (phrase_progress * 2.0 * 20.0) as i16 // 0 → +20
+        } else {
+            ((1.0 - phrase_progress) * 2.0 * 20.0) as i16 // +20 → 0
+        };
+
+        // === Step-within-bar dynamics (slight crescendo toward end of bar) ===
+        let bar_progress = step as f32 / steps_per_bar.max(1) as f32;
+        let bar_offset = (bar_progress * 10.0) as i16; // 0 → +10
+
+        let final_vel = base_vel as i16 + beat_offset + phrase_offset + bar_offset;
+        final_vel.clamp(20, 127) as u8
+    }
+
     /// Generate a single measure, faithfully replicating tick() behavior.
     ///
     /// This ticks both sequencers through all steps in the measure, calling
@@ -171,8 +220,9 @@ impl TimelineGenerator {
                     (36 + self.chord_root_offset) as u8
                 };
                 let midi_note = self.musical_params.instrument_bass.apply(midi_note);
-                let vel =
+                let base_vel =
                     self.musical_params.vel_base_bass + (self.current_state.arousal * 25.0) as u8;
+                let vel = self.shape_velocity(base_vel, step, steps, bar_index, 4);
 
                 measure.add_note(
                     TrackId::Bass,
@@ -200,7 +250,11 @@ impl TimelineGenerator {
                 let freq = self.harmony.next_note_structured(is_strong, is_new_measure, rng);
                 let melody_midi = (69.0 + 12.0 * (freq / 440.0).log2()).round() as u8;
                 let melody_midi = self.musical_params.instrument_lead.apply(melody_midi);
-                let base_vel = 90 + (self.current_state.arousal * 30.0) as u8;
+                // CORELIB-6: Lower base velocity to center the dynamic range
+                // Base ~70, arousal adds up to +30, shaping adds ±38
+                // Range: ~32 to ~118 → velocity_range ~86
+                let base_vel = (70.0 + self.current_state.arousal * 30.0) as u8;
+                let solo_vel = self.shape_velocity(base_vel, step, steps, bar_index, 4);
 
                 // Determine duration: until next lead trigger or end of bar
                 let duration = self.calculate_lead_duration(
@@ -210,9 +264,6 @@ impl TimelineGenerator {
                     is_high_tension,
                     fill_zone_start,
                 );
-
-                // Simplified: emit single melody note (voicing handled by Playhead or skipped)
-                let solo_vel = (base_vel as f32 * 0.7) as u8;
                 measure.add_note(
                     TrackId::Lead,
                     TimelineNote {
