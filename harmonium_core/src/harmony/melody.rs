@@ -29,6 +29,8 @@ pub struct HarmonyNavigator {
     motif_buffer: Vec<i32>,
     motif_index: usize,
     playing_motif: bool,
+    // === CONTOUR CONTROL (CORELIB-21) ===
+    consecutive_direction: i32, // Count of consecutive same-direction steps (+/-)
 }
 
 impl HarmonyNavigator {
@@ -70,6 +72,7 @@ impl HarmonyNavigator {
             motif_buffer: Vec::new(),
             motif_index: 0,
             playing_motif: false,
+            consecutive_direction: 0,
         }
     }
 
@@ -135,10 +138,10 @@ impl HarmonyNavigator {
         // Sélection pondérée
         let chosen_step = weighted_sample(&steps, &weights, rng);
 
-        // === GAP FILL (Temperley): Après un grand saut, revenir dans l'autre direction ===
-        // Principe: Si le dernier mouvement était un saut > 2, compenser en revenant
-        let final_step = if self.last_step.abs() > 2 {
-            // Grand saut précédent: forcer un retour par mouvement contraire
+        // === GAP FILL (Temperley): Après un GRAND saut, tendance à compenser ===
+        // CORELIB-21: Softened threshold from >2 to >=5, and only nudge (don't force)
+        let final_step = if self.last_step.abs() >= 5 && chosen_step.signum() == self.last_step.signum() {
+            // Very large leap in same direction: reverse by step
             if self.last_step > 0 { -1 } else { 1 }
         } else {
             chosen_step
@@ -147,9 +150,9 @@ impl HarmonyNavigator {
         self.last_step = final_step; // Mémoriser pour la prochaine fois
         self.current_index += final_step;
 
-        // Contrainte: rester dans une tessiture raisonnable (± 2 octaves)
+        // Contrainte: rester dans une tessiture raisonnable (± 3 octaves)
         self.current_index =
-            self.current_index.clamp(-(self.scale_len as i32 * 2), self.scale_len as i32 * 2);
+            self.current_index.clamp(-(self.scale_len as i32 * 3), self.scale_len as i32 * 3);
 
         self.get_frequency()
     }
@@ -189,43 +192,65 @@ impl HarmonyNavigator {
         // 1. LE GPS (Bruit Fractal) : Quelle est la "tendance" globale ?
         let fractal_drift = self.pink_noise.next_value(rng);
         let center_index = 0;
-        let target_index = center_index + (fractal_drift * 12.0) as i32;
+        let target_index = center_index + (fractal_drift * 18.0) as i32;
 
         // 2. LE CONDUCTEUR (Markov) : Quels sont les mouvements musicaux valides ?
         let normalized_index = self.current_index.rem_euclid(self.scale_len as i32);
         let (steps, original_weights) = self.get_weighted_steps(normalized_index, is_strong_beat);
 
-        // 3. LA FUSION : On biaise les poids vers la cible fractale
+        // 3. LA FUSION : Fractal gently nudges the Markov distribution
+        // CORELIB-21: The fractal should act as a *tiebreaker*, not override Markov.
+        // Steps toward fractal target get a mild boost; others are unchanged (not penalized).
+        // This preserves the broadened interval distribution from get_weighted_steps.
         let mut final_weights = Vec::with_capacity(original_weights.len());
         let current_dist = (target_index - self.current_index).abs();
-        let fractal_influence = self.hurst_factor.mul_add(3.0, 0.5);
+        // Mild boost: 1.3x for steps toward target (was 2.6x)
+        let fractal_boost = 1.3_f32;
 
         for (i, &step) in steps.iter().enumerate() {
             let predicted_index = self.current_index + step;
             let new_dist = (target_index - predicted_index).abs();
-            let mut weight = original_weights[i] as f32;
+            let weight = original_weights[i] as f32;
 
             if new_dist < current_dist {
-                weight *= fractal_influence;
+                final_weights.push(weight * fractal_boost);
             } else {
-                weight *= 0.8;
+                final_weights.push(weight); // No penalty — preserve Markov distribution
             }
-
-            final_weights.push(weight);
         }
 
         // 4. SÉLECTION PONDÉRÉE
         let chosen_step = weighted_sample_f32(&steps, &final_weights, rng);
 
-        // === Gap Fill (Temperley) ===
-        if self.last_step.abs() > 2
-            && chosen_step.abs() > 2
+        // === Gap Fill (Temperley) — softened for CORELIB-21 ===
+        // Only trigger after very large leaps (>=5) continuing in same direction
+        let step = if self.last_step.abs() >= 5
+            && chosen_step.abs() >= 3
             && chosen_step.signum() == self.last_step.signum()
         {
             if chosen_step > 0 { -1 } else { 1 }
         } else {
             chosen_step
+        };
+
+        // === MAX-RUN-LENGTH: Force direction change after too many same-direction moves ===
+        // CORELIB-21: Addresses low direction_changes metric
+        if step != 0 {
+            let step_dir = step.signum();
+            if step_dir == self.consecutive_direction.signum() {
+                self.consecutive_direction += step_dir;
+            } else {
+                self.consecutive_direction = step_dir;
+            }
+
+            // After 6 consecutive same-direction steps, force a reversal
+            if self.consecutive_direction.abs() >= 6 {
+                self.consecutive_direction = 0;
+                return if step > 0 { -step.min(3) } else { (-step).min(3) };
+            }
         }
+
+        step
     }
 
     /// Applique le saut mélodique, met à jour l'historique et calcule la fréquence finale
@@ -233,9 +258,10 @@ impl HarmonyNavigator {
         self.last_step = step;
         self.current_index += step;
 
-        // Contraintes physiques (Tessiture)
+        // Contraintes physiques (Tessiture) — CORELIB-21: widened from ±2 to ±3 octaves
+        // This allows pitch_range to reach reference values (~80 semitones)
         self.current_index =
-            self.current_index.clamp(-(self.scale_len as i32 * 2), self.scale_len as i32 * 2);
+            self.current_index.clamp(-(self.scale_len as i32 * 3), self.scale_len as i32 * 3);
 
         self.get_frequency()
     }
@@ -249,8 +275,8 @@ impl HarmonyNavigator {
     ) -> f32 {
         // Au début d'une mesure, on décide si on réutilise le motif précédent
         if is_new_measure {
-            // 50% de chance de répéter le motif (cohérence), 50% de générer du nouveau
-            let repeat = rng.next_f32() < 0.5;
+            // CORELIB-21: Reduced from 50% to 30% — less motif repetition for more variety
+            let repeat = rng.next_f32() < 0.3;
             self.playing_motif = repeat && !self.motif_buffer.is_empty();
             self.motif_index = 0;
             if !self.playing_motif {
@@ -282,54 +308,63 @@ impl HarmonyNavigator {
     }
 
     /// Calcule les probabilités de mouvement selon la théorie musicale
-    /// CORRECTION: Notes stables = bonnes destinations, PAS immobilité!
-    /// On favorise le MOUVEMENT (arpèges, sauts d'octave) plutôt que la répétition
-    /// + PROGRESSION HARMONIQUE: les notes stables changent selon l'accord courant!
+    /// CORELIB-21: Broadened intervals for pitch variety + reduced stepwise dominance
+    /// - Steps (±1): ~30-40% (was 80-90%) to match reference step_ratio ~25%
+    /// - Leaps (±3,±4,±5): significant weight for pitch class entropy
+    /// - Octave jumps: present in all cases for pitch range
     fn get_weighted_steps(
         &self,
         normalized_index: i32,
         is_strong_beat: bool,
     ) -> (Vec<i32>, Vec<u32>) {
-        // === CONTEXTE HARMONIQUE: Identifier les degrés selon l'ACCORD ACTUEL ===
-        // Plus sophistiqué que "1, 3, 5 statiques" - maintenant dynamique!
         let is_chord_tone = self.is_in_current_chord(normalized_index);
-
         let is_tonic = normalized_index == 0;
         let is_leading_tone = self.scale_len == 7 && normalized_index == 6;
-
-        // Saut d'octave (7 en diatonique, 5 en pentatonique)
         let octave_jump = self.scale_len as i32;
 
-        // === CAS 1: TONIQUE (La maison - affirmer l'accord, pas stagner!) ===
+        // === CAS 1: TONIQUE — affirmer l'accord via arpège et leaps ===
         if is_tonic {
             if is_strong_beat {
-                // Affirmer l'accord par arpège (tierce +2, quinte +4) ou octave
-                // Réduire "0" à 10% (juste pour effet rythmique occasionnel)
-                (vec![0, 2, 4, -3, octave_jump, -octave_jump], vec![10, 30, 25, 15, 10, 10])
+                // Arpège + large leaps for variety
+                (
+                    vec![0, 2, 4, -3, -5, 3, 5, octave_jump, -octave_jump],
+                    vec![5, 20, 18, 12, 8, 10, 7, 10, 10],
+                )
             } else {
-                // Temps faible: préparer le mouvement avec notes de passage
-                (vec![1, -1, 2, -2, 0], vec![30, 30, 15, 15, 10])
+                // Mix of steps and leaps
+                (
+                    vec![1, -1, 2, -2, 3, -3, 4, -4],
+                    vec![15, 15, 15, 15, 12, 12, 8, 8],
+                )
             }
         }
-        // === CAS 2: SENSIBLE (7ème degré) - TRES forte attraction ===
+        // === CAS 2: SENSIBLE — strong resolution but allow occasional escape ===
         else if is_leading_tone {
-            // 85% de résolution vers la tonique (+1)
-            (vec![1, -1, 0, -2], vec![85, 10, 2, 3])
+            (
+                vec![1, -1, -2, 2, -3, 3],
+                vec![50, 15, 10, 10, 8, 7],
+            )
         }
-        // === CAS 3: AUTRES NOTES D'ACCORD (Tierce, Quinte) ===
+        // === CAS 3: NOTES D'ACCORD — navigate with mix of steps and leaps ===
         else if is_chord_tone {
             if is_strong_beat {
-                // Naviguer dans l'arpège vers tonique ou autre note d'accord
-                (vec![0, -2, 2, -4, 1, -1], vec![10, 30, 30, 10, 10, 10])
+                (
+                    vec![0, -2, 2, -4, 4, 1, -1, 3, -3, -5, 5, octave_jump, -octave_jump],
+                    vec![5, 14, 14, 10, 8, 8, 8, 8, 8, 5, 5, 4, 3],
+                )
             } else {
-                // Mouvement par notes de passage
-                (vec![1, -1, 2, -2, 0], vec![40, 40, 10, 5, 5])
+                (
+                    vec![1, -1, 2, -2, 3, -3, 4, -4, 5, -5],
+                    vec![14, 14, 14, 14, 10, 10, 8, 8, 4, 4],
+                )
             }
         }
-        // === CAS 4: NOTES DE PASSAGE (Instables - doivent résoudre) ===
+        // === CAS 4: NOTES DE PASSAGE — resolve but allow leaps to non-adjacent tones ===
         else {
-            // Résolution vers note stable voisine (mouvement conjoint dominant)
-            (vec![1, -1, 0], vec![45, 45, 10])
+            (
+                vec![1, -1, 2, -2, 3, -3, 4, -4],
+                vec![18, 18, 14, 14, 10, 10, 8, 8],
+            )
         }
     }
 
@@ -455,9 +490,10 @@ mod tests {
         let navigator = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, 4);
         let (steps, weights) = navigator.get_weighted_steps(2, true); // 3ème degré = note d'accord
 
-        // Note d'accord sur temps fort: doit favoriser stabilité et mouvements conjoints
+        // Note d'accord sur temps fort: doit have mix of steps AND leaps
         assert!(steps.contains(&0)); // Peut rester
-        assert!(steps.contains(&1) || steps.contains(&-1)); // Ou bouger conjointement
+        assert!(steps.contains(&1) || steps.contains(&-1)); // Steps
+        assert!(steps.contains(&3) || steps.contains(&-3)); // Leaps also present
         assert!(weights.iter().sum::<u32>() == 100); // Total des poids = 100%
     }
 
@@ -474,12 +510,13 @@ mod tests {
             movements.push(navigator.current_index - prev_index);
         }
 
-        // Vérifier que ce n'est pas uniforme (comme le serait un pur random walk)
-        // Les mouvements conjoints (-1, 0, 1) devraient être plus fréquents que les sauts
-        let conjunct = movements.iter().filter(|&&m| m.abs() <= 1).count();
-        let disjunct = movements.iter().filter(|&&m| m.abs() > 1).count();
+        // CORELIB-21: With broadened intervals, we expect a healthy mix of steps AND leaps
+        // Steps (±1) should still be present but leaps (>±2) should also appear frequently
+        let steps = movements.iter().filter(|&&m| m.abs() <= 1).count();
+        let leaps = movements.iter().filter(|&&m| m.abs() >= 3).count();
 
-        assert!(conjunct > disjunct); // Mouvements conjoints dominants
+        assert!(steps > 10, "Should still have some stepwise motion, got {steps}");
+        assert!(leaps > 10, "Should have significant leaps for variety, got {leaps}");
     }
 
     #[test]
