@@ -317,20 +317,57 @@ impl HarmonyNavigator {
                 self.bars_in_register = 0;
             }
 
-            // CORELIB-21: Reduced from 50% to 30% — less motif repetition for more variety
-            let repeat = rng.next_f32() < 0.3;
-            self.playing_motif = repeat && !self.motif_buffer.is_empty();
+            // === MOTIF DEVELOPMENT (CORELIB-8) ===
+            // At each new measure, choose how to handle the motif:
+            // - New material: generate fresh (clears buffer)
+            // - Exact repeat: replay motif_buffer verbatim
+            // - Inversion: flip all intervals (ascending↔descending)
+            // - Fragmentation: replay only first half of motif
+            // - Sequence: replay motif transposed up/down by 1-2 scale degrees
+            // Probabilities shift with tension: high tension → more new/fragmentation
             self.motif_index = 0;
-            if !self.playing_motif {
-                self.motif_buffer.clear(); // On part sur du neuf
+            if self.motif_buffer.is_empty() {
+                self.playing_motif = false;
+            } else {
+                let r = rng.next_f32();
+                let t = self.tension;
+                // Thresholds: [0..exact][..invert][..fragment][..sequence][..new]
+                let exact_thresh = 0.20 - t * 0.10;     // 20% at low T, 10% at high T
+                let invert_thresh = exact_thresh + 0.15;  // +15%
+                let fragment_thresh = invert_thresh + 0.10 + t * 0.10; // 10-20%
+                let sequence_thresh = fragment_thresh + 0.15; // +15%
+                // Remainder = new material
+
+                if r < exact_thresh {
+                    // Exact repeat
+                    self.playing_motif = true;
+                } else if r < invert_thresh {
+                    // Inversion: flip intervals
+                    self.motif_buffer = self.motif_buffer.iter().map(|&s| -s).collect();
+                    self.playing_motif = true;
+                } else if r < fragment_thresh {
+                    // Fragmentation: keep only first half
+                    let half = (self.motif_buffer.len() / 2).max(1);
+                    self.motif_buffer.truncate(half);
+                    self.playing_motif = true;
+                } else if r < sequence_thresh {
+                    // Sequence: transpose all steps by +1 or +2 (shift register)
+                    let shift = if rng.next_f32() < 0.5 { 1 } else { 2 };
+                    self.current_index += shift;
+                    self.playing_motif = true;
+                } else {
+                    // New material
+                    self.motif_buffer.clear();
+                    self.playing_motif = false;
+                }
             }
         }
 
         let step = if self.playing_motif && self.motif_index < self.motif_buffer.len() {
-            // RÉPÉTITION : On rejoue le même intervalle relatif
+            // DÉVELOPPEMENT : replay (possibly transformed) motif interval
             self.motif_buffer[self.motif_index]
         } else {
-            // GÉNÉRATION : On utilise la logique Markov existante
+            // GÉNÉRATION : fresh material via Markov+Fractal hybrid
             let generated_step = self.generate_hybrid_step(is_strong_beat, rng);
             if !self.playing_motif {
                 self.motif_buffer.push(generated_step);
