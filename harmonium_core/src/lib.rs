@@ -18,7 +18,9 @@ pub use export::{
     ChordSymbol, GitVersion, to_musicxml, to_musicxml_with_chords, write_musicxml,
     write_musicxml_with_chords,
 };
-pub use params::{EngineParams, InstrumentConfig, MusicalParams};
+pub use params::{
+    EngineParams, InstrumentConfig, MelodyScaleType, MusicalParams, key_root_to_pitch_symbol,
+};
 pub use report::{EngineReport, MeasureSnapshot, NoteEvent, NoteSnapshot};
 pub use sequencer::Sequencer;
 

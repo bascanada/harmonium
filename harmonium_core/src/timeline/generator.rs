@@ -536,6 +536,7 @@ impl TimelineGenerator {
 
         // Melody
         self.harmony.set_hurst_factor(params.melody_smoothness);
+        self.harmony.set_tension(params.harmony_tension);
 
         // Re-parse chord chart when it changes
         if self.musical_params.chord_chart != params.chord_chart {

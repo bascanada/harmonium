@@ -13,7 +13,7 @@ use harmonium_core::{
     events::AudioEvent,
     export::{ChordSymbol, write_musicxml_with_chords},
     harmony::driver::HarmonicDriver,
-    params::{InstrumentConfig, MusicalParams},
+    params::{InstrumentConfig, MelodyScaleType, MusicalParams},
     sequencer::{RhythmMode, Sequencer},
 };
 
@@ -705,20 +705,23 @@ fn generate_lab_export(
 ) {
     use harmonium_core::{
         harmony::melody::HarmonyNavigator,
+        key_root_to_pitch_symbol,
         params::CurrentState,
         report::MeasureSnapshot,
         timeline::{
             ScoreTimeline, TimelineGenerator, timeline_to_musicxml, write_midi,
         },
     };
-    use rust_music_theory::{note::PitchSymbol, scale::ScaleType};
 
     setup_output_dir();
 
     let seq_primary = Sequencer::new(params.rhythm_steps, params.rhythm_pulses, params.bpm);
     let seq_secondary = Sequencer::new_with_rotation(12, 3, params.bpm, 0);
-    let harmony =
-        HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, params.melody_octave);
+    // CORELIB-22: Use correct key root and scale type from params
+    let pitch_symbol = key_root_to_pitch_symbol(params.key_root);
+    let is_minor = params.harmony_valence < 0.0;
+    let scale_type = params.melody_scale_type.to_rmt_scale_type(is_minor);
+    let harmony = HarmonyNavigator::new(pitch_symbol, scale_type, params.melody_octave);
     let driver = HarmonicDriver::new(params.key_root);
     let state = CurrentState {
         bpm: params.bpm,
@@ -840,6 +843,7 @@ fn generate_all_lab_exports() {
     p.harmony_tension = 0.15;
     p.harmony_valence = 0.3;
     p.melody_smoothness = 0.8;
+    p.melody_scale_type = MelodyScaleType::Pentatonic; // Ambient = safe pentatonic
     p.key_root = 0;
     lab_scenario("lab_ambient_calm_c", &p, BARS, &SEEDS);
 
@@ -963,6 +967,7 @@ fn generate_all_lab_exports() {
     p.harmony_tension = 0.4;
     p.harmony_valence = -0.1;
     p.melody_smoothness = 0.45;
+    p.melody_scale_type = MelodyScaleType::Blues; // Blues scale for bluesy practice
     p.key_root = 10; // Bb
     lab_scenario("lab_practice_blues_bb", &p, BARS, &SEEDS);
 
@@ -978,6 +983,7 @@ fn generate_all_lab_exports() {
     p.harmony_tension = 0.7;
     p.harmony_valence = -0.3;
     p.melody_smoothness = 0.3;
+    p.melody_scale_type = MelodyScaleType::HarmonicMinor; // Dramatic = harmonic minor
     p.key_root = 2; // D
     lab_scenario("lab_dramatic_high_dm", &p, BARS, &SEEDS);
 
@@ -988,6 +994,7 @@ fn generate_all_lab_exports() {
     p.harmony_tension = 0.85;
     p.harmony_valence = -0.6;
     p.melody_smoothness = 0.2;
+    // melody_scale_type inherited from dramatic block (HarmonicMinor)
     p.key_root = 4; // E
     lab_scenario("lab_dramatic_intense_em", &p, BARS, &SEEDS);
 

@@ -13,7 +13,63 @@
 use arrayvec::ArrayString;
 use serde::{Deserialize, Serialize};
 
+use rust_music_theory::note::PitchSymbol;
+
 use crate::{harmony::HarmonyMode, sequencer::RhythmMode};
+
+/// Scale type for melody generation (CORELIB-22)
+///
+/// Controls the pitch-class vocabulary available to the melody generator.
+/// Pentatonic (5 notes) is safe/consonant, Diatonic (7 notes) adds variety,
+/// HarmonicMinor (7 notes) adds drama, Blues (6 notes) adds color.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum MelodyScaleType {
+    /// 5-note scale — safe, consonant, ambient (PCE max ~2.3)
+    Pentatonic,
+    /// 7-note major/minor scale — standard for most music (PCE max ~2.8)
+    #[default]
+    Diatonic,
+    /// 7-note harmonic minor — dramatic, cinematic
+    HarmonicMinor,
+    /// 6-note blues scale — jazzy color
+    Blues,
+}
+
+impl MelodyScaleType {
+    /// Convert to `rust_music_theory::ScaleType`
+    #[must_use]
+    pub fn to_rmt_scale_type(self, is_minor: bool) -> rust_music_theory::scale::ScaleType {
+        use rust_music_theory::scale::ScaleType;
+        match self {
+            Self::Pentatonic => {
+                if is_minor { ScaleType::PentatonicMinor } else { ScaleType::PentatonicMajor }
+            }
+            Self::Diatonic => ScaleType::Diatonic,
+            Self::HarmonicMinor => ScaleType::HarmonicMinor,
+            Self::Blues => ScaleType::Blues,
+        }
+    }
+}
+
+/// Convert a key_root (0=C, 1=C#, ..., 11=B) to `PitchSymbol`
+#[must_use]
+pub fn key_root_to_pitch_symbol(key_root: u8) -> PitchSymbol {
+    match key_root % 12 {
+        0 => PitchSymbol::C,
+        1 => PitchSymbol::Cs,
+        2 => PitchSymbol::D,
+        3 => PitchSymbol::Eb,
+        4 => PitchSymbol::E,
+        5 => PitchSymbol::F,
+        6 => PitchSymbol::Fs,
+        7 => PitchSymbol::G,
+        8 => PitchSymbol::Ab,
+        9 => PitchSymbol::A,
+        10 => PitchSymbol::Bb,
+        11 => PitchSymbol::B,
+        _ => PitchSymbol::C,
+    }
+}
 
 /// Signature rythmique (numérateur/dénominateur)
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -451,6 +507,11 @@ pub struct MusicalParams {
     #[serde(default = "default_smoothness")]
     pub melody_smoothness: f32,
 
+    /// Scale type for melody generation (CORELIB-22)
+    /// Default: Diatonic (7 notes, good pitch variety)
+    #[serde(default)]
+    pub melody_scale_type: MelodyScaleType,
+
     /// Densité de voicing (0.0-1.0)
     /// Contrôle la probabilité de jouer des accords vs notes seules
     #[serde(default = "default_density")]
@@ -624,6 +685,7 @@ impl Default for MusicalParams {
 
             // Mélodie / Voicing
             melody_smoothness: default_smoothness(),
+            melody_scale_type: MelodyScaleType::default(),
             voicing_density: default_density(),
             voicing_tension: default_tension(),
             melody_octave: default_octave(),

@@ -31,6 +31,9 @@ pub struct HarmonyNavigator {
     playing_motif: bool,
     // === CONTOUR CONTROL (CORELIB-21) ===
     consecutive_direction: i32, // Count of consecutive same-direction steps (+/-)
+    // === CHROMATIC PASSING TONES (CORELIB-22) ===
+    chromatic_offset: i32, // ±1 semitone offset applied to next note (0 = diatonic)
+    tension: f32,          // Harmony tension (0.0-1.0), controls chromatic probability
 }
 
 impl HarmonyNavigator {
@@ -73,6 +76,8 @@ impl HarmonyNavigator {
             motif_index: 0,
             playing_motif: false,
             consecutive_direction: 0,
+            chromatic_offset: 0,
+            tension: 0.3,
         }
     }
 
@@ -259,11 +264,20 @@ impl HarmonyNavigator {
         self.current_index += step;
 
         // Contraintes physiques (Tessiture) — CORELIB-21: widened from ±2 to ±3 octaves
-        // This allows pitch_range to reach reference values (~80 semitones)
         self.current_index =
             self.current_index.clamp(-(self.scale_len as i32 * 3), self.scale_len as i32 * 3);
 
-        self.get_frequency()
+        let freq = self.get_frequency();
+
+        // CORELIB-22: Apply chromatic offset (±1 semitone) if set
+        if self.chromatic_offset != 0 {
+            let offset = self.chromatic_offset;
+            self.chromatic_offset = 0;
+            // Shift by semitones: multiply frequency by 2^(offset/12)
+            freq * (offset as f32 / 12.0).exp2()
+        } else {
+            freq
+        }
     }
 
     /// Version structurée avec mémoire de motifs (Call & Response, Répétition)
@@ -294,6 +308,21 @@ impl HarmonyNavigator {
                 self.motif_buffer.push(generated_step);
             }
             generated_step
+        };
+
+        // === CHROMATIC PASSING TONES (CORELIB-22) ===
+        // On weak beats with tension > 0.3, occasionally inject ±1 semitone offset.
+        // Probability scales with tension: 0% at 0.3, ~20% at 1.0.
+        // Strong beats stay diatonic for stability.
+        self.chromatic_offset = if !is_strong_beat && self.tension > 0.3 {
+            let chromatic_prob = (self.tension - 0.3) * 0.3; // 0-21% range
+            if rng.next_f32() < chromatic_prob {
+                if rng.next_f32() < 0.5 { 1 } else { -1 }
+            } else {
+                0
+            }
+        } else {
+            0
         };
 
         self.motif_index += 1;
@@ -397,6 +426,11 @@ impl HarmonyNavigator {
 
     pub const fn set_hurst_factor(&mut self, factor: f32) {
         self.hurst_factor = factor.clamp(0.0, 1.0);
+    }
+
+    /// Set harmony tension level — controls chromatic passing tone probability (CORELIB-22)
+    pub const fn set_tension(&mut self, tension: f32) {
+        self.tension = tension.clamp(0.0, 1.0);
     }
 }
 
