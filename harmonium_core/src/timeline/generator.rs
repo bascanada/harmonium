@@ -169,6 +169,25 @@ impl TimelineGenerator {
         (arc - 0.5) * 0.40
     }
 
+    /// Section-level dynamic contrast (CORELIB-7).
+    ///
+    /// Creates AABA-like form over 32 bars with contrasting energy:
+    /// - Section A  (bars  0-7):  moderate (0.0)
+    /// - Section B  (bars  8-15): quiet    (-0.25)
+    /// - Section A' (bars 16-23): climax   (+0.25)
+    /// - Section B' (bars 24-31): resolve  (-0.10)
+    /// Returns arousal/density offset for the current bar.
+    fn section_arc_modifier(bar_index: usize) -> f32 {
+        const SECTION_LEN: usize = 8;
+        match (bar_index / SECTION_LEN) % 4 {
+            0 => 0.0,    // A: moderate
+            1 => -0.25,  // B: quiet (drop)
+            2 => 0.25,   // A': climax (peak)
+            3 => -0.10,  // B': resolve (gentle landing)
+            _ => 0.0,
+        }
+    }
+
     pub fn generate_measure(&mut self, bar_index: usize, rng: &mut dyn RngCore) -> Measure {
         self.current_bar = bar_index;
 
@@ -176,13 +195,18 @@ impl TimelineGenerator {
         // params affect the writehead directly, next bar uses new values.
         self.snap_current_state();
 
+        // === SECTION ARC (CORELIB-7) ===
+        // Large-scale form: contrasting 8-bar sections for velocity_range
+        let section = Self::section_arc_modifier(bar_index);
+        self.current_state.arousal = (self.current_state.arousal + section).clamp(0.0, 1.0);
+        self.current_state.density = (self.current_state.density + section * 0.5).clamp(0.05, 1.0);
+
         // === PHRASE ARC (CORELIB-4) ===
         // Modulate density and tension over 4-bar phrases to create
         // establish → develop → climax → resolve structure.
         let arc = Self::phrase_arc_modifier(bar_index);
         self.current_state.density = (self.current_state.density + arc).clamp(0.05, 1.0);
         self.current_state.tension = (self.current_state.tension + arc * 0.5).clamp(0.0, 1.0);
-        // Arousal follows the arc too — affects velocity base
         self.current_state.arousal = (self.current_state.arousal + arc * 0.3).clamp(0.0, 1.0);
 
         let time_sig = self.musical_params.time_signature;
