@@ -6,8 +6,10 @@
 
 use std::path::Path;
 
-use midly::num::{u15, u24, u28, u4, u7};
-use midly::{Format, Header, MidiMessage, MetaMessage, Smf, Timing, TrackEvent, TrackEventKind};
+use midly::{
+    Format, Header, MetaMessage, MidiMessage, Smf, Timing, TrackEvent, TrackEventKind,
+    num::{u4, u7, u15, u24, u28},
+};
 
 use super::{Measure, ScoreTimeline, TrackId};
 
@@ -42,22 +44,17 @@ pub fn timeline_to_midi(timeline: &ScoreTimeline) -> Vec<u8> {
         return empty_midi();
     }
 
-    let header = Header::new(
-        Format::Parallel,
-        Timing::Metrical(u15::new(TICKS_PER_QUARTER)),
-    );
+    let header = Header::new(Format::Parallel, Timing::Metrical(u15::new(TICKS_PER_QUARTER)));
     let mut smf = Smf::new(header);
 
     // Track 0: tempo map + time signatures
     smf.tracks.push(build_tempo_track(measures));
 
     // Track 1: Bass (channel 0)
-    smf.tracks
-        .push(build_instrument_track(measures, TrackId::Bass, 0, "Bass"));
+    smf.tracks.push(build_instrument_track(measures, TrackId::Bass, 0, "Bass"));
 
     // Track 2: Lead (channel 1)
-    smf.tracks
-        .push(build_instrument_track(measures, TrackId::Lead, 1, "Lead"));
+    smf.tracks.push(build_instrument_track(measures, TrackId::Lead, 1, "Lead"));
 
     // Track 3: Drums (channel 9, combining snare + hat)
     smf.tracks.push(build_drum_track(measures));
@@ -75,10 +72,7 @@ pub fn write_midi(timeline: &ScoreTimeline, path: &Path) -> std::io::Result<()> 
 
 /// Produce a minimal empty MIDI file.
 fn empty_midi() -> Vec<u8> {
-    let header = Header::new(
-        Format::Parallel,
-        Timing::Metrical(u15::new(TICKS_PER_QUARTER)),
-    );
+    let header = Header::new(Format::Parallel, Timing::Metrical(u15::new(TICKS_PER_QUARTER)));
     let mut smf = Smf::new(header);
     // Single empty track with just EndOfTrack
     smf.tracks.push(vec![TrackEvent {
@@ -107,7 +101,7 @@ fn build_tempo_track(measures: &[Measure]) -> Vec<TrackEvent<'static>> {
     });
 
     for measure in measures {
-        let measure_start_tick = measure_start(measure) ;
+        let measure_start_tick = measure_start(measure);
 
         // Time signature (emit on change or first measure)
         let ts = (measure.time_signature.numerator, measure.time_signature.denominator);
@@ -132,9 +126,7 @@ fn build_tempo_track(measures: &[Measure]) -> Vec<TrackEvent<'static>> {
             let delta = measure_start_tick.saturating_sub(current_tick);
             events.push(TrackEvent {
                 delta: u28::new(delta),
-                kind: TrackEventKind::Meta(MetaMessage::Tempo(
-                    u24::new(tempo_uspq),
-                )),
+                kind: TrackEventKind::Meta(MetaMessage::Tempo(u24::new(tempo_uspq))),
             });
             current_tick = measure_start_tick;
             last_tempo = Some(tempo_uspq);
@@ -167,11 +159,7 @@ fn build_instrument_track(
         let base_tick = measure_start(measure);
         for note in measure.notes_for_track(track_id) {
             let on_tick = base_tick + (note.start_step as u32) * TICKS_PER_STEP;
-            let vel = if note.velocity == 0 {
-                DEFAULT_TRIGGER_VELOCITY
-            } else {
-                note.velocity
-            };
+            let vel = if note.velocity == 0 { DEFAULT_TRIGGER_VELOCITY } else { note.velocity };
             let dur_ticks = if note.duration_steps == 0 {
                 // Trigger: short duration
                 TICKS_PER_STEP / 2
@@ -184,20 +172,14 @@ fn build_instrument_track(
                 on_tick,
                 TrackEventKind::Midi {
                     channel: u4::new(channel),
-                    message: MidiMessage::NoteOn {
-                        key: u7::new(note.pitch),
-                        vel: u7::new(vel),
-                    },
+                    message: MidiMessage::NoteOn { key: u7::new(note.pitch), vel: u7::new(vel) },
                 },
             ));
             events.push((
                 off_tick,
                 TrackEventKind::Midi {
                     channel: u4::new(channel),
-                    message: MidiMessage::NoteOff {
-                        key: u7::new(note.pitch),
-                        vel: u7::new(0),
-                    },
+                    message: MidiMessage::NoteOff { key: u7::new(note.pitch), vel: u7::new(0) },
                 },
             ));
         }
@@ -206,8 +188,10 @@ fn build_instrument_track(
     // Sort by tick, NoteOff before NoteOn at same tick
     events.sort_by(|a, b| {
         a.0.cmp(&b.0).then_with(|| {
-            let a_off = matches!(a.1, TrackEventKind::Midi { message: MidiMessage::NoteOff { .. }, .. });
-            let b_off = matches!(b.1, TrackEventKind::Midi { message: MidiMessage::NoteOff { .. }, .. });
+            let a_off =
+                matches!(a.1, TrackEventKind::Midi { message: MidiMessage::NoteOff { .. }, .. });
+            let b_off =
+                matches!(b.1, TrackEventKind::Midi { message: MidiMessage::NoteOff { .. }, .. });
             b_off.cmp(&a_off)
         })
     });
@@ -227,10 +211,7 @@ fn build_instrument_track(
     let mut prev_tick: u32 = 0;
     for (tick, kind) in events {
         let delta = tick.saturating_sub(prev_tick);
-        track.push(TrackEvent {
-            delta: u28::new(delta),
-            kind,
-        });
+        track.push(TrackEvent { delta: u28::new(delta), kind });
         prev_tick = tick;
     }
 
@@ -255,29 +236,19 @@ fn build_drum_track(measures: &[Measure]) -> Vec<TrackEvent<'static>> {
         // Snare
         for note in measure.notes_for_track(TrackId::Snare) {
             let on_tick = base_tick + (note.start_step as u32) * TICKS_PER_STEP;
-            let vel = if note.velocity == 0 {
-                DEFAULT_TRIGGER_VELOCITY
-            } else {
-                note.velocity
-            };
+            let vel = if note.velocity == 0 { DEFAULT_TRIGGER_VELOCITY } else { note.velocity };
             events.push((
                 on_tick,
                 TrackEventKind::Midi {
                     channel: u4::new(GM_DRUM_CHANNEL),
-                    message: MidiMessage::NoteOn {
-                        key: u7::new(GM_SNARE),
-                        vel: u7::new(vel),
-                    },
+                    message: MidiMessage::NoteOn { key: u7::new(GM_SNARE), vel: u7::new(vel) },
                 },
             ));
             events.push((
                 on_tick + TICKS_PER_STEP,
                 TrackEventKind::Midi {
                     channel: u4::new(GM_DRUM_CHANNEL),
-                    message: MidiMessage::NoteOff {
-                        key: u7::new(GM_SNARE),
-                        vel: u7::new(0),
-                    },
+                    message: MidiMessage::NoteOff { key: u7::new(GM_SNARE), vel: u7::new(0) },
                 },
             ));
         }
@@ -285,29 +256,19 @@ fn build_drum_track(measures: &[Measure]) -> Vec<TrackEvent<'static>> {
         // Hi-hat
         for note in measure.notes_for_track(TrackId::Hat) {
             let on_tick = base_tick + (note.start_step as u32) * TICKS_PER_STEP;
-            let vel = if note.velocity == 0 {
-                DEFAULT_TRIGGER_VELOCITY
-            } else {
-                note.velocity
-            };
+            let vel = if note.velocity == 0 { DEFAULT_TRIGGER_VELOCITY } else { note.velocity };
             events.push((
                 on_tick,
                 TrackEventKind::Midi {
                     channel: u4::new(GM_DRUM_CHANNEL),
-                    message: MidiMessage::NoteOn {
-                        key: u7::new(GM_HIHAT),
-                        vel: u7::new(vel),
-                    },
+                    message: MidiMessage::NoteOn { key: u7::new(GM_HIHAT), vel: u7::new(vel) },
                 },
             ));
             events.push((
                 on_tick + TICKS_PER_STEP,
                 TrackEventKind::Midi {
                     channel: u4::new(GM_DRUM_CHANNEL),
-                    message: MidiMessage::NoteOff {
-                        key: u7::new(GM_HIHAT),
-                        vel: u7::new(0),
-                    },
+                    message: MidiMessage::NoteOff { key: u7::new(GM_HIHAT), vel: u7::new(0) },
                 },
             ));
         }
@@ -316,8 +277,10 @@ fn build_drum_track(measures: &[Measure]) -> Vec<TrackEvent<'static>> {
     // Sort by tick, NoteOff before NoteOn at same tick
     events.sort_by(|a, b| {
         a.0.cmp(&b.0).then_with(|| {
-            let a_off = matches!(a.1, TrackEventKind::Midi { message: MidiMessage::NoteOff { .. }, .. });
-            let b_off = matches!(b.1, TrackEventKind::Midi { message: MidiMessage::NoteOff { .. }, .. });
+            let a_off =
+                matches!(a.1, TrackEventKind::Midi { message: MidiMessage::NoteOff { .. }, .. });
+            let b_off =
+                matches!(b.1, TrackEventKind::Midi { message: MidiMessage::NoteOff { .. }, .. });
             b_off.cmp(&a_off)
         })
     });
@@ -332,10 +295,7 @@ fn build_drum_track(measures: &[Measure]) -> Vec<TrackEvent<'static>> {
     let mut prev_tick: u32 = 0;
     for (tick, kind) in events {
         let delta = tick.saturating_sub(prev_tick);
-        track.push(TrackEvent {
-            delta: u28::new(delta),
-            kind,
-        });
+        track.push(TrackEvent { delta: u28::new(delta), kind });
         prev_tick = tick;
     }
 
@@ -386,19 +346,18 @@ fn denom_to_power(denom: usize) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::params::TimeSignature;
-    use crate::timeline::{Articulation, ChordContext, StateSnapshot, TimelineNote};
+    use crate::{
+        params::TimeSignature,
+        timeline::{Articulation, ChordContext, StateSnapshot, TimelineNote},
+    };
 
     /// Helper: create a minimal timeline with known content.
     fn make_test_timeline() -> ScoreTimeline {
         let mut timeline = ScoreTimeline::new(10);
 
         let mut measure = Measure::new(1, TimeSignature::new(4, 4), 120.0, 16);
-        measure.chord_context = ChordContext {
-            root_offset: 0,
-            is_minor: false,
-            chord_name: "I".to_string(),
-        };
+        measure.chord_context =
+            ChordContext { root_offset: 0, is_minor: false, chord_name: "I".to_string() };
         measure.state_snapshot = StateSnapshot {
             bpm: 120.0,
             density: 0.5,
@@ -512,10 +471,7 @@ mod tests {
 
         // Verify header
         assert_eq!(smf.header.format, Format::Parallel);
-        assert_eq!(
-            smf.header.timing,
-            Timing::Metrical(u15::new(TICKS_PER_QUARTER))
-        );
+        assert_eq!(smf.header.timing, Timing::Metrical(u15::new(TICKS_PER_QUARTER)));
     }
 
     #[test]
@@ -531,10 +487,7 @@ mod tests {
                 .filter(|e| {
                     matches!(
                         e.kind,
-                        TrackEventKind::Midi {
-                            message: MidiMessage::NoteOn { .. },
-                            ..
-                        }
+                        TrackEventKind::Midi { message: MidiMessage::NoteOn { .. }, .. }
                     )
                 })
                 .count()
@@ -572,10 +525,7 @@ mod tests {
 
         // Track 0 should have 4/4 time signature
         let has_ts = smf.tracks[0].iter().any(|e| {
-            matches!(
-                e.kind,
-                TrackEventKind::Meta(MetaMessage::TimeSignature(4, 2, _, _))
-            )
+            matches!(e.kind, TrackEventKind::Meta(MetaMessage::TimeSignature(4, 2, _, _)))
         });
         assert!(has_ts, "Expected 4/4 time signature");
     }
@@ -589,11 +539,7 @@ mod tests {
         // All MIDI events in drum track should be on channel 9
         for event in &smf.tracks[3] {
             if let TrackEventKind::Midi { channel, .. } = event.kind {
-                assert_eq!(
-                    channel.as_int(),
-                    GM_DRUM_CHANNEL,
-                    "Drum events should be on channel 9"
-                );
+                assert_eq!(channel.as_int(), GM_DRUM_CHANNEL, "Drum events should be on channel 9");
             }
         }
     }
@@ -625,13 +571,7 @@ mod tests {
         let note_ons: usize = smf.tracks[2]
             .iter()
             .filter(|e| {
-                matches!(
-                    e.kind,
-                    TrackEventKind::Midi {
-                        message: MidiMessage::NoteOn { .. },
-                        ..
-                    }
-                )
+                matches!(e.kind, TrackEventKind::Midi { message: MidiMessage::NoteOn { .. }, .. })
             })
             .count();
         assert_eq!(note_ons, 4);

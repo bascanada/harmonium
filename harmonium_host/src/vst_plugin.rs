@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use harmonium_audio::backend::vst_midi_backend::VstMidiBackend;
 use harmonium_core::{
-    HarmoniumController, EngineParams,
+    EngineParams, HarmoniumController,
     harmony::HarmonyMode,
     params::{ControlMode, HarmonyState},
     sequencer::RhythmMode,
@@ -312,10 +312,8 @@ impl HarmoniumPlugin {
                     let v = self.params.$param.value();
                     if v != snap.$param {
                         snap.$param = v;
-                        let _ = controller.send(EngineCommand::SetChannelMute {
-                            channel: $ch,
-                            muted: v,
-                        });
+                        let _ = controller
+                            .send(EngineCommand::SetChannelMute { channel: $ch, muted: v });
                     }
                 };
             }
@@ -329,15 +327,20 @@ impl HarmoniumPlugin {
                 let valence = self.params.valence.value();
                 let density = self.params.density.value();
                 let tension = self.params.tension.value();
-                if arousal != snap.arousal || valence != snap.valence
-                    || density != snap.density || tension != snap.tension
+                if arousal != snap.arousal
+                    || valence != snap.valence
+                    || density != snap.density
+                    || tension != snap.tension
                 {
                     snap.arousal = arousal;
                     snap.valence = valence;
                     snap.density = density;
                     snap.tension = tension;
                     let _ = controller.send(EngineCommand::SetEmotionParams {
-                        arousal, valence, density, tension,
+                        arousal,
+                        valence,
+                        density,
+                        tension,
                     });
                 }
             } else {
@@ -350,7 +353,8 @@ impl HarmoniumPlugin {
                 let rm = self.params.rhythm_mode.value();
                 if rm != snap.rhythm_mode {
                     snap.rhythm_mode = rm;
-                    let rhythm_mode = if rm { RhythmMode::PerfectBalance } else { RhythmMode::Euclidean };
+                    let rhythm_mode =
+                        if rm { RhythmMode::PerfectBalance } else { RhythmMode::Euclidean };
                     let _ = controller.send(EngineCommand::SetRhythmMode(rhythm_mode));
                 }
 

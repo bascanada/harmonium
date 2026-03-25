@@ -180,10 +180,10 @@ impl TimelineGenerator {
     fn section_arc_modifier(bar_index: usize) -> f32 {
         const SECTION_LEN: usize = 8;
         match (bar_index / SECTION_LEN) % 4 {
-            0 => 0.0,    // A: moderate
-            1 => -0.25,  // B: quiet (drop)
-            2 => 0.25,   // A': climax (peak)
-            3 => -0.10,  // B': resolve (gentle landing)
+            0 => 0.0,   // A: moderate
+            1 => -0.25, // B: quiet (drop)
+            2 => 0.25,  // A': climax (peak)
+            3 => -0.10, // B': resolve (gentle landing)
             _ => 0.0,
         }
     }
@@ -257,10 +257,12 @@ impl TimelineGenerator {
 
             for beat in 0..num_beats {
                 let beat_step = beat * tpb;
-                if beat_step >= steps { break; }
+                if beat_step >= steps {
+                    break;
+                }
 
                 let pitch = match beat % 4 {
-                    0 => root,                          // Beat 1: root
+                    0 => root,                                                         // Beat 1: root
                     1 => root + if rng.next_f32() < 0.5 { third_interval } else { 7 }, // Beat 2: 3rd or 5th
                     2 => {
                         // Beat 3: passing tone (scalar step between beat 2 and beat 4)
@@ -273,7 +275,8 @@ impl TimelineGenerator {
                     _ => root,
                 };
 
-                let midi_note = self.musical_params.instrument_bass.apply(pitch.clamp(28, 60) as u8);
+                let midi_note =
+                    self.musical_params.instrument_bass.apply(pitch.clamp(28, 60) as u8);
                 let vel = self.shape_velocity(base_vel, beat_step, steps, bar_index, 4);
                 let duration = tpb.min(steps - beat_step); // Quarter note duration
 
@@ -391,8 +394,8 @@ impl TimelineGenerator {
                         Articulation::Staccato
                     };
 
-                    let base_vel =
-                        self.musical_params.vel_base_bass + (self.current_state.arousal * 25.0) as u8;
+                    let base_vel = self.musical_params.vel_base_bass
+                        + (self.current_state.arousal * 25.0) as u8;
                     let vel = self.shape_velocity(base_vel, step, steps, bar_index, 4);
 
                     measure.add_note(
@@ -465,7 +468,9 @@ impl TimelineGenerator {
                         let cell = Self::pick_rhythmic_cell(gap, density, rng);
                         let mut cell_offset = 0;
                         for (i, &dur) in cell.iter().enumerate() {
-                            if cell_offset >= gap { break; }
+                            if cell_offset >= gap {
+                                break;
+                            }
                             let actual_dur = dur.min(gap - cell_offset);
 
                             // First note of cell reuses the already-generated pitch;
@@ -739,11 +744,7 @@ impl TimelineGenerator {
     ///
     /// Returns a `Vec<usize>` of notation-safe durations that sum to approximately `gap`.
     /// Higher density → more subdivision, shorter notes.
-    fn pick_rhythmic_cell(
-        gap: usize,
-        density: f32,
-        rng: &mut dyn RngCore,
-    ) -> Vec<usize> {
+    fn pick_rhythmic_cell(gap: usize, density: f32, rng: &mut dyn RngCore) -> Vec<usize> {
         // Rhythmic cell patterns organized by subdivision level.
         // Each pattern is designed to sum close to common gap sizes.
         match gap {
@@ -751,26 +752,26 @@ impl TimelineGenerator {
             4 => {
                 let r = rng.next_f32();
                 if density < 0.4 {
-                    vec![3, 1]       // dotted-8th + 16th
+                    vec![3, 1] // dotted-8th + 16th
                 } else if r < 0.4 {
-                    vec![2, 2]       // two 8ths
+                    vec![2, 2] // two 8ths
                 } else if r < 0.7 {
-                    vec![1, 1, 2]    // two 16ths + 8th
+                    vec![1, 1, 2] // two 16ths + 8th
                 } else {
-                    vec![2, 1, 1]    // 8th + two 16ths
+                    vec![2, 1, 1] // 8th + two 16ths
                 }
             }
             // Half note gap (8 steps): richer subdivision
             8 => {
                 let r = rng.next_f32();
                 if density < 0.3 {
-                    vec![6, 2]       // dotted-quarter + 8th
+                    vec![6, 2] // dotted-quarter + 8th
                 } else if r < 0.3 {
-                    vec![4, 4]       // two quarters
+                    vec![4, 4] // two quarters
                 } else if r < 0.5 {
-                    vec![4, 2, 2]    // quarter + two 8ths
+                    vec![4, 2, 2] // quarter + two 8ths
                 } else if r < 0.7 {
-                    vec![2, 2, 4]    // two 8ths + quarter
+                    vec![2, 2, 4] // two 8ths + quarter
                 } else {
                     vec![2, 2, 2, 2] // four 8ths
                 }
@@ -779,11 +780,11 @@ impl TimelineGenerator {
             6 => {
                 let r = rng.next_f32();
                 if r < 0.4 {
-                    vec![4, 2]       // quarter + 8th
+                    vec![4, 2] // quarter + 8th
                 } else if r < 0.7 {
-                    vec![2, 4]       // 8th + quarter
+                    vec![2, 4] // 8th + quarter
                 } else {
-                    vec![2, 2, 2]    // three 8ths
+                    vec![2, 2, 2] // three 8ths
                 }
             }
             // Dotted half or longer (12+ steps)

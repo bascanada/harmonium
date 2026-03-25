@@ -11,9 +11,8 @@
 //! ```
 
 use arrayvec::ArrayString;
-use serde::{Deserialize, Serialize};
-
 use rust_music_theory::note::PitchSymbol;
+use serde::{Deserialize, Serialize};
 
 use crate::{harmony::HarmonyMode, sequencer::RhythmMode};
 
@@ -42,7 +41,11 @@ impl MelodyScaleType {
         use rust_music_theory::scale::ScaleType;
         match self {
             Self::Pentatonic => {
-                if is_minor { ScaleType::PentatonicMinor } else { ScaleType::PentatonicMajor }
+                if is_minor {
+                    ScaleType::PentatonicMinor
+                } else {
+                    ScaleType::PentatonicMajor
+                }
             }
             Self::Diatonic => ScaleType::Diatonic,
             Self::HarmonicMinor => ScaleType::HarmonicMinor,

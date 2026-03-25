@@ -35,7 +35,7 @@ pub struct HarmonyNavigator {
     chromatic_offset: i32, // ±1 semitone offset applied to next note (0 = diatonic)
     tension: f32,          // Harmony tension (0.0-1.0), controls chromatic probability
     // === REGISTER EXPLORATION (CORELIB-12) ===
-    bars_in_register: u8,  // How many bars spent near current octave
+    bars_in_register: u8, // How many bars spent near current octave
 }
 
 impl HarmonyNavigator {
@@ -148,12 +148,13 @@ impl HarmonyNavigator {
 
         // === GAP FILL (Temperley): Après un GRAND saut, tendance à compenser ===
         // CORELIB-21: Softened threshold from >2 to >=5, and only nudge (don't force)
-        let final_step = if self.last_step.abs() >= 5 && chosen_step.signum() == self.last_step.signum() {
-            // Very large leap in same direction: reverse by step
-            if self.last_step > 0 { -1 } else { 1 }
-        } else {
-            chosen_step
-        };
+        let final_step =
+            if self.last_step.abs() >= 5 && chosen_step.signum() == self.last_step.signum() {
+                // Very large leap in same direction: reverse by step
+                if self.last_step > 0 { -1 } else { 1 }
+            } else {
+                chosen_step
+            };
 
         self.last_step = final_step; // Mémoriser pour la prochaine fois
         self.current_index += final_step;
@@ -332,8 +333,8 @@ impl HarmonyNavigator {
                 let r = rng.next_f32();
                 let t = self.tension;
                 // Thresholds: [0..exact][..invert][..fragment][..sequence][..new]
-                let exact_thresh = 0.20 - t * 0.10;     // 20% at low T, 10% at high T
-                let invert_thresh = exact_thresh + 0.15;  // +15%
+                let exact_thresh = 0.20 - t * 0.10; // 20% at low T, 10% at high T
+                let invert_thresh = exact_thresh + 0.15; // +15%
                 let fragment_thresh = invert_thresh + 0.10 + t * 0.10; // 10-20%
                 let sequence_thresh = fragment_thresh + 0.15; // +15%
                 // Remainder = new material
@@ -426,18 +427,12 @@ impl HarmonyNavigator {
                 )
             } else {
                 // Mix of steps and leaps
-                (
-                    vec![1, -1, 2, -2, 3, -3, 4, -4],
-                    vec![15, 15, 15, 15, 12, 12, 8, 8],
-                )
+                (vec![1, -1, 2, -2, 3, -3, 4, -4], vec![15, 15, 15, 15, 12, 12, 8, 8])
             }
         }
         // === CAS 2: SENSIBLE — strong resolution but allow occasional escape ===
         else if is_leading_tone {
-            (
-                vec![1, -1, -2, 2, -3, 3],
-                vec![50, 15, 10, 10, 8, 7],
-            )
+            (vec![1, -1, -2, 2, -3, 3], vec![50, 15, 10, 10, 8, 7])
         }
         // === CAS 3: NOTES D'ACCORD — navigate with mix of steps and leaps ===
         else if is_chord_tone {
@@ -447,18 +442,12 @@ impl HarmonyNavigator {
                     vec![5, 14, 14, 10, 8, 8, 8, 8, 8, 5, 5, 4, 3],
                 )
             } else {
-                (
-                    vec![1, -1, 2, -2, 3, -3, 4, -4, 5, -5],
-                    vec![14, 14, 14, 14, 10, 10, 8, 8, 4, 4],
-                )
+                (vec![1, -1, 2, -2, 3, -3, 4, -4, 5, -5], vec![14, 14, 14, 14, 10, 10, 8, 8, 4, 4])
             }
         }
         // === CAS 4: NOTES DE PASSAGE — resolve but allow leaps to non-adjacent tones ===
         else {
-            (
-                vec![1, -1, 2, -2, 3, -3, 4, -4],
-                vec![18, 18, 14, 14, 10, 10, 8, 8],
-            )
+            (vec![1, -1, 2, -2, 3, -3, 4, -4], vec![18, 18, 14, 14, 10, 10, 8, 8])
         }
     }
 

@@ -697,20 +697,13 @@ fn test_alto_sax_lead_export() {
 
 /// Generate measures using TimelineGenerator and export MIDI, JSON, and MusicXML
 /// for consumption by harmonium_lab evaluation pipeline.
-fn generate_lab_export(
-    name: &str,
-    params: &MusicalParams,
-    num_measures: usize,
-    seed: u64,
-) {
+fn generate_lab_export(name: &str, params: &MusicalParams, num_measures: usize, seed: u64) {
     use harmonium_core::{
         harmony::melody::HarmonyNavigator,
         key_root_to_pitch_symbol,
         params::CurrentState,
         report::MeasureSnapshot,
-        timeline::{
-            ScoreTimeline, TimelineGenerator, timeline_to_musicxml, write_midi,
-        },
+        timeline::{ScoreTimeline, TimelineGenerator, timeline_to_musicxml, write_midi},
     };
 
     setup_output_dir();
@@ -771,8 +764,7 @@ fn generate_lab_export(
     let json = serde_json::to_string_pretty(&snapshots)
         .unwrap_or_else(|_| panic!("Failed to serialize {name} measures"));
     let json_path = Path::new(OUTPUT_DIR).join(format!("{name}.json"));
-    std::fs::write(&json_path, &json)
-        .unwrap_or_else(|_| panic!("Failed to write {name}.json"));
+    std::fs::write(&json_path, &json).unwrap_or_else(|_| panic!("Failed to write {name}.json"));
 
     // 4. Export scenario metadata JSON
     let scenario_meta = serde_json::json!({
@@ -802,18 +794,10 @@ fn generate_lab_export(
 }
 
 /// Helper: configure a scenario and export with multiple seeds.
-fn lab_scenario(
-    base_name: &str,
-    params: &MusicalParams,
-    bars: usize,
-    seeds: &[u64],
-) {
+fn lab_scenario(base_name: &str, params: &MusicalParams, bars: usize, seeds: &[u64]) {
     for &seed in seeds {
-        let name = if seeds.len() == 1 {
-            base_name.to_string()
-        } else {
-            format!("{base_name}_s{seed}")
-        };
+        let name =
+            if seeds.len() == 1 { base_name.to_string() } else { format!("{base_name}_s{seed}") };
         generate_lab_export(&name, params, bars, seed);
     }
 }
@@ -1048,17 +1032,11 @@ fn generate_all_lab_exports() {
     p.melody_smoothness = 0.5;
     p.harmony_measures_per_chord = 1;
 
-    for (key_root, key_name) in [
-        (0, "c"), (2, "d"), (4, "e"), (5, "f"),
-        (7, "g"), (9, "a"), (10, "bb"),
-    ] {
+    for (key_root, key_name) in
+        [(0, "c"), (2, "d"), (4, "e"), (5, "f"), (7, "g"), (9, "a"), (10, "bb")]
+    {
         p.key_root = key_root;
-        generate_lab_export(
-            &format!("lab_keys_{key_name}"),
-            &p,
-            BARS,
-            42,
-        );
+        generate_lab_export(&format!("lab_keys_{key_name}"), &p, BARS, 42);
     }
 
     // ─── RHYTHM MODE COMPARISON (same harmony, different rhythms) ─
@@ -1098,20 +1076,17 @@ fn generate_all_lab_exports() {
     for tension_pct in [10, 25, 40, 55, 70, 85] {
         p.harmony_tension = tension_pct as f32 / 100.0;
         p.rhythm_tension = tension_pct as f32 / 200.0; // half of harmony tension
-        generate_lab_export(
-            &format!("lab_tension_{tension_pct:02}"),
-            &p,
-            BARS,
-            42,
-        );
+        generate_lab_export(&format!("lab_tension_{tension_pct:02}"), &p, BARS, 42);
     }
 
     // Count total files
     let count = std::fs::read_dir(OUTPUT_DIR)
-        .map(|d| d.filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().is_some_and(|ext| ext == "mid"))
-            .filter(|e| e.file_name().to_string_lossy().starts_with("lab_"))
-            .count())
+        .map(|d| {
+            d.filter_map(|e| e.ok())
+                .filter(|e| e.path().extension().is_some_and(|ext| ext == "mid"))
+                .filter(|e| e.file_name().to_string_lossy().starts_with("lab_"))
+                .count()
+        })
         .unwrap_or(0);
 
     println!("\n========================================");
