@@ -236,6 +236,61 @@ impl TimelineGenerator {
         let is_low_energy = self.current_state.arousal < 0.4;
         let fill_zone_start = steps.saturating_sub(4);
 
+        // === WALKING BASS (CORELIB-11) ===
+        // When density > 0.4 and smoothness > 0.4, generate a walking bass line
+        // that plays quarter notes on every beat: root → arpeggio → passing → approach
+        let tpb = self.sequencer_primary.ticks_per_beat;
+        let walking_bass = rhythm_enabled
+            && !self.musical_params.fixed_kick
+            && !self.musical_params.muted_channels.first().copied().unwrap_or(false)
+            && self.current_state.density > 0.4
+            && self.current_state.smoothness > 0.4
+            && tpb >= 2;
+
+        if walking_bass {
+            let root = 36i32 + self.chord_root_offset;
+            let is_minor = self.chord_is_minor;
+            let third_interval = if is_minor { 3 } else { 4 };
+            let num_beats = time_sig.numerator;
+            let base_vel =
+                self.musical_params.vel_base_bass + (self.current_state.arousal * 25.0) as u8;
+
+            for beat in 0..num_beats {
+                let beat_step = beat * tpb;
+                if beat_step >= steps { break; }
+
+                let pitch = match beat % 4 {
+                    0 => root,                          // Beat 1: root
+                    1 => root + if rng.next_f32() < 0.5 { third_interval } else { 7 }, // Beat 2: 3rd or 5th
+                    2 => {
+                        // Beat 3: passing tone (scalar step between beat 2 and beat 4)
+                        root + 5 // Perfect 4th as common passing tone
+                    }
+                    3 => {
+                        // Beat 4: chromatic approach to next bar's root
+                        if rng.next_f32() < 0.5 { root + 11 } else { root - 1 } // approach from below/above
+                    }
+                    _ => root,
+                };
+
+                let midi_note = self.musical_params.instrument_bass.apply(pitch.clamp(28, 60) as u8);
+                let vel = self.shape_velocity(base_vel, beat_step, steps, bar_index, 4);
+                let duration = tpb.min(steps - beat_step); // Quarter note duration
+
+                measure.add_note(
+                    TrackId::Bass,
+                    TimelineNote {
+                        id: self.next_id(),
+                        pitch: midi_note,
+                        start_step: beat_step,
+                        duration_steps: duration,
+                        velocity: vel,
+                        articulation: Articulation::Normal,
+                    },
+                );
+            }
+        }
+
         for step in 0..steps {
             // Tick primary sequencer
             let trigger_primary = if step < self.sequencer_primary.pattern.len() {
@@ -279,7 +334,9 @@ impl TimelineGenerator {
             }
 
             // === BASS (CORELIB-3: decoupled from kick, musically varied) ===
+            // Skip kick-triggered bass when walking bass already filled the bar
             if rhythm_enabled
+                && !walking_bass
                 && trigger_primary.kick
                 && !self.musical_params.muted_channels.first().copied().unwrap_or(false)
             {
