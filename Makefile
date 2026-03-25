@@ -219,11 +219,11 @@ fmt:
 	cargo +nightly fmt --all -- --check
 
 lint:
-	cargo clippy --workspace --all-targets -- -A clippy::all -W clippy::unwrap_used -W clippy::panic -W clippy::todo -W clippy::expect_used
+	cargo +stable clippy --workspace --all-targets -- -A clippy::all -W clippy::unwrap_used -W clippy::panic -W clippy::todo -W clippy::expect_used
 
 # Override test to use workspace
 test:
-	cargo test --workspace
+	cargo +stable test --workspace
 
 audit:
 	# Checks for security vulnerabilities in dependencies
