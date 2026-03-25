@@ -231,32 +231,78 @@ impl TimelineGenerator {
 
             let is_in_fill_zone = step >= fill_zone_start;
 
-            // === BASS (Kick) ===
+            // === BASS (CORELIB-3: decoupled from kick, musically varied) ===
             if rhythm_enabled
                 && trigger_primary.kick
                 && !self.musical_params.muted_channels.first().copied().unwrap_or(false)
             {
-                let midi_note = if self.musical_params.fixed_kick {
-                    36u8
-                } else {
-                    (36 + self.chord_root_offset) as u8
-                };
-                let midi_note = self.musical_params.instrument_bass.apply(midi_note);
-                let base_vel =
-                    self.musical_params.vel_base_bass + (self.current_state.arousal * 25.0) as u8;
-                let vel = self.shape_velocity(base_vel, step, steps, bar_index, 4);
+                let density = self.current_state.density;
+                let smoothness = self.current_state.smoothness;
 
-                measure.add_note(
-                    TrackId::Bass,
-                    TimelineNote {
-                        id: self.next_id(),
-                        pitch: midi_note,
-                        start_step: step,
-                        duration_steps: 1, // Staccato bass
-                        velocity: vel,
-                        articulation: Articulation::Staccato,
-                    },
-                );
+                // === REST INSERTION for bass (sparse at low density) ===
+                let bass_rest_prob = (1.0 - density) * 0.15; // 0-15%
+                if self.musical_params.fixed_kick || rng.next_f32() >= bass_rest_prob {
+                    let root = 36i32 + self.chord_root_offset;
+
+                    // === PITCH VARIETY: root, fifth, third, approach ===
+                    let midi_note = if self.musical_params.fixed_kick {
+                        36u8
+                    } else {
+                        let tpb = self.sequencer_primary.ticks_per_beat;
+                        let beat_in_bar = if tpb > 0 { step / tpb } else { 0 };
+                        let is_last_beat = step + tpb >= steps;
+                        let is_minor = self.chord_is_minor;
+
+                        if is_last_beat && rng.next_f32() < 0.3 {
+                            // Approach note: chromatic approach to root (±1 semitone)
+                            let approach = if rng.next_f32() < 0.5 { root - 1 } else { root + 1 };
+                            approach.clamp(28, 60) as u8
+                        } else if beat_in_bar % 2 == 1 && rng.next_f32() < 0.4 {
+                            // Weak beats: fifth (root + 7 semitones)
+                            (root + 7).clamp(28, 60) as u8
+                        } else if beat_in_bar >= 2 && rng.next_f32() < 0.2 {
+                            // Later beats: third (major +4, minor +3)
+                            let third = if is_minor { 3 } else { 4 };
+                            (root + third).clamp(28, 60) as u8
+                        } else {
+                            // Default: root
+                            root.clamp(28, 60) as u8
+                        }
+                    };
+                    let midi_note = self.musical_params.instrument_bass.apply(midi_note);
+
+                    // === VARIABLE DURATION (not always staccato) ===
+                    let duration = if smoothness > 0.5 && density < 0.5 {
+                        // Smooth + sparse: longer bass notes (quarter note = 4 steps)
+                        4.min(steps - step)
+                    } else if density > 0.7 {
+                        1 // High density: staccato punch
+                    } else {
+                        2.min(steps - step) // Default: eighth note
+                    };
+
+                    let articulation = if smoothness > 0.6 {
+                        Articulation::Normal // Legato-ish
+                    } else {
+                        Articulation::Staccato
+                    };
+
+                    let base_vel =
+                        self.musical_params.vel_base_bass + (self.current_state.arousal * 25.0) as u8;
+                    let vel = self.shape_velocity(base_vel, step, steps, bar_index, 4);
+
+                    measure.add_note(
+                        TrackId::Bass,
+                        TimelineNote {
+                            id: self.next_id(),
+                            pitch: midi_note,
+                            start_step: step,
+                            duration_steps: duration,
+                            velocity: vel,
+                            articulation,
+                        },
+                    );
+                }
             }
 
             // === LEAD (with voicing decision) ===
