@@ -156,12 +156,34 @@ impl TimelineGenerator {
     ///
     /// This ticks both sequencers through all steps in the measure, calling
     /// the same melody/harmony/rhythm functions in identical order as tick().
+    /// Compute phrase arc modifier (CORELIB-4).
+    ///
+    /// Returns a value in [-0.20, +0.20] following a sine-like arc over 4-bar phrases.
+    /// Bar 0: establish (low), Bar 1: develop (rising), Bar 2: climax (peak), Bar 3: resolve (falling)
+    fn phrase_arc_modifier(bar_index: usize) -> f32 {
+        const PHRASE_LEN: usize = 4;
+        let phase = (bar_index % PHRASE_LEN) as f32 / PHRASE_LEN as f32;
+        // Sine arc: peaks at bar 2 (phase=0.5), troughs at bar 0 and bar 3
+        let arc = (phase * std::f32::consts::PI).sin();
+        // Scale to ±0.20
+        (arc - 0.5) * 0.40
+    }
+
     pub fn generate_measure(&mut self, bar_index: usize, rng: &mut dyn RngCore) -> Measure {
         self.current_bar = bar_index;
 
         // Snap current_state to match musical_params first —
         // params affect the writehead directly, next bar uses new values.
         self.snap_current_state();
+
+        // === PHRASE ARC (CORELIB-4) ===
+        // Modulate density and tension over 4-bar phrases to create
+        // establish → develop → climax → resolve structure.
+        let arc = Self::phrase_arc_modifier(bar_index);
+        self.current_state.density = (self.current_state.density + arc).clamp(0.05, 1.0);
+        self.current_state.tension = (self.current_state.tension + arc * 0.5).clamp(0.0, 1.0);
+        // Arousal follows the arc too — affects velocity base
+        self.current_state.arousal = (self.current_state.arousal + arc * 0.3).clamp(0.0, 1.0);
 
         let time_sig = self.musical_params.time_signature;
         let steps = time_sig.steps_per_bar(self.sequencer_primary.ticks_per_beat);
