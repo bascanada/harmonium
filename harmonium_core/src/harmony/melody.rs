@@ -369,12 +369,20 @@ impl HarmonyNavigator {
                     self.playing_motif = true;
                 } else if r < embellish_thresh {
                     // Embellished replay: perturb each interval by ±1
-                    self.motif_buffer = self.motif_buffer.iter().map(|&s| {
-                        let perturbation = if rng.next_f32() < 0.3 { 1 }
-                            else if rng.next_f32() < 0.5 { -1 }
-                            else { 0 };
-                        s + perturbation
-                    }).collect();
+                    self.motif_buffer = self
+                        .motif_buffer
+                        .iter()
+                        .map(|&s| {
+                            let perturbation = if rng.next_f32() < 0.3 {
+                                1
+                            } else if rng.next_f32() < 0.5 {
+                                -1
+                            } else {
+                                0
+                            };
+                            s + perturbation
+                        })
+                        .collect();
                     self.playing_motif = true;
                 } else {
                     // New material

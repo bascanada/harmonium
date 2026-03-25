@@ -173,7 +173,13 @@ impl TimelineGenerator {
         if self.phrase_bar_counter >= self.phrase_len {
             self.phrase_bar_counter = 0;
             let r = rng.next_f32();
-            self.phrase_len = if r < 0.25 { 3 } else if r < 0.75 { 4 } else { 5 };
+            self.phrase_len = if r < 0.25 {
+                3
+            } else if r < 0.75 {
+                4
+            } else {
+                5
+            };
         }
 
         let phase = self.phrase_bar_counter as f32 / self.phrase_len as f32;
@@ -270,7 +276,9 @@ impl TimelineGenerator {
 
             for beat in 0..num_beats {
                 let beat_step = beat * tpb;
-                if beat_step >= steps { break; }
+                if beat_step >= steps {
+                    break;
+                }
 
                 // Rest insertion on non-downbeats (scaled by variety)
                 if beat > 0 && rng.next_f32() < 0.10 * variety {
@@ -281,32 +289,55 @@ impl TimelineGenerator {
                 let pitch = match beat % 4 {
                     0 => {
                         // Beat 1: root, occasionally 5th below or octave up
-                        if r < (1.0 - 0.25 * variety) { root }
-                        else if r < (1.0 - 0.10 * variety) { root - 5 }
-                        else { root + 12 }
+                        if r < (1.0 - 0.25 * variety) {
+                            root
+                        } else if r < (1.0 - 0.10 * variety) {
+                            root - 5
+                        } else {
+                            root + 12
+                        }
                     }
                     1 => {
                         // Beat 2: expanded palette scaled by variety
-                        if r < 0.30 { root + third_interval }
-                        else if r < 0.60 { root + 7 }
-                        else if r < (0.60 + 0.20 * variety) { root + 9 }
-                        else { root + 5 }
+                        if r < 0.30 {
+                            root + third_interval
+                        } else if r < 0.60 {
+                            root + 7
+                        } else if r < (0.60 + 0.20 * variety) {
+                            root + 9
+                        } else {
+                            root + 5
+                        }
                     }
                     2 => {
                         // Beat 3: passing tones — wider palette
-                        if r < 0.25 { root + 5 }
-                        else if r < 0.50 { root + 2 }
-                        else if r < 0.70 { root + 7 }
-                        else if r < (0.70 + 0.15 * variety) { root + 10 } // b7 (bluesy)
-                        else { root + third_interval }
+                        if r < 0.25 {
+                            root + 5
+                        } else if r < 0.50 {
+                            root + 2
+                        } else if r < 0.70 {
+                            root + 7
+                        } else if r < (0.70 + 0.15 * variety) {
+                            root + 10
+                        }
+                        // b7 (bluesy)
+                        else {
+                            root + third_interval
+                        }
                     }
                     3 => {
                         // Beat 4: approach notes
-                        if r < 0.30 { root + 11 }
-                        else if r < 0.55 { root - 1 }
-                        else if r < (0.55 + 0.20 * variety) { root - 2 }
-                        else if r < (0.75 + 0.15 * variety) { root + 10 }
-                        else { root + 5 }
+                        if r < 0.30 {
+                            root + 11
+                        } else if r < 0.55 {
+                            root - 1
+                        } else if r < (0.55 + 0.20 * variety) {
+                            root - 2
+                        } else if r < (0.75 + 0.15 * variety) {
+                            root + 10
+                        } else {
+                            root + 5
+                        }
                     }
                     _ => root,
                 };
@@ -525,7 +556,8 @@ impl TimelineGenerator {
                                 (m, step + cell_offset)
                             };
 
-                            let vel = self.shape_velocity(base_vel, vel_step, steps, bar_index, 4, rng);
+                            let vel =
+                                self.shape_velocity(base_vel, vel_step, steps, bar_index, 4, rng);
                             measure.add_note(
                                 TrackId::Lead,
                                 TimelineNote {
@@ -541,7 +573,8 @@ impl TimelineGenerator {
                         }
                     } else {
                         // Single sustained note (original behavior)
-                        let solo_vel = self.shape_velocity(base_vel, step, steps, bar_index, 4, rng);
+                        let solo_vel =
+                            self.shape_velocity(base_vel, step, steps, bar_index, 4, rng);
                         measure.add_note(
                             TrackId::Lead,
                             TimelineNote {
@@ -801,9 +834,9 @@ impl TimelineGenerator {
                 } else if r < 0.65 {
                     vec![2, 1, 1]
                 } else if r < 0.80 {
-                    vec![1, 3]        // 16th + dotted-8th
+                    vec![1, 3] // 16th + dotted-8th
                 } else {
-                    vec![1, 1, 1, 1]  // four 16ths
+                    vec![1, 1, 1, 1] // four 16ths
                 }
             }
             8 => {
@@ -819,24 +852,29 @@ impl TimelineGenerator {
                 } else if r < 0.65 {
                     vec![2, 2, 2, 2]
                 } else if r < 0.80 {
-                    vec![3, 3, 2]     // triplet feel
+                    vec![3, 3, 2] // triplet feel
                 } else {
-                    vec![2, 4, 2]     // short-long-short
+                    vec![2, 4, 2] // short-long-short
                 }
             }
             6 => {
                 let r = rng.next_f32();
-                if r < 0.25 { vec![4, 2] }
-                else if r < 0.45 { vec![2, 4] }
-                else if r < 0.65 { vec![2, 2, 2] }
-                else if r < 0.80 { vec![3, 1, 2] }
-                else { vec![1, 1, 4] }
+                if r < 0.25 {
+                    vec![4, 2]
+                } else if r < 0.45 {
+                    vec![2, 4]
+                } else if r < 0.65 {
+                    vec![2, 2, 2]
+                } else if r < 0.80 {
+                    vec![3, 1, 2]
+                } else {
+                    vec![1, 1, 4]
+                }
             }
             12..=usize::MAX => {
                 let r = rng.next_f32();
                 if d < 0.3 {
-                    if r < 0.5 { vec![8, gap - 8] }
-                    else { vec![6, 2, gap - 8] }
+                    if r < 0.5 { vec![8, gap - 8] } else { vec![6, 2, gap - 8] }
                 } else if r < 0.3 {
                     vec![4, 4, gap - 8]
                 } else if r < 0.6 {
