@@ -51,6 +51,10 @@ pub enum PlaybackCommand {
         id: u32,
         bytes: Vec<u8>,
     },
+    ProgramChange {
+        channel: u8,
+        program: u8,
+    },
     /// Update the muted channels mask from the composer's musical params
     SetMutedChannels(Vec<bool>),
     /// Update musical params snapshot for recording/reporting
@@ -377,6 +381,9 @@ impl PlaybackEngine {
                 }
                 PlaybackCommand::LoadFont { id, bytes } => {
                     self.renderer.handle_event(AudioEvent::LoadFont { id, bytes });
+                }
+                PlaybackCommand::ProgramChange { channel, program } => {
+                    self.renderer.handle_event(AudioEvent::ProgramChange { channel, program });
                 }
                 PlaybackCommand::SetMutedChannels(channels) => {
                     for (i, &muted) in channels.iter().enumerate() {
