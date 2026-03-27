@@ -10,13 +10,12 @@
 
 use std::sync::Arc;
 
-use crate::tuning::VoiceLeadingParams;
-
 use super::{
     HarmonyContext, HarmonyDecision, HarmonyStrategy, RngCore, TransitionType,
     chord::{Chord, ChordType, PitchClass},
     lydian_chromatic::LydianChromaticConcept,
 };
+use crate::tuning::VoiceLeadingParams;
 
 /// Mouvement maximum de voix en demi-tons pour le mouvement parsimonieux
 pub const MAX_SEMITONE_MOVEMENT: u8 = 2;

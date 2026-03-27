@@ -1576,8 +1576,15 @@ mod tests {
             arousal: 0.5,
         };
 
-        let mut tgen =
-            TimelineGenerator::new(seq_primary, seq_secondary, harmony, None, params, state, TuningParams::default());
+        let mut tgen = TimelineGenerator::new(
+            seq_primary,
+            seq_secondary,
+            harmony,
+            None,
+            params,
+            state,
+            TuningParams::default(),
+        );
         let mut rng = rand::thread_rng();
 
         // Generate 8 bars — should cycle through 4-chord chart twice
@@ -1621,8 +1628,15 @@ mod tests {
             arousal: 0.5,
         };
 
-        let mut tgen =
-            TimelineGenerator::new(seq_primary, seq_secondary, harmony, None, params, state, TuningParams::default());
+        let mut tgen = TimelineGenerator::new(
+            seq_primary,
+            seq_secondary,
+            harmony,
+            None,
+            params,
+            state,
+            TuningParams::default(),
+        );
         let mut rng = rand::thread_rng();
 
         let mut chord_names: Vec<String> = Vec::new();
@@ -1662,8 +1676,15 @@ mod tests {
             arousal: 0.5,
         };
 
-        let mut tgen =
-            TimelineGenerator::new(seq_primary, seq_secondary, harmony, None, params, state, TuningParams::default());
+        let mut tgen = TimelineGenerator::new(
+            seq_primary,
+            seq_secondary,
+            harmony,
+            None,
+            params,
+            state,
+            TuningParams::default(),
+        );
         let mut rng = rand::thread_rng();
 
         let _measure = tgen.generate_measure(0, &mut rng);
@@ -1709,8 +1730,15 @@ mod tests {
             arousal: 0.5,
         };
 
-        let mut tgen =
-            TimelineGenerator::new(seq_primary, seq_secondary, harmony, None, params, state, TuningParams::default());
+        let mut tgen = TimelineGenerator::new(
+            seq_primary,
+            seq_secondary,
+            harmony,
+            None,
+            params,
+            state,
+            TuningParams::default(),
+        );
         let mut rng = ChaCha8Rng::seed_from_u64(42);
 
         let expected_chords = ["Dm7", "G7", "Cmaj7", "Dm7", "G7", "Cmaj7"];
@@ -1793,8 +1821,15 @@ mod tests {
             arousal: 0.5,
         };
 
-        let mut tgen =
-            TimelineGenerator::new(seq_primary, seq_secondary, harmony, None, params, state, TuningParams::default());
+        let mut tgen = TimelineGenerator::new(
+            seq_primary,
+            seq_secondary,
+            harmony,
+            None,
+            params,
+            state,
+            TuningParams::default(),
+        );
         let mut rng = ChaCha8Rng::seed_from_u64(123);
 
         let expected = ["Am7", "Dm7", "G7", "Cmaj7"];
@@ -1853,8 +1888,15 @@ mod tests {
                 arousal: 0.5,
             };
 
-            let mut tgen =
-                TimelineGenerator::new(seq_primary, seq_secondary, harmony, None, params, state, TuningParams::default());
+            let mut tgen = TimelineGenerator::new(
+                seq_primary,
+                seq_secondary,
+                harmony,
+                None,
+                params,
+                state,
+                TuningParams::default(),
+            );
             let mut rng = rand::thread_rng();
             let mut durations_seen = std::collections::HashSet::new();
 

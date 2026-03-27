@@ -10,8 +10,6 @@
 //!
 //! Based on Dmitri Tymoczko's Geometrical Music Theory.
 
-use serde::{Deserialize, Serialize};
-
 use harmonium_core::{
     events::AudioEvent,
     harmony::{
@@ -21,6 +19,7 @@ use harmonium_core::{
     params::MusicalParams,
     sequencer::RhythmMode,
 };
+use serde::{Deserialize, Serialize};
 
 /// The "Ground Truth" of a recording session (moved from harmonium_core::truth).
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -40,13 +39,7 @@ pub struct RecordingTruth {
 impl RecordingTruth {
     /// Create a new recording truth from events and parameters
     pub fn new(events: Vec<(f64, AudioEvent)>, params: MusicalParams, sample_rate: u32) -> Self {
-        Self {
-            version: String::new(),
-            git_sha: String::new(),
-            params,
-            events,
-            sample_rate,
-        }
+        Self { version: String::new(), git_sha: String::new(), params, events, sample_rate }
     }
 }
 
@@ -774,8 +767,9 @@ impl MusicalDNA {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use harmonium_core::params::MusicalParams;
+
+    use super::*;
 
     #[test]
     fn test_serializable_trq_roundtrip() {

@@ -3,9 +3,12 @@
 //! Compares Musical DNA profiles against reference style profiles
 //! and generates reports for LLM-assisted tuning.
 
-use crate::benchmark::DNAProfile;
-use crate::dna_types::{GlobalMetrics, MusicalDNA};
 use serde::{Deserialize, Serialize};
+
+use crate::{
+    benchmark::DNAProfile,
+    dna_types::{GlobalMetrics, MusicalDNA},
+};
 
 /// Comparison report between generated DNA and reference profile
 #[derive(Clone, Debug, Serialize, Deserialize)]

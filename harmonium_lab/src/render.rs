@@ -4,14 +4,14 @@
 //! without requiring an audio device. Uses the same offline engine as the CLI
 //! export command.
 
-use std::path::Path;
-use std::sync::Mutex;
+use std::{path::Path, sync::Mutex};
 
 use anyhow::{Context, Result};
-use harmonium::audio::{self, AudioBackendType};
-use harmonium::playback::PlaybackCommand;
-use harmonium_core::events::RecordFormat;
-use harmonium_core::tuning::TuningParams;
+use harmonium::{
+    audio::{self, AudioBackendType},
+    playback::PlaybackCommand,
+};
+use harmonium_core::{events::RecordFormat, tuning::TuningParams};
 
 const SAMPLE_RATE: f64 = 44100.0;
 const CHANNELS: usize = 2;
@@ -76,9 +76,8 @@ pub fn render_to_wav(
     playback.process_buffer(&mut stop_buf, CHANNELS);
 
     // Collect WAV bytes
-    let recordings = finished_recordings
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let recordings =
+        finished_recordings.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
     for (format, data) in recordings.iter() {
         if *format == RecordFormat::Wav {

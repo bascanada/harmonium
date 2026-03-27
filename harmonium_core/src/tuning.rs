@@ -5,8 +5,9 @@
 //! constant in the engine. Loading a `StyleProfile` applies a partial
 //! `TuningOverlay` on top of these defaults.
 
-use crate::harmony::steedman_grammar::GrammarStyle;
 use serde::{Deserialize, Serialize};
+
+use crate::harmony::steedman_grammar::GrammarStyle;
 
 // ---------------------------------------------------------------------------
 // Param sub-structs (Layer 2 — style constants)
@@ -459,17 +460,18 @@ impl TuningParams {
                     });
                 }
             };
-        let check_monotonic = |errors: &mut Vec<ValidationError>, field: &'static str, arr: &[f32]| {
-            for w in arr.windows(2) {
-                if w[0] > w[1] {
-                    errors.push(ValidationError {
-                        field,
-                        message: format!("not monotonically increasing: {} > {}", w[0], w[1]),
-                    });
-                    break;
+        let check_monotonic =
+            |errors: &mut Vec<ValidationError>, field: &'static str, arr: &[f32]| {
+                for w in arr.windows(2) {
+                    if w[0] > w[1] {
+                        errors.push(ValidationError {
+                            field,
+                            message: format!("not monotonically increasing: {} > {}", w[0], w[1]),
+                        });
+                        break;
+                    }
                 }
-            }
-        };
+            };
 
         // --- HarmonyDriverParams ---
         let hd = &self.harmony_driver;
@@ -539,11 +541,19 @@ impl TuningParams {
         ] {
             check_range(&mut errors, name, v, 0.0, 3.0);
         }
-        check_01(&mut errors, "grammar.chord_quality_valence_threshold", gp.chord_quality_valence_threshold);
+        check_01(
+            &mut errors,
+            "grammar.chord_quality_valence_threshold",
+            gp.chord_quality_valence_threshold,
+        );
 
         // --- NeoRiemannianParams ---
         let nr = &self.neo_riemannian;
-        check_01(&mut errors, "neo_riemannian.positive_valence_threshold", nr.positive_valence_threshold);
+        check_01(
+            &mut errors,
+            "neo_riemannian.positive_valence_threshold",
+            nr.positive_valence_threshold,
+        );
         check_range(
             &mut errors,
             "neo_riemannian.negative_valence_threshold",
@@ -584,7 +594,11 @@ impl TuningParams {
                 ),
             });
         }
-        check_01(&mut errors, "neo_riemannian.composite_tension_threshold", nr.composite_tension_threshold);
+        check_01(
+            &mut errors,
+            "neo_riemannian.composite_tension_threshold",
+            nr.composite_tension_threshold,
+        );
         check_01(&mut errors, "neo_riemannian.composite_probability", nr.composite_probability);
 
         // --- VoiceLeadingParams ---
@@ -651,8 +665,16 @@ impl TuningParams {
         );
         check_01(&mut errors, "classic_groove.kick_downbeat_velocity", cg.kick_downbeat_velocity);
         check_01(&mut errors, "classic_groove.kick_secondary_velocity", cg.kick_secondary_velocity);
-        check_01(&mut errors, "classic_groove.kick_anticipation_velocity", cg.kick_anticipation_velocity);
-        check_01(&mut errors, "classic_groove.ghost_note_tension_threshold", cg.ghost_note_tension_threshold);
+        check_01(
+            &mut errors,
+            "classic_groove.kick_anticipation_velocity",
+            cg.kick_anticipation_velocity,
+        );
+        check_01(
+            &mut errors,
+            "classic_groove.ghost_note_tension_threshold",
+            cg.ghost_note_tension_threshold,
+        );
         check_01(&mut errors, "classic_groove.ghost_note_velocity", cg.ghost_note_velocity);
         for v in &cg.hat_density_thresholds {
             check_01(&mut errors, "classic_groove.hat_density_thresholds[]", *v);
@@ -666,15 +688,31 @@ impl TuningParams {
         check_01(&mut errors, "classic_groove.hat_off_beat_velocity", cg.hat_off_beat_velocity);
         check_01(&mut errors, "classic_groove.hat_dense_on_velocity", cg.hat_dense_on_velocity);
         check_01(&mut errors, "classic_groove.hat_dense_off_velocity", cg.hat_dense_off_velocity);
-        check_01(&mut errors, "classic_groove.hat_dense_ghost_velocity", cg.hat_dense_ghost_velocity);
+        check_01(
+            &mut errors,
+            "classic_groove.hat_dense_ghost_velocity",
+            cg.hat_dense_ghost_velocity,
+        );
         check_01(&mut errors, "classic_groove.hat_sparse_velocity", cg.hat_sparse_velocity);
-        check_01(&mut errors, "classic_groove.hat_masking_density_threshold", cg.hat_masking_density_threshold);
-        check_01(&mut errors, "classic_groove.bass_split_tension_threshold", cg.bass_split_tension_threshold);
+        check_01(
+            &mut errors,
+            "classic_groove.hat_masking_density_threshold",
+            cg.hat_masking_density_threshold,
+        );
+        check_01(
+            &mut errors,
+            "classic_groove.bass_split_tension_threshold",
+            cg.bass_split_tension_threshold,
+        );
         check_01(&mut errors, "classic_groove.snare_backbeat_velocity", cg.snare_backbeat_velocity);
 
         // --- PerfectBalanceParams ---
         let pb = &self.perfect_balance;
-        check_01(&mut errors, "perfect_balance.kick_polygon_low_threshold", pb.kick_polygon_low_threshold);
+        check_01(
+            &mut errors,
+            "perfect_balance.kick_polygon_low_threshold",
+            pb.kick_polygon_low_threshold,
+        );
         check_01(&mut errors, "perfect_balance.kick_low_velocity", pb.kick_low_velocity);
         check_01(&mut errors, "perfect_balance.kick_normal_velocity", pb.kick_normal_velocity);
         check_01(&mut errors, "perfect_balance.snare_velocity", pb.snare_velocity);
@@ -694,13 +732,35 @@ impl TuningParams {
             "perfect_balance.hat_density_thresholds",
             &pb.hat_density_thresholds,
         );
-        check_01(&mut errors, "perfect_balance.hat_velocity_coefficient", pb.hat_velocity_coefficient);
-        check_01(&mut errors, "perfect_balance.swing_tension_threshold", pb.swing_tension_threshold);
-        check_range(&mut errors, "perfect_balance.swing_scaling_factor", pb.swing_scaling_factor, 0.0, 2.0);
+        check_01(
+            &mut errors,
+            "perfect_balance.hat_velocity_coefficient",
+            pb.hat_velocity_coefficient,
+        );
+        check_01(
+            &mut errors,
+            "perfect_balance.swing_tension_threshold",
+            pb.swing_tension_threshold,
+        );
+        check_range(
+            &mut errors,
+            "perfect_balance.swing_scaling_factor",
+            pb.swing_scaling_factor,
+            0.0,
+            2.0,
+        );
         check_01(&mut errors, "perfect_balance.bass_polygon_velocity", pb.bass_polygon_velocity);
-        check_01(&mut errors, "perfect_balance.bass_low_density_threshold", pb.bass_low_density_threshold);
+        check_01(
+            &mut errors,
+            "perfect_balance.bass_low_density_threshold",
+            pb.bass_low_density_threshold,
+        );
         check_01(&mut errors, "perfect_balance.lead_polygon_velocity", pb.lead_polygon_velocity);
-        check_01(&mut errors, "perfect_balance.hat_masking_density_threshold", pb.hat_masking_density_threshold);
+        check_01(
+            &mut errors,
+            "perfect_balance.hat_masking_density_threshold",
+            pb.hat_masking_density_threshold,
+        );
 
         // --- ArrangementParams ---
         let ar = &self.arrangement;
@@ -721,7 +781,10 @@ impl TuningParams {
         check_range(&mut errors, "arrangement.tom_velocity_boost", ar.tom_velocity_boost, 0.5, 2.0);
         for interval in [
             ("arrangement.progression_switch_interval_slow", ar.progression_switch_interval_slow),
-            ("arrangement.progression_switch_interval_normal", ar.progression_switch_interval_normal),
+            (
+                "arrangement.progression_switch_interval_normal",
+                ar.progression_switch_interval_normal,
+            ),
             ("arrangement.progression_switch_interval_fast", ar.progression_switch_interval_fast),
         ] {
             if interval.1 == 0 || interval.1 > 8 {
@@ -739,14 +802,22 @@ impl TuningParams {
             "arrangement.progression_tension_thresholds",
             &ar.progression_tension_thresholds,
         );
-        check_01(&mut errors, "arrangement.measures_per_chord_hysteresis", ar.measures_per_chord_hysteresis);
+        check_01(
+            &mut errors,
+            "arrangement.measures_per_chord_hysteresis",
+            ar.measures_per_chord_hysteresis,
+        );
         check_01(&mut errors, "arrangement.energy_high_tension", ar.energy_high_tension);
         check_01(&mut errors, "arrangement.energy_high_density", ar.energy_high_density);
         check_01(&mut errors, "arrangement.energy_high_arousal", ar.energy_high_arousal);
 
         // --- EmotionalQuadrantParams ---
         let eq = &self.emotional_quadrant;
-        check_01(&mut errors, "emotional_quadrant.happy_valence_threshold", eq.happy_valence_threshold);
+        check_01(
+            &mut errors,
+            "emotional_quadrant.happy_valence_threshold",
+            eq.happy_valence_threshold,
+        );
         check_range(
             &mut errors,
             "emotional_quadrant.sad_valence_threshold",
@@ -754,13 +825,13 @@ impl TuningParams {
             -1.0,
             0.0,
         );
-        check_01(&mut errors, "emotional_quadrant.energetic_tension_threshold", eq.energetic_tension_threshold);
+        check_01(
+            &mut errors,
+            "emotional_quadrant.energetic_tension_threshold",
+            eq.energetic_tension_threshold,
+        );
 
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors)
-        }
+        if errors.is_empty() { Ok(()) } else { Err(errors) }
     }
 }
 

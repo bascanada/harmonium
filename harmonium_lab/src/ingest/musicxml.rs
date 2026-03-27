@@ -5,15 +5,16 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::dna_types::{
-    GlobalMetrics, HarmonicFrame, MusicalDNA, PolygonSignature, RhythmicDNA, SerializableTRQ,
-};
 use harmonium_core::harmony::{
     chord::{Chord, PitchClass},
     parsimonious::TRQ,
 };
 use thiserror::Error;
 use walkdir::WalkDir;
+
+use crate::dna_types::{
+    GlobalMetrics, HarmonicFrame, MusicalDNA, PolygonSignature, RhythmicDNA, SerializableTRQ,
+};
 
 /// Errors that can occur during MusicXML ingestion
 #[derive(Error, Debug)]

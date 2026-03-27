@@ -11,8 +11,7 @@ use rust_music_theory::{
 };
 
 use super::{RngCore, basic::ChordQuality};
-use crate::fractal::PinkNoise;
-use crate::tuning::MelodyParams;
+use crate::{fractal::PinkNoise, tuning::MelodyParams};
 
 pub struct HarmonyNavigator {
     pub current_scale: Scale,

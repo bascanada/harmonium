@@ -3,10 +3,11 @@
 //! This module provides integration with the Anthropic Claude API
 //! for suggesting parameter adjustments based on DNA analysis.
 
-use crate::dna_types::GlobalMetrics;
 use harmonium_core::tuning::TuningParams;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+use crate::dna_types::GlobalMetrics;
 
 /// Errors that can occur during Claude API communication
 #[derive(Error, Debug)]
@@ -405,10 +406,16 @@ Example response:
             "neo_riemannian_lower_threshold" => format!("{:.2}", tuning.harmony_driver.neo_lower),
             "neo_riemannian_upper_threshold" => format!("{:.2}", tuning.harmony_driver.neo_upper),
             "hysteresis_boost" => format!("{:.2}", tuning.harmony_driver.hysteresis_boost),
-            "kick_density_threshold" => format!("{:.2}", tuning.perfect_balance.kick_polygon_low_threshold),
-            "hat_very_low_density_vertices" => tuning.perfect_balance.hat_vertex_counts[0].to_string(),
+            "kick_density_threshold" => {
+                format!("{:.2}", tuning.perfect_balance.kick_polygon_low_threshold)
+            }
+            "hat_very_low_density_vertices" => {
+                tuning.perfect_balance.hat_vertex_counts[0].to_string()
+            }
             "hat_low_density_vertices" => tuning.perfect_balance.hat_vertex_counts[1].to_string(),
-            "hat_medium_density_vertices" => tuning.perfect_balance.hat_vertex_counts[2].to_string(),
+            "hat_medium_density_vertices" => {
+                tuning.perfect_balance.hat_vertex_counts[2].to_string()
+            }
             "hat_high_density_vertices" => tuning.perfect_balance.hat_vertex_counts[3].to_string(),
             _ => "unknown".to_string(),
         }
@@ -573,8 +580,8 @@ Return ONLY valid JSON (no markdown, no explanation before/after) in this exact 
         rating: u8,
         feedback: &str,
     ) -> String {
-        let current_json = serde_json::to_string_pretty(current)
-            .unwrap_or_else(|_| "{}".to_string());
+        let current_json =
+            serde_json::to_string_pretty(current).unwrap_or_else(|_| "{}".to_string());
 
         format!(
             r#"You are an expert music producer tuning the Harmonium generative music engine.
@@ -608,9 +615,7 @@ Return ONLY valid JSON (no markdown) in this exact format:
         let json_str = match (json_start, json_end) {
             (Some(start), Some(end)) if end > start => &response_text[start..=end],
             _ => {
-                return Err(AgentError::ParseError(
-                    "No JSON object found in response".to_string(),
-                ));
+                return Err(AgentError::ParseError("No JSON object found in response".to_string()));
             }
         };
 
@@ -953,7 +958,10 @@ mod tests {
         assert!(tp.classic_groove.ghost_note_velocity < 0.25, "Ghost notes should be subtle");
 
         // 5. Jazz grammar style
-        assert_eq!(tp.grammar.grammar_style, harmonium_core::harmony::steedman_grammar::GrammarStyle::Jazz);
+        assert_eq!(
+            tp.grammar.grammar_style,
+            harmonium_core::harmony::steedman_grammar::GrammarStyle::Jazz
+        );
 
         // 6. Lower crash velocity (not aggressive)
         assert!(tp.arrangement.crash_velocity < 110, "Bossa crashes should be gentle");
@@ -1002,8 +1010,14 @@ mod tests {
         tp.validate().expect("refined params should be valid");
 
         // Refinement addressed "bass too busy":
-        assert!(tp.perfect_balance.bass_polygon_velocity < 0.7, "bass should be quieter after feedback");
-        assert!(tp.perfect_balance.bass_low_density_threshold > 0.4, "bass should follow kick more");
+        assert!(
+            tp.perfect_balance.bass_polygon_velocity < 0.7,
+            "bass should be quieter after feedback"
+        );
+        assert!(
+            tp.perfect_balance.bass_low_density_threshold > 0.4,
+            "bass should follow kick more"
+        );
         assert!(tp.classic_groove.kick_anticipation_velocity < 0.6, "kick anticipation reduced");
         assert!(result.reasoning.contains("bass"));
     }
@@ -1037,15 +1051,26 @@ mod tests {
         assert_ne!(bossa.tuning, swing.tuning, "two styles must produce different params");
 
         // Bossa should be smoother melody than Swing
-        assert!(bossa.tuning.melody.default_hurst_factor > swing.tuning.melody.default_hurst_factor);
+        assert!(
+            bossa.tuning.melody.default_hurst_factor > swing.tuning.melody.default_hurst_factor
+        );
 
         // Swing should have more swing factor
-        assert!(swing.tuning.perfect_balance.swing_scaling_factor > bossa.tuning.perfect_balance.swing_scaling_factor);
+        assert!(
+            swing.tuning.perfect_balance.swing_scaling_factor
+                > bossa.tuning.perfect_balance.swing_scaling_factor
+        );
 
         // Swing should have louder snare
-        assert!(swing.tuning.classic_groove.snare_backbeat_velocity > bossa.tuning.classic_groove.snare_backbeat_velocity);
+        assert!(
+            swing.tuning.classic_groove.snare_backbeat_velocity
+                > bossa.tuning.classic_groove.snare_backbeat_velocity
+        );
 
         // Bossa should have slower harmonic rhythm
-        assert!(bossa.tuning.arrangement.progression_switch_interval_slow > swing.tuning.arrangement.progression_switch_interval_slow);
+        assert!(
+            bossa.tuning.arrangement.progression_switch_interval_slow
+                > swing.tuning.arrangement.progression_switch_interval_slow
+        );
     }
 }

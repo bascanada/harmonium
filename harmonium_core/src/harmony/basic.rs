@@ -99,7 +99,11 @@ impl Progression {
 
     /// Retourne le nom de la progression basé sur le contexte émotionnel
     #[must_use]
-    pub fn get_progression_name(valence: f32, tension: f32, eq: &EmotionalQuadrantParams) -> &'static str {
+    pub fn get_progression_name(
+        valence: f32,
+        tension: f32,
+        eq: &EmotionalQuadrantParams,
+    ) -> &'static str {
         if valence > eq.happy_valence_threshold && tension > eq.energetic_tension_threshold {
             "Pop Energetic (I-V-vi-IV)"
         } else if valence > eq.happy_valence_threshold {

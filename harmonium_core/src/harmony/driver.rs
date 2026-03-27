@@ -9,8 +9,6 @@
 
 use std::sync::Arc;
 
-use crate::tuning::HarmonyDriverParams;
-
 use super::{
     HarmonyContext, HarmonyDecision, HarmonyStrategy, RngCore, TransitionType,
     chord::{Chord, ChordType, PitchClass},
@@ -20,6 +18,7 @@ use super::{
     pivot::{PivotDetector, PivotType},
     steedman_grammar::{GrammarStyle, SteedmanGrammar},
 };
+use crate::tuning::HarmonyDriverParams;
 
 /// Mode de stratégie actuel (version V2 avec Parsimonious)
 #[derive(Clone, Copy, Debug, PartialEq)]

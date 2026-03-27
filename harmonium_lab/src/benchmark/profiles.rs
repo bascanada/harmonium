@@ -6,9 +6,10 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use crate::dna_types::{GlobalMetrics, MusicalDNA};
 use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
+
+use crate::dna_types::{GlobalMetrics, MusicalDNA};
 
 /// A style profile representing averaged metrics from a corpus
 #[derive(Clone, Debug, Serialize, Deserialize)]

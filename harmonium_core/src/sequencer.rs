@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::params::TimeSignature;
-use crate::tuning::{ClassicGrooveParams, PerfectBalanceParams};
+use crate::{
+    params::TimeSignature,
+    tuning::{ClassicGrooveParams, PerfectBalanceParams},
+};
 
 // --- RHYTHM MODE (Strategy Pattern) ---
 
@@ -229,24 +231,20 @@ impl Sequencer {
 
                 pattern
             }
-            RhythmMode::PerfectBalance => {
-                generate_balanced_layers(
-                    self.density,
-                    self.tension,
-                    self.time_signature,
-                    self.ticks_per_beat,
-                    &self.pb_params,
-                )
-            }
-            RhythmMode::ClassicGroove => {
-                generate_classic_groove(
-                    self.steps,
-                    self.density,
-                    self.tension,
-                    self.time_signature,
-                    &self.cg_params,
-                )
-            }
+            RhythmMode::PerfectBalance => generate_balanced_layers(
+                self.density,
+                self.tension,
+                self.time_signature,
+                self.ticks_per_beat,
+                &self.pb_params,
+            ),
+            RhythmMode::ClassicGroove => generate_classic_groove(
+                self.steps,
+                self.density,
+                self.tension,
+                self.time_signature,
+                &self.cg_params,
+            ),
         };
 
         // Appliquer la rotation (safe: handle edge cases)
@@ -516,7 +514,8 @@ pub fn generate_balanced_layers(
         0
     };
 
-    let hat_gon = Polygon::new(hat_vertices, hat_offset, pb.hat_velocity_coefficient * density.max(0.5));
+    let hat_gon =
+        Polygon::new(hat_vertices, hat_offset, pb.hat_velocity_coefficient * density.max(0.5));
 
     // LAYER D: BASS (Harmonic Foundation)
     let bass_gon = if density < pb.bass_low_density_threshold {
@@ -1337,7 +1336,13 @@ mod tests {
         let steps = ts.steps_per_bar(ticks_per_beat); // 16
 
         for &density in &[0.0, 0.25, 0.5, 0.75, 1.0] {
-            let pattern = generate_balanced_layers(density, 0.0, ts, ticks_per_beat, &PerfectBalanceParams::default());
+            let pattern = generate_balanced_layers(
+                density,
+                0.0,
+                ts,
+                ticks_per_beat,
+                &PerfectBalanceParams::default(),
+            );
             let lead_positions: Vec<usize> =
                 pattern.iter().enumerate().filter(|(_, t)| t.lead).map(|(i, _)| i).collect();
 
@@ -1371,7 +1376,13 @@ mod tests {
         let ticks_per_beat = 4;
 
         for &density in &[0.0, 0.5, 1.0] {
-            let pattern = generate_balanced_layers(density, 0.0, ts, ticks_per_beat, &PerfectBalanceParams::default());
+            let pattern = generate_balanced_layers(
+                density,
+                0.0,
+                ts,
+                ticks_per_beat,
+                &PerfectBalanceParams::default(),
+            );
             let lead_positions: Vec<usize> =
                 pattern.iter().enumerate().filter(|(_, t)| t.lead).map(|(i, _)| i).collect();
 
@@ -1395,7 +1406,8 @@ mod tests {
         let steps = ts.steps_per_bar(4); // 16
 
         for &density in &[0.0, 0.5, 1.0] {
-            let pattern = generate_classic_groove(steps, density, 0.0, ts, &ClassicGrooveParams::default());
+            let pattern =
+                generate_classic_groove(steps, density, 0.0, ts, &ClassicGrooveParams::default());
             let lead_positions: Vec<usize> =
                 pattern.iter().enumerate().filter(|(_, t)| t.lead).map(|(i, _)| i).collect();
 

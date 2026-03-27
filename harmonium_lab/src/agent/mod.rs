@@ -4,4 +4,6 @@
 
 mod claude;
 
-pub use claude::{AgentError, ClaudeAgent, ParameterChange, StyleGenerationResult, TuningSuggestion};
+pub use claude::{
+    AgentError, ClaudeAgent, ParameterChange, StyleGenerationResult, TuningSuggestion,
+};

@@ -3,8 +3,9 @@
 //! A `StyleProfile` is loaded from JSON or TOML and applied onto
 //! [`TuningParams::default()`] to produce the final engine personality.
 
-use crate::tuning::{TuningOverlay, TuningParams};
 use serde::{Deserialize, Serialize};
+
+use crate::tuning::{TuningOverlay, TuningParams};
 
 /// A named style profile with metadata and a partial tuning overlay.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

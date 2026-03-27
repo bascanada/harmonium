@@ -18,9 +18,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use harmonium_core::tuning::TuningParams;
 use harmonium_lab::{
-    DNAComparator, DNAProfile, GlobalMetrics, MusicXMLIngester,
-    agent::ClaudeAgent,
-    render,
+    DNAComparator, DNAProfile, GlobalMetrics, MusicXMLIngester, agent::ClaudeAgent, render,
 };
 use indicatif::{ProgressBar, ProgressStyle};
 
@@ -415,8 +413,7 @@ fn cmd_tune(
         println!("Loading tuning parameters: {}", tuning_path.display());
         let toml_str = std::fs::read_to_string(tuning_path)
             .map_err(|e| anyhow::anyhow!("Failed to read tuning file: {}", e))?;
-        toml::from_str(&toml_str)
-            .map_err(|e| anyhow::anyhow!("Failed to parse tuning: {}", e))?
+        toml::from_str(&toml_str).map_err(|e| anyhow::anyhow!("Failed to parse tuning: {}", e))?
     } else {
         println!("Creating default tuning parameters: {}", tuning_path.display());
         let default_tuning = TuningParams::default();
@@ -575,8 +572,7 @@ fn cmd_tune(
 fn simulate_music_generation(tuning: &TuningParams) -> GlobalMetrics {
     let voice_leading_effort = f32::from(tuning.voice_leading.max_semitone_movement) * 0.8;
 
-    let hysteresis_range =
-        tuning.harmony_driver.neo_upper - tuning.harmony_driver.steedman_lower;
+    let hysteresis_range = tuning.harmony_driver.neo_upper - tuning.harmony_driver.steedman_lower;
     let tension_variance = 0.1 / hysteresis_range.max(0.1);
 
     let tension_release_balance = tuning.voice_leading.trq_threshold;
@@ -692,7 +688,10 @@ fn print_current_tuning(tuning: &TuningParams) {
     println!();
     println!("  RHYTHM (Perfect Balance):");
     println!("    hat_vertex_counts:           {:?}", tuning.perfect_balance.hat_vertex_counts);
-    println!("    kick_polygon_low_threshold:  {:.2}", tuning.perfect_balance.kick_polygon_low_threshold);
+    println!(
+        "    kick_polygon_low_threshold:  {:.2}",
+        tuning.perfect_balance.kick_polygon_low_threshold
+    );
     println!();
 }
 
@@ -710,15 +709,24 @@ fn manual_edit_parameter(tuning: &TuningParams) -> Result<TuningParams> {
 
     println!();
     println!("Available parameters:");
-    println!("  1. max_semitone_movement (current: {})", tuning.voice_leading.max_semitone_movement);
+    println!(
+        "  1. max_semitone_movement (current: {})",
+        tuning.voice_leading.max_semitone_movement
+    );
     println!("  2. trq_threshold (current: {:.2})", tuning.voice_leading.trq_threshold);
     println!("  3. steedman_lower (current: {:.2})", tuning.harmony_driver.steedman_lower);
     println!("  4. steedman_upper (current: {:.2})", tuning.harmony_driver.steedman_upper);
     println!("  5. neo_lower (current: {:.2})", tuning.harmony_driver.neo_lower);
     println!("  6. neo_upper (current: {:.2})", tuning.harmony_driver.neo_upper);
     println!("  7. hysteresis_boost (current: {:.2})", tuning.harmony_driver.hysteresis_boost);
-    println!("  8. hat_vertex_counts[2] (current: {})", tuning.perfect_balance.hat_vertex_counts[2]);
-    println!("  9. hat_vertex_counts[3] (current: {})", tuning.perfect_balance.hat_vertex_counts[3]);
+    println!(
+        "  8. hat_vertex_counts[2] (current: {})",
+        tuning.perfect_balance.hat_vertex_counts[2]
+    );
+    println!(
+        "  9. hat_vertex_counts[3] (current: {})",
+        tuning.perfect_balance.hat_vertex_counts[3]
+    );
     println!();
 
     print!("Enter parameter number (1-9): ");
@@ -824,7 +832,8 @@ fn cmd_generate_style(
     max_iterations: usize,
     api_key: Option<String>,
 ) -> Result<()> {
-    let api_key = api_key.or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
+    let api_key = api_key
+        .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
         .context("No API key provided. Set ANTHROPIC_API_KEY or use --api-key")?;
 
     let agent = ClaudeAgent::new().with_api_key(&api_key);
@@ -898,9 +907,8 @@ fn cmd_generate_style(
 
         // Refine
         println!("[{}/{}] Refining based on feedback...", iteration, max_iterations);
-        let refined = agent.refine_style_blocking(
-            name, description, &current_tuning, rating, feedback,
-        )?;
+        let refined =
+            agent.refine_style_blocking(name, description, &current_tuning, rating, feedback)?;
 
         println!("  Confidence: {:.0}%", refined.confidence * 100.0);
         println!("  Reasoning: {}", refined.reasoning);
@@ -936,13 +944,16 @@ fn cmd_render(
 ) -> Result<()> {
     let toml_str = std::fs::read_to_string(profile_path)
         .with_context(|| format!("Failed to read profile: {}", profile_path.display()))?;
-    let tuning: TuningParams = toml::from_str(&toml_str)
-        .with_context(|| "Failed to parse TuningParams TOML")?;
+    let tuning: TuningParams =
+        toml::from_str(&toml_str).with_context(|| "Failed to parse TuningParams TOML")?;
 
     let sf2_bytes = match soundfont {
         Some(path) => {
             println!("Loading soundfont: {}", path.display());
-            Some(std::fs::read(path).with_context(|| format!("Failed to read SF2: {}", path.display()))?)
+            Some(
+                std::fs::read(path)
+                    .with_context(|| format!("Failed to read SF2: {}", path.display()))?,
+            )
         }
         None => None,
     };
@@ -967,8 +978,8 @@ fn cmd_rate_style(
     // Load TuningParams
     let toml_str = std::fs::read_to_string(profile_path)
         .with_context(|| format!("Failed to read profile: {}", profile_path.display()))?;
-    let tuning: TuningParams = toml::from_str(&toml_str)
-        .with_context(|| "Failed to parse TuningParams TOML")?;
+    let tuning: TuningParams =
+        toml::from_str(&toml_str).with_context(|| "Failed to parse TuningParams TOML")?;
 
     let wav_path = output.unwrap_or_else(|| PathBuf::from("./render.wav"));
 
@@ -1004,10 +1015,8 @@ fn cmd_rate_style(
         "seed": seed,
     });
 
-    let mut ratings_file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("ratings.jsonl")?;
+    let mut ratings_file =
+        std::fs::OpenOptions::new().create(true).append(true).open("ratings.jsonl")?;
     use std::io::Write as _;
     writeln!(ratings_file, "{}", rating_entry)?;
 
@@ -1015,12 +1024,7 @@ fn cmd_rate_style(
     Ok(())
 }
 
-fn cmd_rate_batch(
-    candidates_dir: &Path,
-    bars: usize,
-    bpm: f32,
-    seed: u64,
-) -> Result<()> {
+fn cmd_rate_batch(candidates_dir: &Path, bars: usize, bpm: f32, seed: u64) -> Result<()> {
     let mut profiles: Vec<PathBuf> = Vec::new();
     for entry in std::fs::read_dir(candidates_dir)
         .with_context(|| format!("Failed to read directory: {}", candidates_dir.display()))?
@@ -1091,7 +1095,8 @@ fn cmd_tune_style(
     output_dir: &Path,
     api_key: Option<String>,
 ) -> Result<()> {
-    let api_key = api_key.or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
+    let api_key = api_key
+        .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
         .context("No API key. Set ANTHROPIC_API_KEY or use --api-key")?;
 
     std::fs::create_dir_all(output_dir)?;
@@ -1170,7 +1175,11 @@ fn cmd_tune_style(
             // Refine
             println!("  Refining based on feedback...");
             let refined = agent.refine_style_blocking(
-                name, description, &current_tuning, rating, feedback,
+                name,
+                description,
+                &current_tuning,
+                rating,
+                feedback,
             )?;
             println!("  Confidence: {:.0}%", refined.confidence * 100.0);
             println!("  Reasoning: {}", refined.reasoning);
