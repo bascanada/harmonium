@@ -104,6 +104,10 @@ pub struct TimelineEngine {
 
     // Current sample offset within process_buffer (for accurate MIDI timing)
     current_sample_offset: u32,
+
+    // True once the playhead has loaded its first measure.
+    // Before that, output is zeroed to suppress DSP-graph init transients.
+    first_measure_loaded: bool,
 }
 
 impl TimelineEngine {
@@ -248,6 +252,7 @@ impl TimelineEngine {
             pending_measure_snapshots: Vec::new(),
             pending_notes: Vec::with_capacity(16),
             current_sample_offset: 0,
+            first_measure_loaded: false,
         }
     }
 
@@ -351,8 +356,9 @@ impl TimelineEngine {
             }
         }
 
-        // Zero output when muted (silent pre-generation: engine still ticks/generates)
-        if self.output_muted {
+        // Zero output when muted or before the first measure is loaded
+        // (suppresses DSP-graph initialization transients)
+        if self.output_muted || !self.first_measure_loaded {
             for sample in output.iter_mut() {
                 *sample = 0.0;
             }
@@ -394,6 +400,7 @@ impl TimelineEngine {
                 }
 
                 self.playhead.load_measure(measure);
+                self.first_measure_loaded = true;
             } else {
                 // No measure available - silence (underflow)
                 return;

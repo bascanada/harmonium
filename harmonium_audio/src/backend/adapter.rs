@@ -10,6 +10,7 @@ impl BlockRateAdapter {
     pub fn new(mut block: Box<dyn AudioUnit>, sample_rate: f64) -> Self {
         block.set_sample_rate(sample_rate);
         block.allocate();
+        block.reset();
         Self { block, sample_rate }
     }
 

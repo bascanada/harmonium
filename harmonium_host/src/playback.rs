@@ -116,6 +116,10 @@ pub struct PlaybackEngine {
     last_chord_name: ArrayString<64>,
     last_chord_root_offset: i32,
     last_chord_is_minor: bool,
+
+    // True once the playhead has loaded its first measure.
+    // Before that, output is zeroed to suppress DSP-graph init transients.
+    first_measure_loaded: bool,
 }
 
 impl PlaybackEngine {
@@ -157,6 +161,7 @@ impl PlaybackEngine {
             last_chord_name: ArrayString::from("I").unwrap_or_default(),
             last_chord_root_offset: 0,
             last_chord_is_minor: false,
+            first_measure_loaded: false,
         }
     }
 
@@ -191,8 +196,9 @@ impl PlaybackEngine {
             }
         }
 
-        // Zero output when muted
-        if self.output_muted {
+        // Zero output when muted or before the first measure is loaded
+        // (suppresses DSP-graph initialization transients)
+        if self.output_muted || !self.first_measure_loaded {
             for sample in output.iter_mut() {
                 *sample = 0.0;
             }
@@ -239,6 +245,7 @@ impl PlaybackEngine {
                 self.last_chord_is_minor = measure.chord_context.is_minor;
 
                 self.playhead.load_measure(measure);
+                self.first_measure_loaded = true;
             } else {
                 return; // Underflow — measure not yet generated
             }
