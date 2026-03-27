@@ -9,6 +9,8 @@
 
 use std::sync::Arc;
 
+use crate::tuning::HarmonyDriverParams;
+
 use super::{
     HarmonyContext, HarmonyDecision, HarmonyStrategy, RngCore, TransitionType,
     chord::{Chord, ChordType, PitchClass},
@@ -90,12 +92,24 @@ pub struct HarmonicDriver {
     pub neo_lower: f32,
     /// Seuil supérieur pour Neo-Riemannian (reste en Neo-Riemannian jusqu'à ce que la tension tombe en dessous)
     pub neo_upper: f32,
+
+    // === TuningParams-driven fields ===
+    /// Bias added to previous strategy weight for stability.
+    hysteresis_boost: f32,
+    /// Upper tension threshold for dramatic drop detection.
+    dramatic_tension_drop_upper: f32,
+    /// Lower tension threshold for dramatic drop detection.
+    dramatic_tension_drop_lower: f32,
+    /// Probability of resolving directly to tonic (vs V-I).
+    cadential_resolution_probability: f32,
+    /// Max chord generation retries to avoid A-B-A loops.
+    max_retries: usize,
 }
 
 impl HarmonicDriver {
-    /// Crée un nouveau `HarmonicDriver`
+    /// Crée un nouveau `HarmonicDriver` with tuning parameters.
     #[must_use]
-    pub fn new(initial_key: PitchClass) -> Self {
+    pub fn new(initial_key: PitchClass, params: &HarmonyDriverParams) -> Self {
         let lcc = Arc::new(LydianChromaticConcept::new());
 
         Self {
@@ -110,12 +124,16 @@ impl HarmonicDriver {
             phrase_position: 0,
             last_tension: 0.5,
             global_key: initial_key,
-            // Hysteresis fields with default thresholds
             last_strategy: StrategyMode::Steedman,
-            steedman_lower: 0.45,
-            steedman_upper: 0.55,
-            neo_lower: 0.65,
-            neo_upper: 0.75,
+            steedman_lower: params.steedman_lower,
+            steedman_upper: params.steedman_upper,
+            neo_lower: params.neo_lower,
+            neo_upper: params.neo_upper,
+            hysteresis_boost: params.hysteresis_boost,
+            dramatic_tension_drop_upper: params.dramatic_tension_drop_upper,
+            dramatic_tension_drop_lower: params.dramatic_tension_drop_lower,
+            cadential_resolution_probability: params.cadential_resolution_probability,
+            max_retries: params.max_retries,
         }
     }
 
@@ -147,7 +165,8 @@ impl HarmonicDriver {
     /// # Example
     /// ```
     /// use harmonium_core::harmony::driver::HarmonicDriver;
-    /// let mut driver = HarmonicDriver::new(0); // 0 is C
+    /// use harmonium_core::tuning::HarmonyDriverParams;
+    /// let mut driver = HarmonicDriver::new(0, &HarmonyDriverParams::default());
     /// driver.set_hysteresis_thresholds(0.45, 0.55, 0.65, 0.75);
     /// ```
     pub fn set_hysteresis_thresholds(
@@ -268,24 +287,23 @@ impl HarmonicDriver {
         }
 
         // Zones d'hystérésis: probabiliste avec biais vers la dernière stratégie
-        // Appliquer un boost de 10% à la stratégie précédente pour la stabilité
-        const HYSTERESIS_BOOST: f32 = 0.1;
+        let hysteresis_boost = self.hysteresis_boost;
 
         match self.last_strategy {
             StrategyMode::Steedman => {
-                let boost = steedman_w * HYSTERESIS_BOOST;
+                let boost = steedman_w * hysteresis_boost;
                 steedman_w += boost;
                 parsimonious_w = boost.mul_add(-0.5, parsimonious_w).max(0.0);
                 neo_w = boost.mul_add(-0.5, neo_w).max(0.0);
             }
             StrategyMode::Parsimonious => {
-                let boost = parsimonious_w * HYSTERESIS_BOOST;
+                let boost = parsimonious_w * hysteresis_boost;
                 parsimonious_w += boost;
                 steedman_w = boost.mul_add(-0.5, steedman_w).max(0.0);
                 neo_w = boost.mul_add(-0.5, neo_w).max(0.0);
             }
             StrategyMode::NeoRiemannian => {
-                let boost = neo_w * HYSTERESIS_BOOST;
+                let boost = neo_w * hysteresis_boost;
                 neo_w += boost;
                 steedman_w = boost.mul_add(-0.5, steedman_w).max(0.0);
                 parsimonious_w = boost.mul_add(-0.5, parsimonious_w).max(0.0);
@@ -342,8 +360,9 @@ impl HarmonicDriver {
         valence: f32,
         rng: &mut dyn RngCore,
     ) -> HarmonyDecision {
-        // Détecter une chute dramatique de tension (>0.7 -> <0.5)
-        let dramatic_tension_drop = self.last_tension > 0.7 && tension < 0.5;
+        // Détecter une chute dramatique de tension
+        let dramatic_tension_drop = self.last_tension > self.dramatic_tension_drop_upper
+            && tension < self.dramatic_tension_drop_lower;
 
         // Construire le contexte
         let ctx = HarmonyContext {
@@ -393,9 +412,8 @@ impl HarmonicDriver {
             }
         };
 
-        // Vérifier la boucle A->B->A et réessayer jusqu'à 3 fois si nécessaire
-        const MAX_RETRIES: usize = 3;
-        for retry in 0..MAX_RETRIES {
+        // Vérifier la boucle A->B->A et réessayer si nécessaire
+        for retry in 0..self.max_retries {
             if !self.would_create_aba_loop(&decision.next_chord) {
                 break;
             }
@@ -570,7 +588,7 @@ impl HarmonicDriver {
         // Si on n'est pas sur la dominante, choisir aléatoirement entre:
         // 1. Aller directement à la tonique (60%)
         // 2. Aller à la dominante pour préparer la résolution (40%)
-        let go_to_tonic = rng.next_f32() < 0.6;
+        let go_to_tonic = rng.next_f32() < self.cadential_resolution_probability;
 
         let target_root = if go_to_tonic { self.global_key } else { dominant_root };
 
@@ -633,7 +651,7 @@ mod tests {
 
     #[test]
     fn test_low_tension_uses_steedman() {
-        let mut driver = HarmonicDriver::new(0); // C
+        let mut driver = HarmonicDriver::new(0, &HarmonyDriverParams::default()); // C
         let mut rng = TestRng(42);
 
         // Tension basse -> Steedman
@@ -643,7 +661,7 @@ mod tests {
 
     #[test]
     fn test_high_tension_uses_neo_riemannian() {
-        let mut driver = HarmonicDriver::new(0); // C
+        let mut driver = HarmonicDriver::new(0, &HarmonyDriverParams::default()); // C
         let mut rng = TestRng(42);
 
         // Tension haute -> Neo-Riemannian
@@ -653,7 +671,7 @@ mod tests {
 
     #[test]
     fn test_transition_zone() {
-        let mut driver = HarmonicDriver::new(0); // C
+        let mut driver = HarmonicDriver::new(0, &HarmonyDriverParams::default()); // C
         let mut rng = TestRng(42);
 
         // Tension moyenne -> Parsimonious (bridge entre Steedman et Neo-Riemannian)
@@ -664,7 +682,7 @@ mod tests {
 
     #[test]
     fn test_scale_generation() {
-        let driver = HarmonicDriver::new(0); // C
+        let driver = HarmonicDriver::new(0, &HarmonyDriverParams::default()); // C
 
         // Basse tension -> gamme Lydienne (consonante)
         let scale = driver.get_current_scale(0.0);
@@ -678,7 +696,7 @@ mod tests {
 
     #[test]
     fn test_root_offset() {
-        let mut driver = HarmonicDriver::new(0); // C
+        let mut driver = HarmonicDriver::new(0, &HarmonyDriverParams::default()); // C
 
         // Après quelques accords, vérifier que root_offset est correct
         driver.current_chord = Chord::new(7, ChordType::Major); // G
@@ -694,7 +712,7 @@ mod tests {
 
     #[test]
     fn test_steedman_produces_chord_changes() {
-        let mut driver = HarmonicDriver::new(0); // C
+        let mut driver = HarmonicDriver::new(0, &HarmonyDriverParams::default()); // C
         let mut rng = TestRng(42);
 
         // Basse tension = Steedman
@@ -724,7 +742,7 @@ mod tests {
 
     #[test]
     fn test_neo_riemannian_produces_chord_changes() {
-        let mut driver = HarmonicDriver::new(0); // C
+        let mut driver = HarmonicDriver::new(0, &HarmonyDriverParams::default()); // C
         driver.current_chord = Chord::new(0, ChordType::Major); // Triade pour Neo-Riemannian
         let mut rng = TestRng(123);
 
@@ -755,7 +773,7 @@ mod tests {
 
     #[test]
     fn test_parsimonious_produces_chord_changes() {
-        let mut driver = HarmonicDriver::new(0); // C
+        let mut driver = HarmonicDriver::new(0, &HarmonyDriverParams::default()); // C
         driver.current_chord = Chord::new(0, ChordType::Major7); // Tétracorde pour Parsimonious
         let mut rng = TestRng(456);
 
@@ -786,7 +804,7 @@ mod tests {
 
     #[test]
     fn test_progression_variety() {
-        let mut driver = HarmonicDriver::new(0); // C
+        let mut driver = HarmonicDriver::new(0, &HarmonyDriverParams::default()); // C
         let mut rng = TestRng(789);
 
         // Collecter les accords sur 20 itérations avec tension variable
@@ -812,7 +830,7 @@ mod tests {
 
     #[test]
     fn test_strategy_switch_continues_progression() {
-        let mut driver = HarmonicDriver::new(0); // C
+        let mut driver = HarmonicDriver::new(0, &HarmonyDriverParams::default()); // C
         let mut rng = TestRng(999);
 
         // Commencer avec Steedman (basse tension)
@@ -839,7 +857,7 @@ mod tests {
 
     #[test]
     fn test_tetrad_high_tension_uses_parsimonious() {
-        let mut driver = HarmonicDriver::new(0); // C
+        let mut driver = HarmonicDriver::new(0, &HarmonyDriverParams::default()); // C
         driver.current_chord = Chord::new(0, ChordType::Dominant7); // Tétracorde
         let mut rng = TestRng(111);
 
@@ -861,7 +879,7 @@ mod tests {
 
     #[test]
     fn test_no_stuck_on_same_chord() {
-        let mut driver = HarmonicDriver::new(0); // C
+        let mut driver = HarmonicDriver::new(0, &HarmonyDriverParams::default()); // C
         let mut rng = TestRng(222);
 
         // Test avec différentes configurations
@@ -897,7 +915,7 @@ mod tests {
 
     #[test]
     fn test_taboo_list_prevents_aba_loops() {
-        let mut driver = HarmonicDriver::new(0); // C
+        let mut driver = HarmonicDriver::new(0, &HarmonyDriverParams::default()); // C
         let mut rng = TestRng(333);
 
         // Démarrer avec un accord spécifique et historique vide
@@ -932,7 +950,7 @@ mod tests {
 
     #[test]
     fn test_dramatic_tension_drop_forces_resolution() {
-        let mut driver = HarmonicDriver::new(0); // C
+        let mut driver = HarmonicDriver::new(0, &HarmonyDriverParams::default()); // C
         let mut rng = TestRng(444);
 
         // Commencer avec haute tension
@@ -957,7 +975,7 @@ mod tests {
 
     #[test]
     fn test_taboo_list_sliding_window() {
-        let mut driver = HarmonicDriver::new(0); // C (tonique)
+        let mut driver = HarmonicDriver::new(0, &HarmonyDriverParams::default()); // C (tonique)
 
         // === Test 1: Après E -> C, retourner à E devrait être bloqué ===
         // État simulé: progression E -> C (actuel)
@@ -1016,7 +1034,7 @@ mod tests {
 
     #[test]
     fn test_taboo_list_prevents_immediate_repetition() {
-        let mut driver = HarmonicDriver::new(0); // C Major (tonique)
+        let mut driver = HarmonicDriver::new(0, &HarmonyDriverParams::default()); // C Major (tonique)
         let mut rng = TestRng(555);
 
         // Démarrer avec un accord non-tonique pour tester la Taboo List
@@ -1063,7 +1081,7 @@ mod tests {
 
     #[test]
     fn test_tonic_return_always_allowed() {
-        let driver = HarmonicDriver::new(0); // C
+        let driver = HarmonicDriver::new(0, &HarmonyDriverParams::default()); // C
         let mut driver = driver;
 
         // Configurer: C -> G -> (devrait pouvoir retourner à C)

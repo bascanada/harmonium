@@ -8,7 +8,9 @@ pub mod log;
 pub mod params;
 pub mod report;
 pub mod sequencer;
+pub mod style_profile;
 pub mod timeline;
+pub mod tuning;
 
 // Re-export common types
 pub use command::EngineCommand;
@@ -24,6 +26,8 @@ pub use params::{
 };
 pub use report::{EngineReport, MeasureSnapshot, NoteEvent, NoteSnapshot};
 pub use sequencer::Sequencer;
+pub use style_profile::StyleProfile;
+pub use tuning::{TuningOverlay, TuningParams};
 
 // Define MusicKernel (skeleton for now, as requested in plan)
 use crate::events::AudioEvent as CoreAudioEvent;

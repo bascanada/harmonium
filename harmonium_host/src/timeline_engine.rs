@@ -18,6 +18,7 @@ use harmonium_core::{
     params::{CurrentState, EngineParams, MusicalParams, SessionConfig, TimeSignature},
     sequencer::Sequencer,
     timeline::{Measure, Playhead, TimelineGenerator, Writehead},
+    tuning::TuningParams,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -60,6 +61,9 @@ pub struct TimelineEngine {
     musical_params: MusicalParams,
     rng: ChaCha8Rng,
     params_dirty: bool,
+
+    // === STYLE TUNING ===
+    tuning: TuningParams,
 
     // === BPM OVERRIDE ===
     bpm_override: Option<f32>,
@@ -174,7 +178,8 @@ impl TimelineEngine {
             PitchSymbol::B => 11,
             _ => 0,
         };
-        let harmonic_driver = Some(HarmonicDriver::new(key_pc));
+        let tuning = TuningParams::default();
+        let harmonic_driver = Some(HarmonicDriver::new(key_pc, &tuning.harmony_driver));
 
         let musical_params = MusicalParams::default();
 
@@ -194,6 +199,7 @@ impl TimelineEngine {
             harmonic_driver,
             musical_params.clone(),
             initial_state,
+            tuning.clone(),
         );
 
         // Create writehead and playhead
@@ -223,6 +229,7 @@ impl TimelineEngine {
             musical_params,
             rng,
             params_dirty: false,
+            tuning,
             bpm_override: None,
             emotion_mapped_bpm: bpm,
             emotion_mapper: EmotionMapper::new(),
@@ -799,12 +806,20 @@ impl TimelineEngine {
                 EngineCommand::GetState => {}
                 EngineCommand::Reset => {
                     self.musical_params = MusicalParams::default();
-                    // Drain the measure ring buffer so stale bars from a prior
-                    // SeekPlayhead refill don't block generate_ahead().
                     while self.measure_rx.pop().is_ok() {}
                     self.playhead.reset();
                     self.writehead.reset();
                     self.loop_region = None;
+                }
+                EngineCommand::SetStyleProfile(ref profile) => {
+                    self.tuning = profile.to_tuning_params();
+                    self.generator.update_tuning(self.tuning.clone());
+                    self.params_dirty = true;
+                }
+                EngineCommand::ClearStyleProfile => {
+                    self.tuning = TuningParams::default();
+                    self.generator.update_tuning(self.tuning.clone());
+                    self.params_dirty = true;
                 }
             }
         }

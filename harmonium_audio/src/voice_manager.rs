@@ -120,7 +120,10 @@ impl VoiceManager {
 
         if let Some(bytes) = sf2_bytes {
             vm.add_font(0, bytes);
-            vm.configure_gm_defaults();
+            // Note: configure_gm_defaults() is NOT called here because
+            // SynthBackend::new() applies initial_routing via set_channel_route()
+            // which would overwrite the GM programs. The caller must call
+            // configure_gm_defaults() after routing is established.
         }
 
         vm

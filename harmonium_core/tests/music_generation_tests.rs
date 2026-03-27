@@ -77,7 +77,7 @@ fn generate_and_export(name: &str, params: &MusicalParams, measures: usize, seed
     sequencer.regenerate_pattern();
 
     // Setup harmony driver
-    let mut driver = HarmonicDriver::new(params.key_root);
+    let mut driver = HarmonicDriver::new(params.key_root, &harmonium_core::tuning::HarmonyDriverParams::default());
 
     // Collect events and chord symbols
     let mut events: Vec<(f64, AudioEvent)> = Vec::new(); // Changed to f64 for step-based timestamps
@@ -599,7 +599,7 @@ fn generate_timeline_export(
     let seq_secondary = Sequencer::new_with_rotation(12, 3, params.bpm, 0);
     let harmony =
         HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, params.melody_octave);
-    let driver = HarmonicDriver::new(params.key_root);
+    let driver = HarmonicDriver::new(params.key_root, &harmonium_core::tuning::HarmonyDriverParams::default());
     let state = CurrentState {
         bpm: params.bpm,
         density: params.rhythm_density,
@@ -616,6 +616,7 @@ fn generate_timeline_export(
         Some(driver),
         params.clone(),
         state,
+        harmonium_core::TuningParams::default(),
     );
 
     let mut rng = TestRng::new(seed);
@@ -715,7 +716,7 @@ fn generate_lab_export(name: &str, params: &MusicalParams, num_measures: usize, 
     let is_minor = params.harmony_valence < 0.0;
     let scale_type = params.melody_scale_type.to_rmt_scale_type(is_minor);
     let harmony = HarmonyNavigator::new(pitch_symbol, scale_type, params.melody_octave);
-    let driver = HarmonicDriver::new(params.key_root);
+    let driver = HarmonicDriver::new(params.key_root, &harmonium_core::tuning::HarmonyDriverParams::default());
     let state = CurrentState {
         bpm: params.bpm,
         density: params.rhythm_density,
@@ -732,6 +733,7 @@ fn generate_lab_export(name: &str, params: &MusicalParams, num_measures: usize, 
         Some(driver),
         params.clone(),
         state.clone(),
+        harmonium_core::TuningParams::default(),
     );
 
     let mut rng = TestRng::new(seed);

@@ -3,6 +3,8 @@
 //! Système de sélection de progressions d'accords basé sur les quadrants émotionnels:
 //! - Valence (positif/négatif) × Tension (calme/tendu)
 
+use crate::tuning::EmotionalQuadrantParams;
+
 /// Qualité d'accord (pour compatibilité avec l'ancien système)
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChordQuality {
@@ -30,9 +32,9 @@ impl Progression {
     /// Sélectionne la palette harmonique selon l'état émotionnel
     /// Basé sur Russell's Circumplex Model (Valence × Arousal)
     #[must_use]
-    pub fn get_palette(valence: f32, tension: f32) -> Vec<ChordStep> {
+    pub fn get_palette(valence: f32, tension: f32, eq: &EmotionalQuadrantParams) -> Vec<ChordStep> {
         // === QUADRANT 1: HEUREUX & ÉNERGIQUE (Valence > 0, Tension > 0.5) ===
-        if valence > 0.3 && tension > 0.6 {
+        if valence > eq.happy_valence_threshold && tension > eq.energetic_tension_threshold {
             // Progression pop énergique: I - V - vi - IV
             // (Journey, U2, Red Hot Chili Peppers)
             vec![
@@ -43,7 +45,7 @@ impl Progression {
             ]
         }
         // === QUADRANT 2: HEUREUX & CALME (Valence > 0, Tension < 0.5) ===
-        else if valence > 0.3 {
+        else if valence > eq.happy_valence_threshold {
             // Progression paisible: I - IV - I - V
             // (Folk, ballades apaisantes)
             vec![
@@ -54,7 +56,7 @@ impl Progression {
             ]
         }
         // === QUADRANT 3: TRISTE & TENDU (Valence < 0, Tension > 0.6) ===
-        else if valence < -0.3 && tension > 0.6 {
+        else if valence < eq.sad_valence_threshold && tension > eq.energetic_tension_threshold {
             // Progression dramatique: i - V7 - VI - vii°
             // (Film noir, suspense, tragédie)
             vec![
@@ -65,7 +67,7 @@ impl Progression {
             ]
         }
         // === QUADRANT 4: TRISTE & CALME (Valence < 0, Tension < 0.5) ===
-        else if valence < -0.3 {
+        else if valence < eq.sad_valence_threshold {
             // Progression mélancolique: i - III - VII - i
             // (Post-rock, ambient mélancolique)
             vec![
@@ -76,7 +78,7 @@ impl Progression {
             ]
         }
         // === CENTRE: NEUTRE/AMBIENT (Valence ≈ 0) ===
-        else if tension > 0.6 {
+        else if tension > eq.energetic_tension_threshold {
             // Progression modale tendue: i - iv - i - v
             // (Musique modale, Dorien, ambiguïté harmonique)
             vec![
@@ -97,16 +99,16 @@ impl Progression {
 
     /// Retourne le nom de la progression basé sur le contexte émotionnel
     #[must_use]
-    pub fn get_progression_name(valence: f32, tension: f32) -> &'static str {
-        if valence > 0.3 && tension > 0.6 {
+    pub fn get_progression_name(valence: f32, tension: f32, eq: &EmotionalQuadrantParams) -> &'static str {
+        if valence > eq.happy_valence_threshold && tension > eq.energetic_tension_threshold {
             "Pop Energetic (I-V-vi-IV)"
-        } else if valence > 0.3 {
+        } else if valence > eq.happy_valence_threshold {
             "Folk Peaceful (I-IV-I-V)"
-        } else if valence < -0.3 && tension > 0.6 {
+        } else if valence < eq.sad_valence_threshold && tension > eq.energetic_tension_threshold {
             "Dramatic Minor (i-V7-VI-vii°)"
-        } else if valence < -0.3 {
+        } else if valence < eq.sad_valence_threshold {
             "Melancholic (i-III-VII-i)"
-        } else if tension > 0.6 {
+        } else if tension > eq.energetic_tension_threshold {
             "Modal Tense (i-iv-Isus2-v)"
         } else {
             "Ambient Drone (i-iv)"
@@ -118,9 +120,13 @@ impl Progression {
 mod tests {
     use super::*;
 
+    fn default_eq() -> EmotionalQuadrantParams {
+        EmotionalQuadrantParams::default()
+    }
+
     #[test]
     fn test_happy_energetic_quadrant() {
-        let palette = Progression::get_palette(0.7, 0.8);
+        let palette = Progression::get_palette(0.7, 0.8, &default_eq());
         assert_eq!(palette.len(), 4);
         assert_eq!(palette[0].quality, ChordQuality::Major);
         assert_eq!(palette[1].quality, ChordQuality::Dominant7);
@@ -128,14 +134,14 @@ mod tests {
 
     #[test]
     fn test_sad_calm_quadrant() {
-        let palette = Progression::get_palette(-0.6, 0.3);
+        let palette = Progression::get_palette(-0.6, 0.3, &default_eq());
         assert_eq!(palette.len(), 4);
         assert_eq!(palette[0].quality, ChordQuality::Minor);
     }
 
     #[test]
     fn test_neutral_ambient() {
-        let palette = Progression::get_palette(0.0, 0.2);
+        let palette = Progression::get_palette(0.0, 0.2, &default_eq());
         assert_eq!(palette.len(), 2); // Drone minimal
     }
 }

@@ -10,6 +10,8 @@
 
 use std::sync::Arc;
 
+use crate::tuning::NeoRiemannianParams;
+
 use super::{
     HarmonyContext, HarmonyDecision, HarmonyStrategy, RngCore, TransitionType,
     chord::{Chord, ChordType, PitchClass},
@@ -70,6 +72,8 @@ pub struct NeoRiemannianEngine {
     r_table: [(PitchClass, bool); 24],
     /// Contexte LCC pour les gammes
     lcc: Arc<LydianChromaticConcept>,
+    /// Tuning parameters for valence/tension thresholds and P/L/R probabilities
+    params: NeoRiemannianParams,
 }
 
 impl Default for NeoRiemannianEngine {
@@ -114,7 +118,12 @@ impl NeoRiemannianEngine {
             r_table[min_idx] = ((root + 3) % 12, false); // Am -> C (A + 3 = C)
         }
 
-        Self { p_table, l_table, r_table, lcc }
+        Self { p_table, l_table, r_table, lcc, params: NeoRiemannianParams::default() }
+    }
+
+    /// Update tuning parameters.
+    pub fn set_params(&mut self, params: NeoRiemannianParams) {
+        self.params = params;
     }
 
     /// Applique une transformation P, L ou R à un accord
@@ -240,34 +249,30 @@ impl NeoRiemannianEngine {
     /// Valence négative: préfère L (chromatique, étrange)
     fn choose_op_by_valence(&self, valence: f32, rng: &mut dyn RngCore) -> NeoRiemannianOp {
         let r = rng.next_f32();
+        let p = &self.params;
 
-        if valence > 0.3 {
-            // Positive: 50% R, 30% P, 20% L
-            if r < 0.5 {
+        if valence > p.positive_valence_threshold {
+            if r < p.positive_r_prob {
                 NeoRiemannianOp::R
-            } else if r < 0.8 {
+            } else if r < p.positive_p_cumulative {
                 NeoRiemannianOp::P
             } else {
                 NeoRiemannianOp::L
             }
-        } else if valence < -0.3 {
-            // Negative: 50% L, 30% P, 20% R
-            if r < 0.5 {
+        } else if valence < p.negative_valence_threshold {
+            if r < p.negative_l_prob {
                 NeoRiemannianOp::L
-            } else if r < 0.8 {
+            } else if r < p.negative_p_cumulative {
                 NeoRiemannianOp::P
             } else {
                 NeoRiemannianOp::R
             }
+        } else if r < p.neutral_p_prob {
+            NeoRiemannianOp::P
+        } else if r < p.neutral_l_cumulative {
+            NeoRiemannianOp::L
         } else {
-            // Neutral: 40% P, 30% L, 30% R
-            if r < 0.4 {
-                NeoRiemannianOp::P
-            } else if r < 0.7 {
-                NeoRiemannianOp::L
-            } else {
-                NeoRiemannianOp::R
-            }
+            NeoRiemannianOp::R
         }
     }
 }
@@ -278,7 +283,9 @@ impl HarmonyStrategy for NeoRiemannianEngine {
         let op = self.choose_op_by_valence(ctx.valence, rng);
 
         // À haute tension, on peut enchaîner plusieurs opérations
-        let next_chord = if ctx.tension > 0.8 && rng.next_f32() < 0.5 {
+        let next_chord = if ctx.tension > self.params.composite_tension_threshold
+            && rng.next_f32() < self.params.composite_probability
+        {
             // 50% de chance d'opération composée à très haute tension
             let composite = match rng.next_range_usize(0..3) {
                 0 => CompositeOp::PL,

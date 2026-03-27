@@ -12,6 +12,7 @@ use rust_music_theory::{
 
 use super::{RngCore, basic::ChordQuality};
 use crate::fractal::PinkNoise;
+use crate::tuning::MelodyParams;
 
 pub struct HarmonyNavigator {
     pub current_scale: Scale,
@@ -89,6 +90,16 @@ impl HarmonyNavigator {
             fractal_range: 22.0,
             motif_new_material_bias: 0.6,
         }
+    }
+
+    /// Apply melody tuning parameters. Replaces hardcoded defaults for fractal,
+    /// motif, and pink noise settings.
+    pub fn set_melody_params(&mut self, params: &MelodyParams) {
+        self.pink_noise = PinkNoise::new(params.pink_noise_depth);
+        self.hurst_factor = params.default_hurst_factor;
+        self.fractal_boost = params.fractal_boost;
+        self.fractal_range = params.fractal_range;
+        self.motif_new_material_bias = params.motif_new_material_bias;
     }
 
     /// Change le contexte harmonique (accord courant)
