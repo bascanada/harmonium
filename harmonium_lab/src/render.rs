@@ -4,7 +4,7 @@
 //! without requiring an audio device. Uses the same offline engine as the CLI
 //! export command.
 
-use std::{path::Path, sync::Mutex};
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use harmonium::{
@@ -17,36 +17,76 @@ const SAMPLE_RATE: f64 = 44100.0;
 const CHANNELS: usize = 2;
 const BUFFER_SIZE: usize = 1024;
 
-/// Render `bars` bars of music using the given `TuningParams` and return WAV bytes.
-///
-/// Uses a deterministic seed so the same tuning + seed always produces identical
-/// audio for fair A/B comparison.
+/// Style-specific rendering parameters beyond TuningParams.
+/// These control the emotional/dynamic state of the engine.
+pub struct RenderConfig {
+    /// BPM (70-180)
+    pub bpm: f32,
+    /// Density (0.0-1.0) — how many notes per beat
+    pub density: f32,
+    /// Tension (0.0-1.0) — harmonic complexity
+    pub tension: f32,
+    /// Valence (-1.0 to 1.0) — happy/sad
+    pub valence: f32,
+    /// Arousal (0.0-1.0) — energy level
+    pub arousal: f32,
+    /// Deterministic seed for reproducible output
+    pub seed: u64,
+}
+
+impl Default for RenderConfig {
+    fn default() -> Self {
+        Self { bpm: 120.0, density: 0.5, tension: 0.4, valence: 0.3, arousal: 0.5, seed: 42 }
+    }
+}
+
+/// Output from headless rendering.
+pub struct RenderOutput {
+    /// WAV audio bytes (32-bit float PCM, stereo, 44100 Hz).
+    pub wav: Vec<u8>,
+    /// MIDI file bytes.
+    pub midi: Option<Vec<u8>>,
+}
+
+/// Render `bars` bars of music using the given `TuningParams` and `RenderConfig`.
 pub fn render_to_wav(
     tuning: &TuningParams,
     bars: usize,
-    bpm: f32,
-    seed: u64,
+    config: &RenderConfig,
     sf2_bytes: Option<&[u8]>,
-) -> Result<Vec<u8>> {
+) -> Result<RenderOutput> {
     let (mut composer, mut playback, mut cmd_tx, mut report_rx, finished_recordings) =
         audio::create_offline_engine(sf2_bytes, AudioBackendType::FundSP, SAMPLE_RATE)
             .map_err(|e| anyhow::anyhow!("Failed to create offline engine: {}", e))?;
 
-    // Apply tuning and BPM
+    // Apply tuning parameters (style personality)
     composer.set_tuning(tuning.clone());
-    composer.set_bpm(bpm);
-    composer.set_rng_seed(seed);
+
+    // Set deterministic seed
+    composer.set_rng_seed(config.seed);
+
+    // Set BPM
+    composer.set_bpm(config.bpm);
+
+    // Set rhythm mode to ClassicGroove so our groove params take effect
+    composer.set_rhythm_mode(harmonium_core::sequencer::RhythmMode::ClassicGroove);
+
+    // Set emotion params (density, tension, valence drive the generator)
+    composer.set_emotions(config.arousal, config.valence, config.density, config.tension);
+
+    // Sync all params to generator before generating
+    composer.sync_generator();
 
     // Pre-generate bars
     composer.set_writehead_lookahead(bars.max(4) + 4);
     composer.generate_bars(bars);
 
-    // Start WAV recording
+    // Start WAV + MIDI recording
     let _ = cmd_tx.push(PlaybackCommand::StartRecording(RecordFormat::Wav));
+    let _ = cmd_tx.push(PlaybackCommand::StartRecording(RecordFormat::Midi));
 
     // Calculate total samples needed
-    // At the given BPM with 4/4 time, each bar = 4 beats = 4 * (60/bpm) seconds
-    let seconds_per_bar = 4.0 * 60.0 / f64::from(bpm);
+    let seconds_per_bar = 4.0 * 60.0 / f64::from(config.bpm);
     let total_samples = (SAMPLE_RATE * seconds_per_bar * bars as f64) as usize;
     let mut rendered_samples = 0usize;
     let mut buffer = vec![0.0f32; BUFFER_SIZE * CHANNELS];
@@ -69,37 +109,53 @@ pub fn render_to_wav(
         while report_rx.pop().is_ok() {}
     }
 
-    // Stop recording
+    // Stop recordings
     let _ = cmd_tx.push(PlaybackCommand::StopRecording(RecordFormat::Wav));
-    // Process stop command
+    let _ = cmd_tx.push(PlaybackCommand::StopRecording(RecordFormat::Midi));
+    // Process stop commands
     let mut stop_buf = vec![0.0f32; BUFFER_SIZE * CHANNELS];
     playback.process_buffer(&mut stop_buf, CHANNELS);
 
-    // Collect WAV bytes
+    // Collect WAV + MIDI bytes
     let recordings =
         finished_recordings.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
+    let mut wav_data = None;
+    let mut midi_data = None;
     for (format, data) in recordings.iter() {
-        if *format == RecordFormat::Wav {
-            return Ok(data.clone());
+        match format {
+            RecordFormat::Wav => wav_data = Some(data.clone()),
+            RecordFormat::Midi => midi_data = Some(data.clone()),
+            _ => {}
         }
     }
 
-    Err(anyhow::anyhow!("No WAV data produced"))
+    Ok(RenderOutput {
+        wav: wav_data.ok_or_else(|| anyhow::anyhow!("No WAV data produced"))?,
+        midi: midi_data,
+    })
 }
 
-/// Render to WAV and save to a file.
-pub fn render_to_wav_file(
+/// Render to WAV (+MIDI) and save to files.
+/// MIDI is saved alongside WAV with `.mid` extension.
+pub fn render_to_files(
     tuning: &TuningParams,
     bars: usize,
-    bpm: f32,
-    seed: u64,
-    path: &Path,
+    config: &RenderConfig,
+    wav_path: &Path,
     sf2_bytes: Option<&[u8]>,
 ) -> Result<()> {
-    let wav_bytes = render_to_wav(tuning, bars, bpm, seed, sf2_bytes)?;
-    std::fs::write(path, &wav_bytes)
-        .with_context(|| format!("Failed to write WAV to {}", path.display()))?;
+    let output = render_to_wav(tuning, bars, config, sf2_bytes)?;
+    std::fs::write(wav_path, &output.wav)
+        .with_context(|| format!("Failed to write WAV to {}", wav_path.display()))?;
+
+    // Save MIDI alongside WAV
+    if let Some(midi) = &output.midi {
+        let midi_path = wav_path.with_extension("mid");
+        std::fs::write(&midi_path, midi)
+            .with_context(|| format!("Failed to write MIDI to {}", midi_path.display()))?;
+    }
+
     Ok(())
 }
 

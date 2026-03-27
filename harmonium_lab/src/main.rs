@@ -21,6 +21,63 @@ use harmonium_lab::{
     DNAComparator, DNAProfile, GlobalMetrics, MusicXMLIngester, agent::ClaudeAgent, render,
 };
 use indicatif::{ProgressBar, ProgressStyle};
+use serde::{Deserialize, Serialize};
+
+/// A style profile TOML file: TuningParams + render configuration.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct StyleFile {
+    /// Render configuration (BPM, emotions, seed)
+    #[serde(default)]
+    render: RenderSection,
+    /// All TuningParams sections are flattened here
+    #[serde(flatten)]
+    tuning: TuningParams,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct RenderSection {
+    #[serde(default = "default_bpm")]
+    bpm: f32,
+    #[serde(default = "default_density")]
+    density: f32,
+    #[serde(default = "default_tension")]
+    tension: f32,
+    #[serde(default = "default_valence")]
+    valence: f32,
+    #[serde(default = "default_arousal")]
+    arousal: f32,
+}
+
+fn default_bpm() -> f32 { 120.0 }
+fn default_density() -> f32 { 0.5 }
+fn default_tension() -> f32 { 0.4 }
+fn default_valence() -> f32 { 0.3 }
+fn default_arousal() -> f32 { 0.5 }
+
+impl Default for RenderSection {
+    fn default() -> Self {
+        Self {
+            bpm: default_bpm(),
+            density: default_density(),
+            tension: default_tension(),
+            valence: default_valence(),
+            arousal: default_arousal(),
+        }
+    }
+}
+
+impl RenderSection {
+    fn to_render_config(&self, seed: u64) -> render::RenderConfig {
+        render::RenderConfig {
+            bpm: self.bpm,
+            density: self.density,
+            tension: self.tension,
+            valence: self.valence,
+            arousal: self.arousal,
+            seed,
+        }
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "harmonium-lab")]
@@ -944,8 +1001,8 @@ fn cmd_render(
 ) -> Result<()> {
     let toml_str = std::fs::read_to_string(profile_path)
         .with_context(|| format!("Failed to read profile: {}", profile_path.display()))?;
-    let tuning: TuningParams =
-        toml::from_str(&toml_str).with_context(|| "Failed to parse TuningParams TOML")?;
+    let style: StyleFile =
+        toml::from_str(&toml_str).with_context(|| "Failed to parse style profile TOML")?;
 
     let sf2_bytes = match soundfont {
         Some(path) => {
@@ -958,8 +1015,18 @@ fn cmd_render(
         None => None,
     };
 
-    println!("Rendering {} bars at {} BPM (seed={})...", bars, bpm, seed);
-    render::render_to_wav_file(&tuning, bars, bpm, seed, output, sf2_bytes.as_deref())?;
+    // CLI --bpm overrides the profile's default
+    let mut config = style.render.to_render_config(seed);
+    if (bpm - 120.0).abs() > 0.01 {
+        // User explicitly set BPM via CLI
+        config.bpm = bpm;
+    }
+
+    println!(
+        "Rendering {} bars at {} BPM (density={:.1}, tension={:.1}, valence={:.1}, arousal={:.1}, seed={})...",
+        bars, config.bpm, config.density, config.tension, config.valence, config.arousal, seed
+    );
+    render::render_to_files(&style.tuning, bars, &config, output, sf2_bytes.as_deref())?;
     println!("WAV saved to: {}", output.display());
 
     // Auto-play
@@ -984,7 +1051,7 @@ fn cmd_rate_style(
     let wav_path = output.unwrap_or_else(|| PathBuf::from("./render.wav"));
 
     println!("Rendering {} bars at {} BPM (seed={})...", bars, bpm, seed);
-    render::render_to_wav_file(&tuning, bars, bpm, seed, &wav_path, None)?;
+    render::render_to_files(&tuning, bars, &render::RenderConfig { bpm, seed, ..Default::default() }, &wav_path, None)?;
     println!("WAV saved to: {}", wav_path.display());
 
     // Play audio
@@ -1056,7 +1123,7 @@ fn cmd_rate_batch(candidates_dir: &Path, bars: usize, bpm: f32, seed: u64) -> Re
         let wav_path = candidates_dir.join(format!("candidate_{}.wav", i + 1));
 
         println!("  Rendering {} bars...", bars);
-        render::render_to_wav_file(&tuning, bars, bpm, seed, &wav_path, None)?;
+        render::render_to_files(&tuning, bars, &render::RenderConfig { bpm, seed, ..Default::default() }, &wav_path, None)?;
         println!("  Playing...");
         render::play_wav(&wav_path)?;
 
@@ -1128,7 +1195,7 @@ fn cmd_tune_style(
         // Render
         let wav_path = output_dir.join(format!("iter_{}.wav", iteration));
         println!("  Rendering {} bars...", bars);
-        render::render_to_wav_file(&current_tuning, bars, bpm, 42, &wav_path, None)?;
+        render::render_to_files(&current_tuning, bars, &render::RenderConfig { bpm, seed: 42, ..Default::default() }, &wav_path, None)?;
 
         // Play
         println!("  Playing: {}", wav_path.display());
