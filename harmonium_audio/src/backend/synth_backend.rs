@@ -132,8 +132,10 @@ impl SynthBackend {
         // After routing is established, configure GM defaults if a SoundFont is loaded.
         // This must happen after set_channel_route() because that sends ProgramChange(0)
         // which would overwrite the correct GM programs.
-        if sf2_bytes.is_some() {
-            voice_manager.configure_gm_defaults();
+        // Heuristic: SF files > 1MB are likely GM-compliant (e.g. MuseScore General).
+        if let Some(bytes) = sf2_bytes {
+            let gm_compatible = bytes.len() > 1_000_000;
+            voice_manager.configure_gm_defaults(gm_compatible);
         }
 
         Self {

@@ -139,31 +139,41 @@ impl VoiceManager {
 
     /// Configure GM-standard program assignments and drum channel mapping.
     ///
-    /// Called after loading a SoundFont to set up:
+    /// When `gm_compatible` is true (full GM SoundFont like MuseScore General):
     /// - Channel 0 → Bass (GM program 32)
     /// - Channel 1 → Piano (GM program 0)
     /// - Channels 2,3 → Drums on MIDI channel 9 (GM bank 128, program 0)
-    pub fn configure_gm_defaults(&mut self) {
-        // Remap drum logical channels to MIDI channel 9 (GM drums)
-        self.midi_channel_map[2] = 9;
-        self.midi_channel_map[3] = 9;
+    ///
+    /// When `gm_compatible` is false (small/test SoundFonts):
+    /// - All channels use program 0 (first available patch)
+    /// - No drum remapping (drums play as pitched notes)
+    pub fn configure_gm_defaults(&mut self, gm_compatible: bool) {
+        if gm_compatible {
+            // Remap drum logical channels to MIDI channel 9 (GM drums)
+            self.midi_channel_map[2] = 9;
+            self.midi_channel_map[3] = 9;
 
-        // Set up MIDI channel 9 as drum bank (GM standard)
-        // Bank Select MSB = 128 for percussion
-        let _ = self.synth.send_event(oxisynth::MidiEvent::ControlChange {
-            channel: 9,
-            ctrl: 0,
-            value: 128,
-        });
-        let _ = self.synth.send_event(oxisynth::MidiEvent::ProgramChange {
-            channel: 9,
-            program_id: 0, // Standard Kit
-        });
+            // Set up MIDI channel 9 as drum bank (GM standard)
+            let _ = self.synth.send_event(oxisynth::MidiEvent::ControlChange {
+                channel: 9,
+                ctrl: 0,
+                value: 128,
+            });
+            let _ = self.synth.send_event(oxisynth::MidiEvent::ProgramChange {
+                channel: 9,
+                program_id: 0,
+            });
 
-        // Bass: GM program 32 (Acoustic Bass)
-        self.set_channel_program(0, 32);
-        // Lead: GM program 0 (Acoustic Grand Piano)
-        self.set_channel_program(1, 0);
+            // Bass: GM program 32 (Acoustic Bass)
+            self.set_channel_program(0, 32);
+            // Lead: GM program 0 (Acoustic Grand Piano)
+            self.set_channel_program(1, 0);
+        } else {
+            // Non-GM: all channels use program 0
+            for ch in 0..4 {
+                self.set_channel_program(ch, 0);
+            }
+        }
     }
 
     /// Send a GM Program Change to the MIDI channel mapped from a logical channel.
