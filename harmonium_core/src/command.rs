@@ -152,6 +152,14 @@ pub enum EngineCommand {
     /// Clear loop region
     ClearLoop,
 
+    /// Generate a new melody with a fresh random seed.
+    /// Resets the entire session to bar 1 with new random content.
+    NewMelody,
+
+    /// Set an explicit seed and regenerate from bar 1.
+    /// Used for reproducible sessions (e.g. restoring a saved track).
+    SetSeed(u64),
+
     /// Export timeline to MusicXML
     ExportTimeline(RecordFormat),
 

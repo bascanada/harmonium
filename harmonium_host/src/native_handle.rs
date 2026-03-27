@@ -427,11 +427,14 @@ impl NativeHandle {
         let _ = self.playback_cmd_tx.push(PlaybackCommand::SetOutputMute(muted));
     }
 
-    /// Seek: reset both composer writehead and playback playhead.
+    /// Deterministic seek: reset RNG + generator, replay to target bar.
+    ///
+    /// Ensures the composer is in the exact state for `target_bar` as if
+    /// generation had proceeded linearly from bar 1 with the session seed.
     pub fn seek(&mut self, bar: usize) {
         let target_bar = bar.max(1);
         if let Ok(mut composer) = self.composer.lock() {
-            composer.seek_writehead(target_bar);
+            composer.deterministic_seek(target_bar);
         }
         let _ = self.playback_cmd_tx.push(PlaybackCommand::Seek(target_bar));
     }
@@ -455,6 +458,29 @@ impl NativeHandle {
 
     pub fn clear_loop(&mut self) {
         let _ = self.playback_cmd_tx.push(PlaybackCommand::ClearLoop);
+    }
+
+    /// Generate a new melody with a fresh random seed.
+    /// Resets the session to bar 1 with entirely new content.
+    pub fn new_melody(&mut self) {
+        if let Ok(mut composer) = self.composer.lock() {
+            composer.new_melody();
+        }
+        let _ = self.playback_cmd_tx.push(PlaybackCommand::Seek(1));
+    }
+
+    /// Set an explicit seed and regenerate from bar 1.
+    /// Used for reproducible sessions (e.g. restoring a saved track).
+    pub fn set_seed(&mut self, seed: u64) {
+        if let Ok(mut composer) = self.composer.lock() {
+            composer.set_seed(seed);
+        }
+        let _ = self.playback_cmd_tx.push(PlaybackCommand::Seek(1));
+    }
+
+    /// Get the current session seed (for saving with track records).
+    pub fn session_seed(&self) -> Option<u64> {
+        self.composer.lock().ok().map(|c| c.session_seed())
     }
 
     pub fn start_recording(&mut self, format: harmonium_core::events::RecordFormat) {

@@ -17,7 +17,7 @@ use harmonium_core::{
     log,
     params::{CurrentState, EngineParams, MusicalParams, SessionConfig, TimeSignature},
     sequencer::Sequencer,
-    timeline::{Measure, Playhead, TimelineGenerator, Writehead},
+    timeline::{GenerationContext, Measure, Playhead, TimelineGenerator, Writehead},
     tuning::TuningParams,
 };
 use rand::SeedableRng;
@@ -61,6 +61,12 @@ pub struct TimelineEngine {
     musical_params: MusicalParams,
     rng: ChaCha8Rng,
     params_dirty: bool,
+
+    // Seed + init params (for deterministic seek replay)
+    session_seed: u64,
+    init_key: PitchSymbol,
+    init_scale: ScaleType,
+    init_key_pc: u8,
 
     // === STYLE TUNING ===
     tuning: TuningParams,
@@ -233,6 +239,10 @@ impl TimelineEngine {
             musical_params,
             rng,
             params_dirty: false,
+            session_seed,
+            init_key: random_key,
+            init_scale: random_scale,
+            init_key_pc: key_pc,
             tuning,
             bpm_override: None,
             emotion_mapped_bpm: bpm,
@@ -305,6 +315,83 @@ impl TimelineEngine {
             // Store in master timeline
             self.writehead.commit_measure(measure);
         }
+    }
+
+    /// Build a GenerationContext from stored init params.
+    fn generation_context(&self) -> GenerationContext {
+        GenerationContext {
+            session_seed: self.session_seed,
+            key: self.init_key,
+            scale: self.init_scale,
+            key_pc: self.init_key_pc,
+        }
+    }
+
+    /// Re-derive init key/scale from a seed and update stored init params.
+    fn apply_seed(&mut self, seed: u64) {
+        use rand::Rng;
+        self.session_seed = seed;
+        let mut init_rng = ChaCha8Rng::seed_from_u64(seed);
+        let keys = [
+            PitchSymbol::C, PitchSymbol::D, PitchSymbol::E,
+            PitchSymbol::F, PitchSymbol::G, PitchSymbol::A, PitchSymbol::B,
+        ];
+        let scales = [ScaleType::PentatonicMinor, ScaleType::PentatonicMajor];
+        self.init_key = keys[init_rng.gen_range(0..keys.len())];
+        self.init_scale = scales[init_rng.gen_range(0..scales.len())];
+        self.init_key_pc = match self.init_key {
+            PitchSymbol::C => 0, PitchSymbol::D => 2, PitchSymbol::E => 4,
+            PitchSymbol::F => 5, PitchSymbol::G => 7, PitchSymbol::A => 9,
+            PitchSymbol::B => 11, _ => 0,
+        };
+    }
+
+    /// Full reset: stop notes, reset playhead, drain buffer, reset writehead/loop,
+    /// then deterministic seek to bar 1.
+    fn full_reset_to_bar1(&mut self) {
+        self.renderer.handle_event(AudioEvent::AllNotesOff { channel: 0 });
+        self.renderer.handle_event(AudioEvent::AllNotesOff { channel: 1 });
+        self.renderer.handle_event(AudioEvent::AllNotesOff { channel: 2 });
+        self.renderer.handle_event(AudioEvent::AllNotesOff { channel: 3 });
+        self.playhead.seek_to_bar(1);
+        while self.measure_rx.pop().is_ok() {}
+        self.writehead.reset();
+        self.loop_region = None;
+        self.deterministic_seek(1);
+    }
+
+    /// Deterministic seek: reset RNG + generator, replay to target bar.
+    ///
+    /// Ensures the generator and RNG are in the exact state for `target_bar`
+    /// as if generation had proceeded linearly from bar 1.
+    fn deterministic_seek(&mut self, target_bar: usize) {
+        use rand::Rng;
+
+        // 1. Re-seed RNG
+        let mut rng = ChaCha8Rng::seed_from_u64(self.session_seed);
+
+        // 2. Consume the same init draws as new_with_seed()
+        let keys_len = 7usize;
+        let scales_len = 2usize;
+        let _ = rng.gen_range(0..keys_len);
+        let _ = rng.gen_range(0..scales_len);
+
+        // 3. Reset generator
+        let ctx = self.generation_context();
+        self.generator.reset_to_initial(&ctx);
+
+        // 4. Apply current musical params (update_controls does this every buffer,
+        //    so linear generation always has these applied before generate_measure)
+        self.generator.update_params(self.musical_params.clone());
+
+        // 5. Silent advance
+        if target_bar > 1 {
+            self.generator.silent_advance(target_bar, &mut rng);
+        }
+
+        // 6. Store the RNG and set writehead position
+        self.rng = rng;
+        self.writehead.current_bar = target_bar;
     }
 
     /// Audio thread: process a buffer of audio samples
@@ -380,9 +467,19 @@ impl TimelineEngine {
                 self.renderer.handle_event(AudioEvent::AllNotesOff { channel: 2 });
                 self.renderer.handle_event(AudioEvent::AllNotesOff { channel: 3 });
                 self.playhead.seek_to_bar(start_bar);
-                // Drain ring buffer and regenerate from loop start
+                // Drain ring buffer
                 while self.measure_rx.pop().is_ok() {}
-                self.writehead.current_bar = start_bar;
+                // Re-push committed timeline measures into ring buffer (deterministic loop)
+                for bar in start_bar..=end_bar {
+                    if let Some(m) = self.writehead.timeline.get_measure(bar) {
+                        if self.measure_tx.push(m.clone()).is_err() {
+                            break;
+                        }
+                    }
+                }
+                // Set writehead past the loop region so generate_ahead doesn't
+                // re-generate loop bars (they're already in the ring buffer)
+                self.writehead.current_bar = end_bar + 1;
             }
         }
 
@@ -725,7 +822,7 @@ impl TimelineEngine {
                 }
                 EngineCommand::Seek(bar) => {
                     let target_bar = bar.max(1);
-                    log::info(&format!("Seeking to bar {target_bar}"));
+                    log::info(&format!("Deterministic seek to bar {target_bar}"));
                     // Stop active notes
                     self.renderer.handle_event(AudioEvent::AllNotesOff { channel: 0 });
                     self.renderer.handle_event(AudioEvent::AllNotesOff { channel: 1 });
@@ -735,8 +832,20 @@ impl TimelineEngine {
                     self.playhead.seek_to_bar(target_bar);
                     // Drain the measure ring buffer
                     while self.measure_rx.pop().is_ok() {}
-                    // Reset writehead to generate from the seek position
-                    self.writehead.current_bar = target_bar;
+                    // Deterministic: reset RNG + generator, replay to target
+                    self.deterministic_seek(target_bar);
+                }
+                EngineCommand::NewMelody => {
+                    use rand::Rng;
+                    let new_seed: u64 = rand::thread_rng().r#gen();
+                    log::info(&format!("New melody with seed {new_seed}"));
+                    self.apply_seed(new_seed);
+                    self.full_reset_to_bar1();
+                }
+                EngineCommand::SetSeed(seed) => {
+                    log::info(&format!("Set seed to {seed}"));
+                    self.apply_seed(seed);
+                    self.full_reset_to_bar1();
                 }
                 EngineCommand::SetLoop { start_bar, end_bar } => {
                     let start = start_bar.max(1);

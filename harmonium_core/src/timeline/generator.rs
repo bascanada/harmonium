@@ -10,7 +10,10 @@
 //! The algorithms are IDENTICAL to the legacy engine - just writing to
 //! `Measure` structs instead of emitting ephemeral `AudioEvent`s.
 
-use super::{Articulation, ChordContext, Measure, NoteId, StateSnapshot, TimelineNote, TrackId};
+use super::{
+    Articulation, ChordContext, GenerationContext, Measure, NoteId, StateSnapshot,
+    TimelineNote, TrackId,
+};
 use crate::{
     harmony::{
         HarmonyMode, RngCore,
@@ -126,6 +129,85 @@ impl TimelineGenerator {
         self.sequencer_secondary.cg_params = tuning.classic_groove.clone();
         self.harmony.set_melody_params(&tuning.melody);
         self.tuning = tuning;
+    }
+
+    /// Reset the generator to its initial state for deterministic seek/replay.
+    ///
+    /// Creates a fresh generator with the same constructor logic as `new_with_seed()`,
+    /// preserving only `next_note_id` (monotonically increasing) and `musical_params`.
+    /// Then applies `update_params()` to match the state that `update_controls()` would
+    /// produce before the first `generate_measure()` call.
+    pub fn reset_to_initial(&mut self, ctx: &GenerationContext) {
+        let bpm = 120.0f32; // Hardcoded to match new_with_seed()
+        let steps = 16usize;
+        let initial_pulses = 4usize;
+
+        // Rebuild sequencers (exact same code as new_with_seed)
+        let sequencer_primary = Sequencer::new(steps, initial_pulses, bpm);
+        let default_density = 0.4f32;
+        let secondary_pulses = std::cmp::min((default_density * 8.0) as usize + 1, 12);
+        let sequencer_secondary = Sequencer::new_with_rotation(12, secondary_pulses, bpm, 0);
+
+        let harmony = HarmonyNavigator::new(ctx.key, ctx.scale, 4);
+        let harmonic_driver = Some(HarmonicDriver::new(ctx.key_pc, &self.tuning.harmony_driver));
+        let musical_params = self.musical_params.clone();
+
+        let initial_state = CurrentState {
+            bpm,
+            density: musical_params.rhythm_density,
+            tension: musical_params.rhythm_tension,
+            smoothness: musical_params.melody_smoothness,
+            ..CurrentState::default()
+        };
+
+        let tuning = self.tuning.clone();
+        let current_progression = Progression::get_palette(
+            initial_state.valence,
+            initial_state.tension,
+            &tuning.emotional_quadrant,
+        );
+        let chord_chart = self.chord_chart.clone();
+
+        // Preserve next_note_id
+        let saved_note_id = self.next_note_id;
+
+        // Build fresh generator state (matching TimelineGenerator::new)
+        self.sequencer_primary = sequencer_primary;
+        self.sequencer_secondary = sequencer_secondary;
+        self.harmony = harmony;
+        self.harmonic_driver = harmonic_driver;
+        self.harmony_mode = musical_params.harmony_mode;
+        self.current_progression = current_progression;
+        self.progression_index = 0;
+        self.last_valence_choice = initial_state.valence;
+        self.last_tension_choice = initial_state.tension;
+        self.current_state = initial_state;
+        self.musical_params = musical_params;
+        self.chord_root_offset = 0;
+        self.chord_is_minor = false;
+        self.chord_name = "I".to_string();
+        self.current_chord_type = ChordType::Major;
+        self.chord_chart = chord_chart;
+        self.chart_index = 0;
+        self.next_note_id = saved_note_id;
+        self.current_bar = 0;
+        self.phrase_len = 4;
+        self.phrase_bar_counter = 0;
+        self.tuning = tuning;
+    }
+
+    /// Fast-forward the generator to `target_bar` by replaying bars 1..target_bar-1.
+    ///
+    /// Calls `generate_measure()` for each bar, discarding the output. After this,
+    /// the generator and RNG are in the exact state they would be at bar `target_bar`
+    /// if generation had proceeded linearly from bar 1.
+    ///
+    /// `next_note_id` will advance during replay (creating "phantom" IDs), which is
+    /// acceptable since note IDs only need to be monotonically increasing, not contiguous.
+    pub fn silent_advance(&mut self, target_bar: usize, rng: &mut dyn RngCore) {
+        for bar in 1..target_bar {
+            let _ = self.generate_measure(bar, rng);
+        }
     }
 
     /// Calculate velocity with beat-level accents and phrase-level dynamics (CORELIB-6)

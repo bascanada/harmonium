@@ -14,7 +14,7 @@ use harmonium_core::{
     log,
     params::{CurrentState, EngineParams, MusicalParams, SessionConfig, TimeSignature},
     sequencer::Sequencer,
-    timeline::{Measure, TimelineGenerator, Writehead},
+    timeline::{GenerationContext, Measure, TimelineGenerator, Writehead},
     tuning::TuningParams,
 };
 use rand::SeedableRng;
@@ -42,6 +42,12 @@ pub struct MusicComposer {
     musical_params: MusicalParams,
     rng: ChaCha8Rng,
     sample_rate: f64,
+
+    // Seed + init params (for deterministic seek replay)
+    session_seed: u64,
+    init_key: PitchSymbol,
+    init_scale: ScaleType,
+    init_key_pc: u8,
 
     // BPM override (user-set BPM persists through emotion changes)
     bpm_override: Option<f32>,
@@ -171,6 +177,10 @@ impl MusicComposer {
             musical_params,
             rng,
             sample_rate,
+            session_seed,
+            init_key: random_key,
+            init_scale: random_scale,
+            init_key_pc: key_pc,
             bpm_override: None,
             emotion_mapped_bpm: bpm,
             emotion_mapper: EmotionMapper::new(),
@@ -309,10 +319,103 @@ impl MusicComposer {
         }
     }
 
-    /// Seek the writehead to a specific bar.
+    /// Seek the writehead to a specific bar (legacy, non-deterministic).
     pub fn seek_writehead(&mut self, bar: usize) {
         self.writehead.current_bar = bar;
     }
+
+    /// Deterministic seek: reset RNG + generator, replay to target bar.
+    ///
+    /// After this call, the generator and RNG are in the exact state they would
+    /// be at `target_bar` if generation had proceeded linearly from bar 1.
+    /// Shared pages from target onward are cleared so they get regenerated.
+    pub fn deterministic_seek(&mut self, target_bar: usize) {
+        use rand::Rng;
+        let target_bar = target_bar.max(1);
+
+        // 1. Re-seed RNG from session seed
+        let mut rng = ChaCha8Rng::seed_from_u64(self.session_seed);
+
+        // 2. Consume the same init draws as new_with_seed() to advance RNG past init
+        let keys_len = 7usize;
+        let scales_len = 2usize;
+        let _ = rng.gen_range(0..keys_len);
+        let _ = rng.gen_range(0..scales_len);
+
+        // 3. Reset generator to initial state
+        let ctx = GenerationContext {
+            session_seed: self.session_seed,
+            key: self.init_key,
+            scale: self.init_scale,
+            key_pc: self.init_key_pc,
+        };
+        self.generator.reset_to_initial(&ctx);
+
+        // 4. Silent advance to target bar
+        if target_bar > 1 {
+            self.generator.silent_advance(target_bar, &mut rng);
+        }
+
+        // 5. Update state
+        self.rng = rng;
+        self.writehead.current_bar = target_bar;
+
+        // 6. Clear shared pages from target onward
+        if let Ok(mut pages) = self.shared_pages.lock() {
+            pages.retain(|m| m.index < target_bar);
+        }
+
+        log::info(&format!("Deterministic seek to bar {target_bar}"));
+    }
+
+    /// Re-derive init key/scale from a seed and update stored init params.
+    fn apply_seed(&mut self, seed: u64) {
+        use rand::Rng;
+        self.session_seed = seed;
+        let mut init_rng = ChaCha8Rng::seed_from_u64(seed);
+        let keys = [
+            PitchSymbol::C, PitchSymbol::D, PitchSymbol::E,
+            PitchSymbol::F, PitchSymbol::G, PitchSymbol::A, PitchSymbol::B,
+        ];
+        let scales = [ScaleType::PentatonicMinor, ScaleType::PentatonicMajor];
+        self.init_key = keys[init_rng.gen_range(0..keys.len())];
+        self.init_scale = scales[init_rng.gen_range(0..scales.len())];
+        self.init_key_pc = match self.init_key {
+            PitchSymbol::C => 0, PitchSymbol::D => 2, PitchSymbol::E => 4,
+            PitchSymbol::F => 5, PitchSymbol::G => 7, PitchSymbol::A => 9,
+            PitchSymbol::B => 11, _ => 0,
+        };
+    }
+
+    /// Generate a new melody with a fresh random seed.
+    pub fn new_melody(&mut self) {
+        use rand::Rng;
+        let new_seed: u64 = rand::thread_rng().r#gen();
+        log::info(&format!("New melody with seed {new_seed}"));
+        self.apply_seed(new_seed);
+        self.writehead.reset();
+        if let Ok(mut pages) = self.shared_pages.lock() {
+            pages.clear();
+        }
+        self.deterministic_seek(1);
+    }
+
+    /// Set an explicit seed and regenerate from bar 1.
+    pub fn set_seed(&mut self, seed: u64) {
+        log::info(&format!("Set seed to {seed}"));
+        self.apply_seed(seed);
+        self.writehead.reset();
+        if let Ok(mut pages) = self.shared_pages.lock() {
+            pages.clear();
+        }
+        self.deterministic_seek(1);
+    }
+
+    /// Get the current session seed.
+    pub fn session_seed(&self) -> u64 {
+        self.session_seed
+    }
+
 
     // === Parameter setters (called directly, no command queue) ===
 

@@ -22,6 +22,20 @@ pub use pointers::{Playhead, Writehead};
 use serde::{Deserialize, Serialize};
 
 use crate::params::{CurrentState, TimeSignature};
+use rust_music_theory::{note::PitchSymbol, scale::ScaleType};
+
+/// Context needed to deterministically reconstruct a generation session from scratch.
+///
+/// Stores the master seed and the derived key/scale that were randomly chosen
+/// at session start. Used by `TimelineGenerator::reset_to_initial()` to replay
+/// from bar 1 for deterministic seek.
+#[derive(Clone, Debug)]
+pub struct GenerationContext {
+    pub session_seed: u64,
+    pub key: PitchSymbol,
+    pub scale: ScaleType,
+    pub key_pc: u8,
+}
 
 /// Unique identifier for each note in the timeline
 pub type NoteId = u64;
