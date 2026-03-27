@@ -308,6 +308,21 @@ pub struct PerfectBalanceParams {
     /// Per-vertex accent pattern for lead polygon (empty = uniform).
     #[serde(default)]
     pub lead_accent_pattern: crate::sequencer::AccentPattern,
+    /// Extra polygons merged with the primary kick polygon.
+    #[serde(default)]
+    pub kick_extra_polygons: Vec<crate::sequencer::PolygonConfig>,
+    /// Extra polygons merged with the primary snare polygon.
+    #[serde(default)]
+    pub snare_extra_polygons: Vec<crate::sequencer::PolygonConfig>,
+    /// Extra polygons merged with the primary hat polygon.
+    #[serde(default)]
+    pub hat_extra_polygons: Vec<crate::sequencer::PolygonConfig>,
+    /// Extra polygons merged with the primary bass polygon.
+    #[serde(default)]
+    pub bass_extra_polygons: Vec<crate::sequencer::PolygonConfig>,
+    /// Extra polygons merged with the primary lead polygon.
+    #[serde(default)]
+    pub lead_extra_polygons: Vec<crate::sequencer::PolygonConfig>,
 }
 
 impl Default for PerfectBalanceParams {
@@ -331,6 +346,11 @@ impl Default for PerfectBalanceParams {
             hat_accent_pattern: crate::sequencer::AccentPattern::empty(),
             bass_accent_pattern: crate::sequencer::AccentPattern::empty(),
             lead_accent_pattern: crate::sequencer::AccentPattern::empty(),
+            kick_extra_polygons: Vec::new(),
+            snare_extra_polygons: Vec::new(),
+            hat_extra_polygons: Vec::new(),
+            bass_extra_polygons: Vec::new(),
+            lead_extra_polygons: Vec::new(),
         }
     }
 }
