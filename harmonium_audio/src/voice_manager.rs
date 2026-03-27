@@ -159,10 +159,9 @@ impl VoiceManager {
                 ctrl: 0,
                 value: 128,
             });
-            let _ = self.synth.send_event(oxisynth::MidiEvent::ProgramChange {
-                channel: 9,
-                program_id: 0,
-            });
+            let _ = self
+                .synth
+                .send_event(oxisynth::MidiEvent::ProgramChange { channel: 9, program_id: 0 });
 
             // Bass: GM program 32 (Acoustic Bass)
             self.set_channel_program(0, 32);

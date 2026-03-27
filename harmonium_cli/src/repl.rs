@@ -866,10 +866,7 @@ fn profiles_dir() -> std::path::PathBuf {
     let candidates = [
         std::path::PathBuf::from("../tune_output"),
         std::path::PathBuf::from("./tune_output"),
-        dirs::home_dir()
-            .unwrap_or_default()
-            .join(".harmonium")
-            .join("profiles"),
+        dirs::home_dir().unwrap_or_default().join(".harmonium").join("profiles"),
     ];
     for c in &candidates {
         if c.is_dir() {
@@ -908,7 +905,11 @@ fn handle_profile_command(state: &mut ReplState, tokens: &[&str]) -> Result<bool
             if profiles.is_empty() {
                 println!("No .toml profiles found in {}", dir.display());
             } else {
-                println!("{} Available profiles (in {}):", "[PROFILES]".cyan().bold(), dir.display());
+                println!(
+                    "{} Available profiles (in {}):",
+                    "[PROFILES]".cyan().bold(),
+                    dir.display()
+                );
                 for p in &profiles {
                     println!("  - {}", p.green());
                 }
@@ -972,36 +973,22 @@ struct ProfileInfo {
     arousal: f32,
 }
 
-fn load_and_apply_profile(
-    state: &mut ReplState,
-    path: &std::path::Path,
-) -> Result<ProfileInfo> {
+fn load_and_apply_profile(state: &mut ReplState, path: &std::path::Path) -> Result<ProfileInfo> {
     let toml_str = std::fs::read_to_string(path)?;
 
     // Parse the [render] section for emotion params
     let raw: toml::Value = toml::from_str(&toml_str)?;
     let render = raw.get("render");
 
-    let bpm = render
-        .and_then(|r| r.get("bpm"))
-        .and_then(|v| v.as_float())
-        .unwrap_or(120.0) as f32;
-    let density = render
-        .and_then(|r| r.get("density"))
-        .and_then(|v| v.as_float())
-        .unwrap_or(0.5) as f32;
-    let tension = render
-        .and_then(|r| r.get("tension"))
-        .and_then(|v| v.as_float())
-        .unwrap_or(0.4) as f32;
-    let valence = render
-        .and_then(|r| r.get("valence"))
-        .and_then(|v| v.as_float())
-        .unwrap_or(0.3) as f32;
-    let arousal = render
-        .and_then(|r| r.get("arousal"))
-        .and_then(|v| v.as_float())
-        .unwrap_or(0.5) as f32;
+    let bpm = render.and_then(|r| r.get("bpm")).and_then(|v| v.as_float()).unwrap_or(120.0) as f32;
+    let density =
+        render.and_then(|r| r.get("density")).and_then(|v| v.as_float()).unwrap_or(0.5) as f32;
+    let tension =
+        render.and_then(|r| r.get("tension")).and_then(|v| v.as_float()).unwrap_or(0.4) as f32;
+    let valence =
+        render.and_then(|r| r.get("valence")).and_then(|v| v.as_float()).unwrap_or(0.3) as f32;
+    let arousal =
+        render.and_then(|r| r.get("arousal")).and_then(|v| v.as_float()).unwrap_or(0.5) as f32;
 
     // Parse TuningParams (all sections except [render])
     // Re-parse with [render] stripped — or just parse the full thing and let serde ignore unknown

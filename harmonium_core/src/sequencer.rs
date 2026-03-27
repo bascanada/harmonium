@@ -88,11 +88,7 @@ impl AccentPattern {
     /// Returns the multiplier for the given vertex index (wraps cyclically).
     #[must_use]
     pub const fn get(&self, vertex_index: usize) -> f32 {
-        if self.len == 0 {
-            1.0
-        } else {
-            self.buf[vertex_index % self.len]
-        }
+        if self.len == 0 { 1.0 } else { self.buf[vertex_index % self.len] }
     }
 }
 
@@ -118,10 +114,7 @@ pub enum PolygonShape {
     #[default]
     Regular,
     /// Explicit onset positions within the cycle (fixed array for Copy).
-    Irregular {
-        positions: [usize; MAX_POLYGON_POSITIONS],
-        count: usize,
-    },
+    Irregular { positions: [usize; MAX_POLYGON_POSITIONS], count: usize },
 }
 
 /// Represents a regular polygon inscribed in the time cycle.
@@ -768,8 +761,12 @@ pub fn generate_balanced_layers(
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let raw_offset = (tension * interval as f32) as usize;
     let lead_offset = if half_beat > 0 { (raw_offset / half_beat) * half_beat } else { raw_offset };
-    let lead_gon =
-        Polygon::with_accents(lead_vertices, lead_offset, pb.lead_polygon_velocity, pb.lead_accent_pattern);
+    let lead_gon = Polygon::with_accents(
+        lead_vertices,
+        lead_offset,
+        pb.lead_polygon_velocity,
+        pb.lead_accent_pattern,
+    );
 
     // --- 2. RASTERIZATION (Collision Calculation) ---
     // Build polygon lists per instrument: primary + extras.
@@ -1734,10 +1731,7 @@ mod tests {
         // All vertices should return the base velocity
         for vi in 0..4 {
             let vel = poly.velocity_at(vi);
-            assert!(
-                (vel - 0.8).abs() < f32::EPSILON,
-                "vertex {vi}: expected 0.8, got {vel}"
-            );
+            assert!((vel - 0.8).abs() < f32::EPSILON, "vertex {vi}: expected 0.8, got {vel}");
         }
     }
 
@@ -1764,10 +1758,7 @@ mod tests {
         // vertex 3 -> accent 0.5 -> 0.8*0.5=0.4
         let expected = [0.8, 0.4, 0.8, 0.4];
         for (i, (&got, &exp)) in velocities.iter().zip(expected.iter()).enumerate() {
-            assert!(
-                (got - exp).abs() < f32::EPSILON,
-                "hit {i}: expected {exp}, got {got}"
-            );
+            assert!((got - exp).abs() < f32::EPSILON, "hit {i}: expected {exp}, got {got}");
         }
     }
 
@@ -1855,7 +1846,10 @@ mod tests {
             pattern.iter().enumerate().filter(|(_, t)| t.kick).map(|(i, _)| i).collect();
 
         // Should have more kicks than default (primary square=4 merged with triangle=3)
-        assert!(kick_positions.len() > 4, "Multi-polygon should merge hits, got {kick_positions:?}");
+        assert!(
+            kick_positions.len() > 4,
+            "Multi-polygon should merge hits, got {kick_positions:?}"
+        );
     }
 
     #[test]
@@ -1959,8 +1953,7 @@ mod tests {
             shape: PolygonShape::Regular,
         });
 
-        let pattern_suppressed =
-            generate_balanced_layers(0.5, 0.0, ts, ticks_per_beat, &pb);
+        let pattern_suppressed = generate_balanced_layers(0.5, 0.0, ts, ticks_per_beat, &pb);
 
         // Without suppression
         let pb_normal = PerfectBalanceParams {
@@ -1968,8 +1961,7 @@ mod tests {
             hat_masking_density_threshold: 0.0,
             ..PerfectBalanceParams::default()
         };
-        let pattern_normal =
-            generate_balanced_layers(0.5, 0.0, ts, ticks_per_beat, &pb_normal);
+        let pattern_normal = generate_balanced_layers(0.5, 0.0, ts, ticks_per_beat, &pb_normal);
 
         let hat_count_suppressed = pattern_suppressed.iter().filter(|t| t.hat).count();
         let hat_count_normal = pattern_normal.iter().filter(|t| t.hat).count();
@@ -1995,7 +1987,11 @@ mod tests {
 
         let pattern = generate_balanced_layers(0.5, 0.0, ts, ticks_per_beat, &pb);
         for (i, t) in pattern.iter().enumerate() {
-            assert!(t.velocity >= 0.0, "Velocity should never be negative at step {i}, got {}", t.velocity);
+            assert!(
+                t.velocity >= 0.0,
+                "Velocity should never be negative at step {i}, got {}",
+                t.velocity
+            );
         }
     }
 
@@ -2038,10 +2034,7 @@ mod tests {
             .collect();
 
         let balance = verify_balance(&triggers, |t| t.kick);
-        assert!(
-            balance > 0.5,
-            "All-on-one-side pattern should be imbalanced, got {balance}"
-        );
+        assert!(balance > 0.5, "All-on-one-side pattern should be imbalanced, got {balance}");
     }
 
     #[test]

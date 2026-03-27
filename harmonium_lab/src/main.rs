@@ -48,11 +48,21 @@ struct RenderSection {
     arousal: f32,
 }
 
-fn default_bpm() -> f32 { 120.0 }
-fn default_density() -> f32 { 0.5 }
-fn default_tension() -> f32 { 0.4 }
-fn default_valence() -> f32 { 0.3 }
-fn default_arousal() -> f32 { 0.5 }
+fn default_bpm() -> f32 {
+    120.0
+}
+fn default_density() -> f32 {
+    0.5
+}
+fn default_tension() -> f32 {
+    0.4
+}
+fn default_valence() -> f32 {
+    0.3
+}
+fn default_arousal() -> f32 {
+    0.5
+}
 
 impl Default for RenderSection {
     fn default() -> Self {
@@ -1051,7 +1061,13 @@ fn cmd_rate_style(
     let wav_path = output.unwrap_or_else(|| PathBuf::from("./render.wav"));
 
     println!("Rendering {} bars at {} BPM (seed={})...", bars, bpm, seed);
-    render::render_to_files(&tuning, bars, &render::RenderConfig { bpm, seed, ..Default::default() }, &wav_path, None)?;
+    render::render_to_files(
+        &tuning,
+        bars,
+        &render::RenderConfig { bpm, seed, ..Default::default() },
+        &wav_path,
+        None,
+    )?;
     println!("WAV saved to: {}", wav_path.display());
 
     // Play audio
@@ -1123,7 +1139,13 @@ fn cmd_rate_batch(candidates_dir: &Path, bars: usize, bpm: f32, seed: u64) -> Re
         let wav_path = candidates_dir.join(format!("candidate_{}.wav", i + 1));
 
         println!("  Rendering {} bars...", bars);
-        render::render_to_files(&tuning, bars, &render::RenderConfig { bpm, seed, ..Default::default() }, &wav_path, None)?;
+        render::render_to_files(
+            &tuning,
+            bars,
+            &render::RenderConfig { bpm, seed, ..Default::default() },
+            &wav_path,
+            None,
+        )?;
         println!("  Playing...");
         render::play_wav(&wav_path)?;
 
@@ -1195,7 +1217,13 @@ fn cmd_tune_style(
         // Render
         let wav_path = output_dir.join(format!("iter_{}.wav", iteration));
         println!("  Rendering {} bars...", bars);
-        render::render_to_files(&current_tuning, bars, &render::RenderConfig { bpm, seed: 42, ..Default::default() }, &wav_path, None)?;
+        render::render_to_files(
+            &current_tuning,
+            bars,
+            &render::RenderConfig { bpm, seed: 42, ..Default::default() },
+            &wav_path,
+            None,
+        )?;
 
         // Play
         println!("  Playing: {}", wav_path.display());
