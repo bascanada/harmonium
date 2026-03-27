@@ -167,6 +167,13 @@ pub enum EngineCommand {
     /// Set the writehead lookahead distance (minimum 4 bars)
     SetWriteheadLookahead(usize),
 
+    // === STYLE PROFILE ===
+    /// Load a style profile, applying its tuning overlay to engine parameters.
+    SetStyleProfile(Box<crate::style_profile::StyleProfile>),
+
+    /// Clear the active style profile, reverting to default tuning.
+    ClearStyleProfile,
+
     // === UTILITY ===
     /// Request full state report
     GetState,

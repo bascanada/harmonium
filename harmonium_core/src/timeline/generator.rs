@@ -21,6 +21,7 @@ use crate::{
     },
     params::{CurrentState, MusicalParams},
     sequencer::{RhythmMode, Sequencer, StepTrigger},
+    tuning::TuningParams,
 };
 
 /// Generates measures offline (on the main thread) using the same algorithms
@@ -66,6 +67,9 @@ pub struct TimelineGenerator {
     // === Phrase arc state (variable length) ===
     phrase_len: usize,
     phrase_bar_counter: usize,
+
+    // === Style tuning ===
+    pub tuning: TuningParams,
 }
 
 impl TimelineGenerator {
@@ -78,9 +82,13 @@ impl TimelineGenerator {
         harmonic_driver: Option<HarmonicDriver>,
         musical_params: MusicalParams,
         current_state: CurrentState,
+        tuning: TuningParams,
     ) -> Self {
-        let current_progression =
-            Progression::get_palette(current_state.valence, current_state.tension);
+        let current_progression = Progression::get_palette(
+            current_state.valence,
+            current_state.tension,
+            &tuning.emotional_quadrant,
+        );
 
         let chord_chart = Self::parse_chord_chart(&musical_params.chord_chart);
 
@@ -106,7 +114,18 @@ impl TimelineGenerator {
             current_bar: 0,
             phrase_len: 4,
             phrase_bar_counter: 0,
+            tuning,
         }
+    }
+
+    /// Update tuning parameters (called when a style profile is loaded/cleared).
+    pub fn update_tuning(&mut self, tuning: TuningParams) {
+        self.sequencer_primary.pb_params = tuning.perfect_balance.clone();
+        self.sequencer_primary.cg_params = tuning.classic_groove.clone();
+        self.sequencer_secondary.pb_params = tuning.perfect_balance.clone();
+        self.sequencer_secondary.cg_params = tuning.classic_groove.clone();
+        self.harmony.set_melody_params(&tuning.melody);
+        self.tuning = tuning;
     }
 
     /// Calculate velocity with beat-level accents and phrase-level dynamics (CORELIB-6)
@@ -247,11 +266,12 @@ impl TimelineGenerator {
         let melody_enabled = self.musical_params.enable_melody;
 
         // Context flags (replicates the "virtual drummer" context from tick())
-        let is_high_tension = self.current_state.tension > 0.6;
-        let is_high_density = self.current_state.density > 0.6;
-        let is_high_energy = self.current_state.arousal > 0.7;
+        let arr = self.tuning.arrangement.clone();
+        let is_high_tension = self.current_state.tension > arr.energy_high_tension;
+        let is_high_density = self.current_state.density > arr.energy_high_density;
+        let is_high_energy = self.current_state.arousal > arr.energy_high_arousal;
         let is_low_energy = self.current_state.arousal < 0.4;
-        let fill_zone_start = steps.saturating_sub(4);
+        let fill_zone_start = steps.saturating_sub(arr.fill_zone_size);
 
         // === WALKING BASS (CORELIB-11) ===
         // When density > 0.4 and smoothness > 0.4, generate a walking bass line
@@ -601,7 +621,7 @@ impl TimelineGenerator {
 
                 // Ghost notes
                 if trigger_primary.velocity < 0.7 {
-                    vel = (vel as f32 * 0.65) as u8;
+                    vel = (vel as f32 * arr.ghost_velocity_factor) as u8;
                     if is_low_energy {
                         snare_note = 37; // Side Stick
                     }
@@ -614,7 +634,7 @@ impl TimelineGenerator {
                         1 => 45, // Mid Tom
                         _ => 50, // High Tom
                     };
-                    vel = (vel as f32 * 1.1).min(127.0) as u8;
+                    vel = (vel as f32 * arr.tom_velocity_boost).min(127.0) as u8;
                 }
 
                 measure.add_note(
@@ -642,7 +662,7 @@ impl TimelineGenerator {
                 // Crash on the "One"
                 if step == 0 && is_high_energy {
                     hat_note = 49;
-                    vel = 110;
+                    vel = arr.crash_velocity;
                 }
                 // Ride / Open Hat variation
                 else if is_high_density {
@@ -715,13 +735,14 @@ impl TimelineGenerator {
     }
 
     /// Compute tension-driven measures-per-chord (CORELIB-5)
-    fn harmonic_rhythm_rate(tension: f32) -> usize {
-        if tension < 0.25 {
-            3 // Slow: ambient/meditative
-        } else if tension < 0.5 {
-            2 // Normal
+    fn harmonic_rhythm_rate(&self, tension: f32) -> usize {
+        let arr = &self.tuning.arrangement;
+        if tension < arr.progression_tension_thresholds[0] {
+            arr.progression_switch_interval_slow
+        } else if tension < arr.progression_tension_thresholds[1] {
+            arr.progression_switch_interval_normal
         } else {
-            1 // Fast: every bar (+ potential mid-bar at very high tension)
+            arr.progression_switch_interval_fast
         }
     }
 
@@ -736,6 +757,7 @@ impl TimelineGenerator {
                 self.current_progression = Progression::get_palette(
                     self.current_state.valence,
                     self.current_state.tension,
+                    &self.tuning.emotional_quadrant,
                 );
                 self.progression_index = 0;
                 self.last_valence_choice = self.current_state.valence;
@@ -744,7 +766,7 @@ impl TimelineGenerator {
         }
 
         // CORELIB-5: Dynamic harmonic rhythm based on tension
-        let measures_per_chord = Self::harmonic_rhythm_rate(self.current_state.tension);
+        let measures_per_chord = self.harmonic_rhythm_rate(self.current_state.tension);
         if bar_index.is_multiple_of(measures_per_chord) {
             self.progression_index = (self.progression_index + 1) % self.current_progression.len();
             let chord = &self.current_progression[self.progression_index];
@@ -766,7 +788,7 @@ impl TimelineGenerator {
     /// Advance harmony in Driver mode (Steedman + Neo-Riemannian + Parsimonious)
     fn advance_driver_harmony(&mut self, bar_index: usize, rng: &mut dyn RngCore) {
         // CORELIB-5: Dynamic harmonic rhythm
-        let measures_per_chord = Self::harmonic_rhythm_rate(self.current_state.tension);
+        let measures_per_chord = self.harmonic_rhythm_rate(self.current_state.tension);
         if bar_index.is_multiple_of(measures_per_chord) {
             if let Some(ref mut driver) = self.harmonic_driver {
                 let decision =
@@ -1084,6 +1106,7 @@ mod tests {
             None, // No driver for basic tests
             params,
             state,
+            TuningParams::default(),
         )
     }
 
@@ -1121,7 +1144,7 @@ mod tests {
         let seq_primary = Sequencer::new(16, 4, 120.0);
         let seq_secondary = Sequencer::new_with_rotation(12, 3, 120.0, 0);
         let harmony = HarmonyNavigator::new(PitchSymbol::C, ScaleType::PentatonicMajor, 4);
-        let driver = HarmonicDriver::new(0); // C
+        let driver = HarmonicDriver::new(0, &crate::tuning::HarmonyDriverParams::default()); // C
         let params = MusicalParams::default();
         let state = CurrentState {
             bpm: 120.0,
@@ -1139,6 +1162,7 @@ mod tests {
             Some(driver),
             params,
             state,
+            TuningParams::default(),
         );
 
         let mut rng = rand::thread_rng();
@@ -1358,6 +1382,7 @@ mod tests {
                     None,
                     params,
                     state,
+                    TuningParams::default(),
                 );
                 let mut rng = rand::thread_rng();
 
@@ -1427,6 +1452,7 @@ mod tests {
                     None,
                     params,
                     state,
+                    TuningParams::default(),
                 );
 
                 let mut lead_counts: Vec<usize> = Vec::new();
@@ -1489,6 +1515,7 @@ mod tests {
             None,
             params.clone(),
             state,
+            TuningParams::default(),
         );
 
         // Step 2: Switch to PerfectBalance with high density (mimics sync_generator)
@@ -1549,8 +1576,15 @@ mod tests {
             arousal: 0.5,
         };
 
-        let mut tgen =
-            TimelineGenerator::new(seq_primary, seq_secondary, harmony, None, params, state);
+        let mut tgen = TimelineGenerator::new(
+            seq_primary,
+            seq_secondary,
+            harmony,
+            None,
+            params,
+            state,
+            TuningParams::default(),
+        );
         let mut rng = rand::thread_rng();
 
         // Generate 8 bars — should cycle through 4-chord chart twice
@@ -1594,8 +1628,15 @@ mod tests {
             arousal: 0.5,
         };
 
-        let mut tgen =
-            TimelineGenerator::new(seq_primary, seq_secondary, harmony, None, params, state);
+        let mut tgen = TimelineGenerator::new(
+            seq_primary,
+            seq_secondary,
+            harmony,
+            None,
+            params,
+            state,
+            TuningParams::default(),
+        );
         let mut rng = rand::thread_rng();
 
         let mut chord_names: Vec<String> = Vec::new();
@@ -1635,8 +1676,15 @@ mod tests {
             arousal: 0.5,
         };
 
-        let mut tgen =
-            TimelineGenerator::new(seq_primary, seq_secondary, harmony, None, params, state);
+        let mut tgen = TimelineGenerator::new(
+            seq_primary,
+            seq_secondary,
+            harmony,
+            None,
+            params,
+            state,
+            TuningParams::default(),
+        );
         let mut rng = rand::thread_rng();
 
         let _measure = tgen.generate_measure(0, &mut rng);
@@ -1682,8 +1730,15 @@ mod tests {
             arousal: 0.5,
         };
 
-        let mut tgen =
-            TimelineGenerator::new(seq_primary, seq_secondary, harmony, None, params, state);
+        let mut tgen = TimelineGenerator::new(
+            seq_primary,
+            seq_secondary,
+            harmony,
+            None,
+            params,
+            state,
+            TuningParams::default(),
+        );
         let mut rng = ChaCha8Rng::seed_from_u64(42);
 
         let expected_chords = ["Dm7", "G7", "Cmaj7", "Dm7", "G7", "Cmaj7"];
@@ -1766,8 +1821,15 @@ mod tests {
             arousal: 0.5,
         };
 
-        let mut tgen =
-            TimelineGenerator::new(seq_primary, seq_secondary, harmony, None, params, state);
+        let mut tgen = TimelineGenerator::new(
+            seq_primary,
+            seq_secondary,
+            harmony,
+            None,
+            params,
+            state,
+            TuningParams::default(),
+        );
         let mut rng = ChaCha8Rng::seed_from_u64(123);
 
         let expected = ["Am7", "Dm7", "G7", "Cmaj7"];
@@ -1826,8 +1888,15 @@ mod tests {
                 arousal: 0.5,
             };
 
-            let mut tgen =
-                TimelineGenerator::new(seq_primary, seq_secondary, harmony, None, params, state);
+            let mut tgen = TimelineGenerator::new(
+                seq_primary,
+                seq_secondary,
+                harmony,
+                None,
+                params,
+                state,
+                TuningParams::default(),
+            );
             let mut rng = rand::thread_rng();
             let mut durations_seen = std::collections::HashSet::new();
 

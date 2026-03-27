@@ -1,6 +1,6 @@
 use crate::params::MusicalParams;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum AudioEvent {
     NoteOn {
         note: u8,
@@ -33,6 +33,11 @@ pub enum AudioEvent {
         channel: u8,
         bank: i32,
     }, // -1 = FundSP, >=0 = Oxisynth Bank
+    /// Send a GM Program Change to a logical channel
+    ProgramChange {
+        channel: u8,
+        program: u8,
+    },
     TimingUpdate {
         samples_per_step: usize,
     },

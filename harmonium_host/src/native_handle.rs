@@ -458,6 +458,11 @@ impl NativeHandle {
         let _ = self.playback_cmd_tx.push(PlaybackCommand::StopRecording(format));
     }
 
+    /// Send a GM Program Change to a logical channel.
+    pub fn set_channel_program(&mut self, channel: u8, program: u8) {
+        let _ = self.playback_cmd_tx.push(PlaybackCommand::ProgramChange { channel, program });
+    }
+
     /// Add a SoundFont to a specific bank.
     pub fn add_soundfont(&self, bank_id: u32, sf2_bytes: Vec<u8>) {
         if let Ok(mut queue) = self.font_queue.lock() {

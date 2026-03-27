@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::params::TimeSignature;
+use crate::{
+    params::TimeSignature,
+    tuning::{ClassicGrooveParams, PerfectBalanceParams},
+};
 
 // --- RHYTHM MODE (Strategy Pattern) ---
 
@@ -107,6 +110,10 @@ pub struct Sequencer {
     /// Target rhythmic oddity score (4-7+) for pattern generation
     /// Used by UnifiedTensionSystem to couple rhythmic and harmonic tension
     pub target_oddity: Option<usize>,
+    /// PerfectBalance rhythm tuning.
+    pub pb_params: PerfectBalanceParams,
+    /// ClassicGroove rhythm tuning.
+    pub cg_params: ClassicGrooveParams,
 }
 
 /// Résultat d'un tick du séquenceur
@@ -139,6 +146,8 @@ impl Sequencer {
             tension: 0.0,
             density: 0.5,
             target_oddity: None,
+            pb_params: PerfectBalanceParams::default(),
+            cg_params: ClassicGrooveParams::default(),
         };
         seq.regenerate_pattern();
         seq
@@ -222,19 +231,20 @@ impl Sequencer {
 
                 pattern
             }
-            RhythmMode::PerfectBalance => {
-                // Mode XronoMorph : Polygones réguliers superposés - Now meter-aware
-                generate_balanced_layers(
-                    self.density,
-                    self.tension,
-                    self.time_signature,
-                    self.ticks_per_beat,
-                )
-            }
-            RhythmMode::ClassicGroove => {
-                // Mode groove réaliste : Patterns de batterie avec ghost notes
-                generate_classic_groove(self.steps, self.density, self.tension, self.time_signature)
-            }
+            RhythmMode::PerfectBalance => generate_balanced_layers(
+                self.density,
+                self.tension,
+                self.time_signature,
+                self.ticks_per_beat,
+                &self.pb_params,
+            ),
+            RhythmMode::ClassicGroove => generate_classic_groove(
+                self.steps,
+                self.density,
+                self.tension,
+                self.time_signature,
+                &self.cg_params,
+            ),
         };
 
         // Appliquer la rotation (safe: handle edge cases)
@@ -319,10 +329,15 @@ impl Sequencer {
                 self.tension,
                 self.time_signature,
                 self.ticks_per_beat,
+                &self.pb_params,
             ),
-            RhythmMode::ClassicGroove => {
-                generate_classic_groove(self.steps, self.density, self.tension, self.time_signature)
-            }
+            RhythmMode::ClassicGroove => generate_classic_groove(
+                self.steps,
+                self.density,
+                self.tension,
+                self.time_signature,
+                &self.cg_params,
+            ),
         };
 
         // Apply rotation
@@ -443,6 +458,7 @@ pub fn generate_balanced_layers(
     tension: f32,
     ts: TimeSignature,
     ticks_per_beat: usize,
+    pb: &PerfectBalanceParams,
 ) -> Vec<StepTrigger> {
     // Calculate bar length from time signature
     let steps = ts.steps_per_bar(ticks_per_beat);
@@ -456,58 +472,57 @@ pub fn generate_balanced_layers(
 
     // LAYER A: KICK (Foundation)
     // Uses stable (even) shapes aligned with bar structure
-    let kick_gon = if density < 0.3 {
-        // Low density: Digon (on beat 1 and halfway through bar)
-        Polygon::new(2, 0, 1.0)
+    let kick_gon = if density < pb.kick_polygon_low_threshold {
+        Polygon::new(2, 0, pb.kick_low_velocity)
     } else {
-        // Standard density: Square (Four-on-the-floor) or aligned with beats
-        // For odd meters, use beats_in_bar as vertices to align with bar structure
         let kick_vertices = if beats_in_bar == 4 { 4 } else { beats_in_bar.min(4) };
-        Polygon::new(kick_vertices, 0, 1.0)
+        Polygon::new(kick_vertices, 0, pb.kick_normal_velocity)
     };
 
     // LAYER B: SNARE (Counterpoint) - METER-AWARE
     // Place snare on musically appropriate backbeats
     let snare_gon = if beats_in_bar == 4 {
-        // 4/4: Polygon with 2 vertices at beat positions (hits beats 2 & 4)
-        // Each vertex is `beat` steps apart, starting at beat 2
-        Polygon::new(2, beat, 0.9)
+        Polygon::new(2, beat, pb.snare_velocity)
     } else if beats_in_bar == 3 {
-        // 3/4: Single vertex on beat 3 (step 2*beat)
-        Polygon::new(1, 2 * beat, 0.9)
+        Polygon::new(1, 2 * beat, pb.snare_velocity)
     } else if beats_in_bar == 5 {
-        // 5/4: Single vertex on beat 3 (step 2*beat)
-        Polygon::new(1, 2 * beat, 0.9)
+        Polygon::new(1, 2 * beat, pb.snare_velocity)
     } else if beats_in_bar == 2 {
-        // 2/4: Single vertex on beat 2
-        Polygon::new(1, beat, 0.9)
+        Polygon::new(1, beat, pb.snare_velocity)
     } else {
-        // Other odd meters: vertex on last beat
-        Polygon::new(1, (beats_in_bar - 1) * beat, 0.9)
+        Polygon::new(1, (beats_in_bar - 1) * beat, pb.snare_velocity)
     };
 
     // LAYER C: HI-HAT (Fill)
     // High frequency shapes.
-    let hat_vertices = if density < 0.25 {
-        6 // Triplet eighths
-    } else if density < 0.6 {
-        8 // Straight eighths
-    } else if density < 0.85 {
-        12 // Sixteenths
+    let hat_vertices = if density < pb.hat_density_thresholds[0] {
+        pb.hat_vertex_counts[0]
+    } else if density < pb.hat_density_thresholds[1] {
+        pb.hat_vertex_counts[1]
+    } else if density < pb.hat_density_thresholds[2] {
+        pb.hat_vertex_counts[2]
     } else {
-        16 // Fast polyrhythm (fast 4:3)
+        pb.hat_vertex_counts[3]
     };
 
     // The Hat often "floats" around the beat to create groove.
     // Use tension to slightly shift the Hat (Mathematical Swing).
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let hat_offset =
-        if tension > 0.3 { (tension * (steps / hat_vertices) as f32 * 0.5) as usize } else { 0 };
+    let hat_offset = if tension > pb.swing_tension_threshold {
+        (tension * (steps / hat_vertices) as f32 * pb.swing_scaling_factor) as usize
+    } else {
+        0
+    };
 
-    let hat_gon = Polygon::new(hat_vertices, hat_offset, 0.6 * density.max(0.5));
+    let hat_gon =
+        Polygon::new(hat_vertices, hat_offset, pb.hat_velocity_coefficient * density.max(0.5));
 
     // LAYER D: BASS (Harmonic Foundation)
-    let bass_gon = if density < 0.4 { kick_gon } else { Polygon::new(8, 0, 0.8) };
+    let bass_gon = if density < pb.bass_low_density_threshold {
+        kick_gon
+    } else {
+        Polygon::new(8, 0, pb.bass_polygon_velocity)
+    };
 
     // LAYER E: LEAD (Melody)
     // Use only vertex counts that divide `steps` evenly so triggers land on
@@ -526,7 +541,7 @@ pub fn generate_balanced_layers(
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let raw_offset = (tension * interval as f32) as usize;
     let lead_offset = if half_beat > 0 { (raw_offset / half_beat) * half_beat } else { raw_offset };
-    let lead_gon = Polygon::new(lead_vertices, lead_offset, 0.7);
+    let lead_gon = Polygon::new(lead_vertices, lead_offset, pb.lead_polygon_velocity);
 
     // --- 2. RASTERIZATION (Collision Calculation) ---
 
@@ -553,7 +568,7 @@ pub fn generate_balanced_layers(
         if hit_hat {
             // Masking logic: Don't necessarily play HH if Kick or Snare plays
             // Unless density is very high (Wall of sound)
-            let mask = (hit_kick || hit_snare) && density < 0.75;
+            let mask = (hit_kick || hit_snare) && density < pb.hat_masking_density_threshold;
 
             if !mask {
                 trigger.hat = true;
@@ -595,6 +610,7 @@ pub fn generate_classic_groove(
     density: f32,
     tension: f32,
     ts: TimeSignature,
+    cg: &ClassicGrooveParams,
 ) -> Vec<StepTrigger> {
     let mut pattern = vec![StepTrigger::default(); steps];
 
@@ -606,47 +622,47 @@ pub fn generate_classic_groove(
 
     // === KICK PATTERNS ===
     // Basés sur des grooves réels de batterie
+    let kdt = &cg.kick_density_thresholds;
     match density {
-        d if d < 0.25 => {
+        d if d < kdt[0] => {
             // Half-time: Kick sur 1 seulement
             pattern[0].kick = true;
-            pattern[0].velocity = 1.0;
+            pattern[0].velocity = cg.kick_downbeat_velocity;
         }
-        d if d < 0.4 => {
+        d if d < kdt[1] => {
             // Half-time avec accent secondaire
-            // En 4/4: 1 et 3
-            // En 3/4: 1
             if beats_in_bar >= 4 {
                 for &pos in &[0, 2 * beat] {
                     pattern[pos].kick = true;
-                    pattern[pos].velocity = 1.0;
+                    pattern[pos].velocity = cg.kick_downbeat_velocity;
                 }
             } else {
                 pattern[0].kick = true;
-                pattern[0].velocity = 1.0;
+                pattern[0].velocity = cg.kick_downbeat_velocity;
             }
         }
-        d if d < 0.6 => {
+        d if d < kdt[2] => {
             // Straight beats (Pulse on every beat)
             for i in 0..beats_in_bar {
                 pattern[i * beat].kick = true;
-                pattern[i * beat].velocity = if i == 0 { 1.0 } else { 0.85 };
+                pattern[i * beat].velocity =
+                    if i == 0 { cg.kick_downbeat_velocity } else { cg.kick_secondary_velocity };
             }
         }
-        d if d < 0.8 => {
+        d if d < kdt[3] => {
             // Groove avec anticipation
             pattern[0].kick = true;
-            pattern[0].velocity = 1.0;
+            pattern[0].velocity = cg.kick_downbeat_velocity;
             if beats_in_bar >= 4 {
-                pattern[beat + eighth].kick = true; // "2-and" (anticipation du 3)
-                pattern[beat + eighth].velocity = 0.7;
+                pattern[beat + eighth].kick = true;
+                pattern[beat + eighth].velocity = cg.kick_anticipation_velocity;
                 pattern[2 * beat].kick = true;
                 pattern[2 * beat].velocity = 0.9;
                 pattern[3 * beat].kick = true;
                 pattern[3 * beat].velocity = 0.8;
             } else if beats_in_bar == 3 {
                 pattern[beat + eighth].kick = true;
-                pattern[beat + eighth].velocity = 0.7;
+                pattern[beat + eighth].velocity = cg.kick_anticipation_velocity;
                 pattern[2 * beat].kick = true;
                 pattern[2 * beat].velocity = 0.9;
             }
@@ -654,16 +670,16 @@ pub fn generate_classic_groove(
         _ => {
             // Breakbeat style
             pattern[0].kick = true;
-            pattern[0].velocity = 1.0;
+            pattern[0].velocity = cg.kick_downbeat_velocity;
             if beats_in_bar >= 4 {
                 pattern[beat + eighth].kick = true;
                 pattern[beat + eighth].velocity = 0.75;
                 if sixteenth > 0 {
-                    pattern[2 * beat + sixteenth].kick = true; // "3-e"
-                    pattern[2 * beat + sixteenth].velocity = 0.7;
+                    pattern[2 * beat + sixteenth].kick = true;
+                    pattern[2 * beat + sixteenth].velocity = cg.kick_anticipation_velocity;
                 }
                 pattern[3 * beat].kick = true;
-                pattern[3 * beat].velocity = 0.85;
+                pattern[3 * beat].velocity = cg.kick_secondary_velocity;
             } else {
                 for i in 0..beats_in_bar {
                     pattern[i * beat].kick = true;
@@ -677,60 +693,57 @@ pub fn generate_classic_groove(
     // Backbeat
 
     if beats_in_bar == 4 {
-        // Standard 4/4 backbeat on 2 and 4
         pattern[beat].snare = true;
-        pattern[beat].velocity = 1.0;
+        pattern[beat].velocity = cg.snare_backbeat_velocity;
         pattern[3 * beat].snare = true;
-        pattern[3 * beat].velocity = 1.0;
+        pattern[3 * beat].velocity = cg.snare_backbeat_velocity;
     } else if beats_in_bar == 3 {
-        // 3/4 backbeat on 2 or 3 (using 3 here as requested)
         pattern[2 * beat].snare = true;
-        pattern[2 * beat].velocity = 1.0;
+        pattern[2 * beat].velocity = cg.snare_backbeat_velocity;
     } else if beats_in_bar == 2 {
         pattern[beat].snare = true;
-        pattern[beat].velocity = 1.0;
+        pattern[beat].velocity = cg.snare_backbeat_velocity;
     } else {
-        // Odd meters: snare on last beat or something sensible
         let pos = (beats_in_bar - 1) * beat;
         pattern[pos].snare = true;
-        pattern[pos].velocity = 1.0;
+        pattern[pos].velocity = cg.snare_backbeat_velocity;
     }
 
     // Ghost notes selon tension
-    if tension > 0.3 && sixteenth > 0 {
-        // Ghost note avant le premier backbeat
+    if tension > cg.ghost_note_tension_threshold && sixteenth > 0 {
         let first_backbeat = if beats_in_bar == 3 { 2 * beat } else { beat };
         let ghost_pos = first_backbeat - sixteenth;
         if ghost_pos < steps {
             pattern[ghost_pos].snare = true;
-            pattern[ghost_pos].velocity = 0.25;
+            pattern[ghost_pos].velocity = cg.ghost_note_velocity;
         }
     }
 
     // === HI-HAT PATTERNS ===
     // Pattern régulier en croches ou doubles-croches selon density
 
-    if density < 0.3 {
-        // Sparse: juste les off-beats (croches "and")
+    let hdt = &cg.hat_density_thresholds;
+    if density < hdt[0] {
+        // Sparse: juste les off-beats
         for i in 0..beats_in_bar {
             let pos = i * beat + eighth;
             if pos < steps && !pattern[pos].kick && !pattern[pos].snare {
                 pattern[pos].hat = true;
-                pattern[pos].velocity = 0.5;
+                pattern[pos].velocity = cg.hat_sparse_velocity;
             }
         }
-    } else if density < 0.6 {
+    } else if density < hdt[1] {
         // Standard: croches régulières
         for i in 0..(beats_in_bar * 2) {
             let pos = i * eighth;
             if pos < steps {
                 let on_beat = i % 2 == 0;
-                // Skip si kick ou snare fort
                 if pattern[pos].kick || (pattern[pos].snare && pattern[pos].velocity > 0.5) {
                     continue;
                 }
                 pattern[pos].hat = true;
-                pattern[pos].velocity = if on_beat { 0.6 } else { 0.4 };
+                pattern[pos].velocity =
+                    if on_beat { cg.hat_on_beat_velocity } else { cg.hat_off_beat_velocity };
             }
         }
     } else {
@@ -742,22 +755,20 @@ pub fn generate_classic_groove(
                     break;
                 }
 
-                // Skip si kick ou snare principal
                 if pattern[pos].kick || (pattern[pos].snare && pattern[pos].velocity > 0.5) {
                     continue;
                 }
 
                 pattern[pos].hat = true;
 
-                // Velocity pattern: accent sur les croches
                 let is_eighth = i % 4 == 0;
                 let is_sixteenth_and = i % 2 == 0;
                 pattern[pos].velocity = if is_eighth {
-                    0.65
+                    cg.hat_dense_on_velocity
                 } else if is_sixteenth_and {
-                    0.45
+                    cg.hat_dense_off_velocity
                 } else {
-                    0.3
+                    cg.hat_dense_ghost_velocity
                 };
             }
         }
@@ -767,7 +778,10 @@ pub fn generate_classic_groove(
     for i in 0..steps {
         if pattern[i].kick {
             pattern[i].bass = true;
-        } else if tension > 0.4 && i >= sixteenth && pattern[i - sixteenth].kick {
+        } else if tension > cg.bass_split_tension_threshold
+            && i >= sixteenth
+            && pattern[i - sixteenth].kick
+        {
             pattern[i].bass = true;
         }
     }
@@ -1322,7 +1336,13 @@ mod tests {
         let steps = ts.steps_per_bar(ticks_per_beat); // 16
 
         for &density in &[0.0, 0.25, 0.5, 0.75, 1.0] {
-            let pattern = generate_balanced_layers(density, 0.0, ts, ticks_per_beat);
+            let pattern = generate_balanced_layers(
+                density,
+                0.0,
+                ts,
+                ticks_per_beat,
+                &PerfectBalanceParams::default(),
+            );
             let lead_positions: Vec<usize> =
                 pattern.iter().enumerate().filter(|(_, t)| t.lead).map(|(i, _)| i).collect();
 
@@ -1356,7 +1376,13 @@ mod tests {
         let ticks_per_beat = 4;
 
         for &density in &[0.0, 0.5, 1.0] {
-            let pattern = generate_balanced_layers(density, 0.0, ts, ticks_per_beat);
+            let pattern = generate_balanced_layers(
+                density,
+                0.0,
+                ts,
+                ticks_per_beat,
+                &PerfectBalanceParams::default(),
+            );
             let lead_positions: Vec<usize> =
                 pattern.iter().enumerate().filter(|(_, t)| t.lead).map(|(i, _)| i).collect();
 
@@ -1380,7 +1406,8 @@ mod tests {
         let steps = ts.steps_per_bar(4); // 16
 
         for &density in &[0.0, 0.5, 1.0] {
-            let pattern = generate_classic_groove(steps, density, 0.0, ts);
+            let pattern =
+                generate_classic_groove(steps, density, 0.0, ts, &ClassicGrooveParams::default());
             let lead_positions: Vec<usize> =
                 pattern.iter().enumerate().filter(|(_, t)| t.lead).map(|(i, _)| i).collect();
 

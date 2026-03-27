@@ -15,6 +15,7 @@ use super::{
     chord::{Chord, ChordType, PitchClass},
     lydian_chromatic::LydianChromaticConcept,
 };
+use crate::tuning::VoiceLeadingParams;
 
 /// Mouvement maximum de voix en demi-tons pour le mouvement parsimonieux
 pub const MAX_SEMITONE_MOVEMENT: u8 = 2;
@@ -122,6 +123,10 @@ pub struct ParsimoniousDriver {
     allow_cardinality_morph: bool,
     /// Seuil TRQ pour la sélection (préfère les voisins avec `TRQ.net()` < seuil)
     trq_threshold: f32,
+    /// Tension threshold above which high-tension neighbor filtering applies
+    high_tension_threshold: f32,
+    /// Tension threshold below which low-tension neighbor filtering applies
+    low_tension_threshold: f32,
 }
 
 impl Default for ParsimoniousDriver {
@@ -138,7 +143,18 @@ impl ParsimoniousDriver {
             max_movement: MAX_SEMITONE_MOVEMENT,
             allow_cardinality_morph: true,
             trq_threshold: 0.5,
+            high_tension_threshold: 0.6,
+            low_tension_threshold: 0.4,
         }
+    }
+
+    /// Update voice-leading parameters from tuning.
+    pub fn set_params(&mut self, params: &VoiceLeadingParams) {
+        self.max_movement = params.max_semitone_movement;
+        self.allow_cardinality_morph = params.allow_cardinality_morph;
+        self.trq_threshold = params.trq_threshold;
+        self.high_tension_threshold = params.high_tension_threshold;
+        self.low_tension_threshold = params.low_tension_threshold;
     }
 
     /// Définit le mouvement maximum par voix
@@ -366,10 +382,10 @@ impl ParsimoniousDriver {
         }
 
         // Filtrer les voisins selon la préférence de tension
-        let filtered: Vec<&Neighbor> = if ctx.tension > 0.6 {
+        let filtered: Vec<&Neighbor> = if ctx.tension > self.high_tension_threshold {
             // Haute tension: préférer les voisins avec TRQ positif (plus de tension)
             neighbors.iter().filter(|n| n.trq.net() > 0.0).collect()
-        } else if ctx.tension < 0.4 {
+        } else if ctx.tension < self.low_tension_threshold {
             // Basse tension: préférer les voisins avec TRQ négatif (release)
             neighbors.iter().filter(|n| n.trq.net() <= 0.0).collect()
         } else {

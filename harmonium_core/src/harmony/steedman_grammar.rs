@@ -108,7 +108,7 @@ pub enum RuleCategory {
 }
 
 /// Presets de style avec distributions de probabilité
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum GrammarStyle {
     /// Jazz standard (bebop)
     #[default]

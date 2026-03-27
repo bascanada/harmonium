@@ -129,6 +129,13 @@ impl SynthBackend {
             }
         }
 
+        // After routing is established, configure GM defaults if a SoundFont is loaded.
+        // This must happen after set_channel_route() because that sends ProgramChange(0)
+        // which would overwrite the correct GM programs.
+        if sf2_bytes.is_some() {
+            voice_manager.configure_gm_defaults();
+        }
+
         Self {
             voice_manager,
             node,

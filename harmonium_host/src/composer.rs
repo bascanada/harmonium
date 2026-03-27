@@ -15,6 +15,7 @@ use harmonium_core::{
     params::{CurrentState, EngineParams, MusicalParams, SessionConfig, TimeSignature},
     sequencer::Sequencer,
     timeline::{Measure, TimelineGenerator, Writehead},
+    tuning::TuningParams,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -137,7 +138,8 @@ impl MusicComposer {
             PitchSymbol::B => 11,
             _ => 0,
         };
-        let harmonic_driver = Some(HarmonicDriver::new(key_pc));
+        let tuning = TuningParams::default();
+        let harmonic_driver = Some(HarmonicDriver::new(key_pc, &tuning.harmony_driver));
 
         let musical_params = MusicalParams::default();
 
@@ -156,6 +158,7 @@ impl MusicComposer {
             harmonic_driver,
             musical_params.clone(),
             initial_state,
+            tuning,
         );
 
         let writehead = Writehead::new(sample_rate, 4);
@@ -509,6 +512,16 @@ impl MusicComposer {
 
     pub fn set_writehead_lookahead(&mut self, n: usize) {
         self.writehead.lookahead = n.max(4);
+    }
+
+    /// Apply a TuningParams to the generator (for style profile loading).
+    pub fn set_tuning(&mut self, tuning: harmonium_core::tuning::TuningParams) {
+        self.generator.update_tuning(tuning);
+    }
+
+    /// Reset the RNG to a deterministic seed (for reproducible rendering).
+    pub fn set_rng_seed(&mut self, seed: u64) {
+        self.rng = ChaCha8Rng::seed_from_u64(seed);
     }
 
     /// Sync generator with current musical params (call after batch param changes).
