@@ -293,6 +293,21 @@ pub struct PerfectBalanceParams {
     pub lead_polygon_velocity: f32,
     /// Density below which hat is masked when kick/snare present.
     pub hat_masking_density_threshold: f32,
+    /// Per-vertex accent pattern for kick polygon (empty = uniform).
+    #[serde(default)]
+    pub kick_accent_pattern: crate::sequencer::AccentPattern,
+    /// Per-vertex accent pattern for snare polygon (empty = uniform).
+    #[serde(default)]
+    pub snare_accent_pattern: crate::sequencer::AccentPattern,
+    /// Per-vertex accent pattern for hat polygon (empty = uniform).
+    #[serde(default)]
+    pub hat_accent_pattern: crate::sequencer::AccentPattern,
+    /// Per-vertex accent pattern for bass polygon (empty = uniform).
+    #[serde(default)]
+    pub bass_accent_pattern: crate::sequencer::AccentPattern,
+    /// Per-vertex accent pattern for lead polygon (empty = uniform).
+    #[serde(default)]
+    pub lead_accent_pattern: crate::sequencer::AccentPattern,
 }
 
 impl Default for PerfectBalanceParams {
@@ -311,6 +326,11 @@ impl Default for PerfectBalanceParams {
             bass_low_density_threshold: 0.4,
             lead_polygon_velocity: 0.7,
             hat_masking_density_threshold: 0.75,
+            kick_accent_pattern: crate::sequencer::AccentPattern::empty(),
+            snare_accent_pattern: crate::sequencer::AccentPattern::empty(),
+            hat_accent_pattern: crate::sequencer::AccentPattern::empty(),
+            bass_accent_pattern: crate::sequencer::AccentPattern::empty(),
+            lead_accent_pattern: crate::sequencer::AccentPattern::empty(),
         }
     }
 }
