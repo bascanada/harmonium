@@ -336,6 +336,13 @@ impl NativeHandle {
         }
     }
 
+    pub fn set_tuning(&self, tuning: harmonium_core::tuning::TuningParams) {
+        if let Ok(mut c) = self.composer.lock() {
+            c.set_tuning(tuning);
+            c.sync_generator();
+        }
+    }
+
     pub fn set_rhythm_mode(&self, mode: harmonium_core::sequencer::RhythmMode) {
         if let Ok(mut c) = self.composer.lock() {
             c.set_rhythm_mode(mode);
