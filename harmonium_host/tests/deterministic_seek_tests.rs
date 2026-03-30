@@ -8,14 +8,11 @@
 //! 5. NewMelody produces different content
 //! 6. SetSeed restores an identical session
 
-use harmonium::composer::MusicComposer;
-use harmonium::timeline_engine::TimelineEngine;
+use std::sync::{atomic::AtomicUsize, Arc, Mutex};
+
+use harmonium::{composer::MusicComposer, timeline_engine::TimelineEngine};
 use harmonium_audio::backend::AudioRenderer;
-use harmonium_core::events::AudioEvent;
-use harmonium_core::report::MeasureSnapshot;
-use harmonium_core::timeline::Measure;
-use std::sync::atomic::AtomicUsize;
-use std::sync::{Arc, Mutex};
+use harmonium_core::{events::AudioEvent, report::MeasureSnapshot, timeline::Measure};
 
 // ─── Null renderer ───
 
@@ -92,32 +89,18 @@ fn create_composer(seed: u64) -> (MusicComposer, Arc<Mutex<Vec<Measure>>>) {
     let shared_pages: Arc<Mutex<Vec<Measure>>> = Arc::new(Mutex::new(Vec::new()));
     let playhead_bar = Arc::new(AtomicUsize::new(1));
     let font_queue = Arc::new(Mutex::new(Vec::new()));
-    let composer = MusicComposer::new_with_seed(
-        44100.0,
-        shared_pages.clone(),
-        playhead_bar,
-        font_queue,
-        seed,
-    );
+    let composer =
+        MusicComposer::new_with_seed(44100.0, shared_pages.clone(), playhead_bar, font_queue, seed);
     (composer, shared_pages)
 }
 
 /// Compare two slices of MeasureSnapshot by their JSON serialization.
 fn assert_measures_equal(a: &[MeasureSnapshot], b: &[MeasureSnapshot], context: &str) {
-    assert_eq!(
-        a.len(),
-        b.len(),
-        "{context}: measure count mismatch ({} vs {})",
-        a.len(),
-        b.len()
-    );
+    assert_eq!(a.len(), b.len(), "{context}: measure count mismatch ({} vs {})", a.len(), b.len());
     for (i, (ma, mb)) in a.iter().zip(b.iter()).enumerate() {
         let ja = serde_json::to_string(ma).unwrap();
         let jb = serde_json::to_string(mb).unwrap();
-        assert_eq!(
-            ja, jb,
-            "{context}: measure {i} differs.\n  a: {ja}\n  b: {jb}"
-        );
+        assert_eq!(ja, jb, "{context}: measure {i} differs.\n  a: {ja}\n  b: {jb}");
     }
 }
 
@@ -222,17 +205,9 @@ fn composer_deterministic_seek_matches_linear() {
     let snapshots_b = composer_b.take_snapshots();
 
     // Extract bars 8-16 from A
-    let a_from_8: Vec<_> = snapshots_a
-        .iter()
-        .filter(|m| m.index >= 8)
-        .cloned()
-        .collect();
+    let a_from_8: Vec<_> = snapshots_a.iter().filter(|m| m.index >= 8).cloned().collect();
 
-    assert_measures_equal(
-        &a_from_8,
-        &snapshots_b,
-        "Composer deterministic seek (bars 8-16)",
-    );
+    assert_measures_equal(&a_from_8, &snapshots_b, "Composer deterministic seek (bars 8-16)");
 }
 
 // ─── Test 4: Performance benchmark ───
@@ -270,10 +245,7 @@ fn new_melody_produces_different_content() {
     // The two should differ (extremely unlikely to be identical with different seeds)
     let json_a = serde_json::to_string(&original).unwrap();
     let json_b = serde_json::to_string(&new_content).unwrap();
-    assert_ne!(
-        json_a, json_b,
-        "NewMelody should produce different content than original seed"
-    );
+    assert_ne!(json_a, json_b, "NewMelody should produce different content than original seed");
 }
 
 // ─── Test 6a: Minimal reset test ───
@@ -293,11 +265,7 @@ fn deterministic_seek_bar1_matches_fresh_composer() {
     composer_b.generate_bars(4);
     let snapshots_b = composer_b.take_snapshots();
 
-    assert_measures_equal(
-        &snapshots_a,
-        &snapshots_b,
-        "deterministic_seek(1) on fresh composer",
-    );
+    assert_measures_equal(&snapshots_a, &snapshots_b, "deterministic_seek(1) on fresh composer");
 }
 
 // ─── Test 6b: SetSeed restores identical session ───
@@ -319,9 +287,5 @@ fn set_seed_restores_identical_session() {
     composer_b.generate_bars(8);
     let snapshots_b = composer_b.take_snapshots();
 
-    assert_measures_equal(
-        &snapshots_a,
-        &snapshots_b,
-        "SetSeed restores identical session",
-    );
+    assert_measures_equal(&snapshots_a, &snapshots_b, "SetSeed restores identical session");
 }
