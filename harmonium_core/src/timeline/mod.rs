@@ -19,10 +19,10 @@ pub use export::{timeline_to_musicxml, timeline_to_musicxml_with_instruments};
 pub use generator::TimelineGenerator;
 pub use midi_export::{timeline_to_midi, write_midi};
 pub use pointers::{Playhead, Writehead};
+use rust_music_theory::{note::PitchSymbol, scale::ScaleType};
 use serde::{Deserialize, Serialize};
 
 use crate::params::{CurrentState, TimeSignature};
-use rust_music_theory::{note::PitchSymbol, scale::ScaleType};
 
 /// Context needed to deterministically reconstruct a generation session from scratch.
 ///

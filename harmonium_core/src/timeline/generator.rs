@@ -11,8 +11,8 @@
 //! `Measure` structs instead of emitting ephemeral `AudioEvent`s.
 
 use super::{
-    Articulation, ChordContext, GenerationContext, Measure, NoteId, StateSnapshot,
-    TimelineNote, TrackId,
+    Articulation, ChordContext, GenerationContext, Measure, NoteId, StateSnapshot, TimelineNote,
+    TrackId,
 };
 use crate::{
     harmony::{

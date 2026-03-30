@@ -374,16 +374,26 @@ impl MusicComposer {
         self.session_seed = seed;
         let mut init_rng = ChaCha8Rng::seed_from_u64(seed);
         let keys = [
-            PitchSymbol::C, PitchSymbol::D, PitchSymbol::E,
-            PitchSymbol::F, PitchSymbol::G, PitchSymbol::A, PitchSymbol::B,
+            PitchSymbol::C,
+            PitchSymbol::D,
+            PitchSymbol::E,
+            PitchSymbol::F,
+            PitchSymbol::G,
+            PitchSymbol::A,
+            PitchSymbol::B,
         ];
         let scales = [ScaleType::PentatonicMinor, ScaleType::PentatonicMajor];
         self.init_key = keys[init_rng.gen_range(0..keys.len())];
         self.init_scale = scales[init_rng.gen_range(0..scales.len())];
         self.init_key_pc = match self.init_key {
-            PitchSymbol::C => 0, PitchSymbol::D => 2, PitchSymbol::E => 4,
-            PitchSymbol::F => 5, PitchSymbol::G => 7, PitchSymbol::A => 9,
-            PitchSymbol::B => 11, _ => 0,
+            PitchSymbol::C => 0,
+            PitchSymbol::D => 2,
+            PitchSymbol::E => 4,
+            PitchSymbol::F => 5,
+            PitchSymbol::G => 7,
+            PitchSymbol::A => 9,
+            PitchSymbol::B => 11,
+            _ => 0,
         };
     }
 
@@ -415,7 +425,6 @@ impl MusicComposer {
     pub fn session_seed(&self) -> u64 {
         self.session_seed
     }
-
 
     // === Parameter setters (called directly, no command queue) ===
 
