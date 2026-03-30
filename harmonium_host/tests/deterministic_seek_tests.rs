@@ -8,7 +8,7 @@
 //! 5. NewMelody produces different content
 //! 6. SetSeed restores an identical session
 
-use std::sync::{atomic::AtomicUsize, Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::AtomicUsize};
 
 use harmonium::{composer::MusicComposer, timeline_engine::TimelineEngine};
 use harmonium_audio::backend::AudioRenderer;
