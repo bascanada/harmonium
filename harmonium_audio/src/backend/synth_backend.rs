@@ -196,9 +196,14 @@ impl AudioRenderer for SynthBackend {
     }
 
     fn process_buffer(&mut self, output: &mut [f32], channels: usize) {
-        // 1. Oxisynth (Stereo)
+        // 1. Oxisynth (Stereo) — catch panics to avoid crashing the audio thread
         if channels == 2 {
-            self.voice_manager.synth.write(&mut *output);
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.voice_manager.synth.write(&mut *output);
+            }));
+            if result.is_err() {
+                output.fill(0.0);
+            }
         } else {
             output.fill(0.0);
         }

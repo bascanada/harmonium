@@ -130,10 +130,39 @@ impl VoiceManager {
     }
 
     pub fn add_font(&mut self, bank_id: u32, bytes: &[u8]) {
-        let mut cursor = Cursor::new(bytes);
-        if let Ok(font) = oxisynth::SoundFont::load(&mut cursor) {
-            let font_id = self.synth.add_font(font, true);
-            self.synth.set_bank_offset(font_id, bank_id);
+        harmonium_core::log::info(&format!(
+            "Loading SoundFont: {} bytes, bank_id={}", bytes.len(), bank_id
+        ));
+
+        // Catch panics from OxiSynth decompression (corrupt SF2/SF3 data)
+        let font_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut cursor = Cursor::new(bytes);
+            oxisynth::SoundFont::load(&mut cursor)
+        }));
+
+        match font_result {
+            Ok(Ok(font)) => {
+                let font_id = self.synth.add_font(font, true);
+                self.synth.set_bank_offset(font_id, bank_id);
+                harmonium_core::log::info("SoundFont loaded successfully");
+            }
+            Ok(Err(e)) => {
+                harmonium_core::log::error(&format!(
+                    "SoundFont loading failed: {e}"
+                ));
+            }
+            Err(panic_info) => {
+                let msg = if let Some(s) = panic_info.downcast_ref::<String>() {
+                    s.clone()
+                } else if let Some(s) = panic_info.downcast_ref::<&str>() {
+                    (*s).to_string()
+                } else {
+                    "unknown panic".to_string()
+                };
+                harmonium_core::log::error(&format!(
+                    "SoundFont loading panicked (corrupt data?): {msg}"
+                ));
+            }
         }
     }
 
@@ -403,7 +432,15 @@ impl VoiceManager {
 
     pub fn process_audio(&mut self) -> (f32, f32) {
         let mut buffer = [0.0; 2];
-        self.synth.write(&mut buffer[..]);
+        // Catch panics from OxiSynth rendering (shouldn't happen, but
+        // a corrupt font or bad state must not crash the audio thread)
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.synth.write(&mut buffer[..]);
+        }));
+        if result.is_err() {
+            // Return silence; log only once to avoid flooding
+            return (0.0, 0.0);
+        }
         (buffer[0], buffer[1])
     }
 
