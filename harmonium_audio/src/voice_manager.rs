@@ -131,7 +131,9 @@ impl VoiceManager {
 
     pub fn add_font(&mut self, bank_id: u32, bytes: &[u8]) {
         harmonium_core::log::info(&format!(
-            "Loading SoundFont: {} bytes, bank_id={}", bytes.len(), bank_id
+            "Loading SoundFont: {} bytes, bank_id={}",
+            bytes.len(),
+            bank_id
         ));
 
         // Catch panics from OxiSynth decompression (corrupt SF2/SF3 data)
@@ -147,9 +149,7 @@ impl VoiceManager {
                 harmonium_core::log::info("SoundFont loaded successfully");
             }
             Ok(Err(e)) => {
-                harmonium_core::log::error(&format!(
-                    "SoundFont loading failed: {e}"
-                ));
+                harmonium_core::log::error(&format!("SoundFont loading failed: {e}"));
             }
             Err(panic_info) => {
                 let msg = if let Some(s) = panic_info.downcast_ref::<String>() {

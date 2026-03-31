@@ -1,6 +1,7 @@
-use std::sync::OnceLock;
-use std::sync::Mutex;
-use std::io::Write;
+use std::{
+    io::Write,
+    sync::{Mutex, OnceLock},
+};
 
 /// Global log file handle, initialized once per process.
 static LOG_FILE: OnceLock<Mutex<Option<std::fs::File>>> = OnceLock::new();
@@ -24,11 +25,7 @@ pub fn init_file_logging(log_dir: &std::path::Path) {
             }
         }
 
-        match std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-        {
+        match std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
             Ok(file) => {
                 eprintln!("Logging to {}", log_path.display());
                 Mutex::new(Some(file))
