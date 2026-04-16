@@ -197,9 +197,7 @@ impl AudioRenderer for SynthBackend {
 
     fn process_buffer(&mut self, output: &mut [f32], channels: usize) {
         // Check if any channel uses FundSP (if all are OxiSynth, skip FundSP entirely)
-        let has_fundsp = self
-            .voice_manager
-            .channel_routing[..4]
+        let has_fundsp = self.voice_manager.channel_routing[..4]
             .iter()
             .any(|r| matches!(r, crate::voice_manager::ChannelType::FundSP));
 
@@ -211,7 +209,8 @@ impl AudioRenderer for SynthBackend {
                 .map(|r| format!("{:?}", r))
                 .collect();
             harmonium_core::log::info(&format!(
-                "process_buffer routing: {:?}, has_fundsp={}", routing, has_fundsp
+                "process_buffer routing: {:?}, has_fundsp={}",
+                routing, has_fundsp
             ));
         }
 

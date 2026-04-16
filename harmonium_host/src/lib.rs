@@ -1,10 +1,9 @@
 use std::sync::{Arc, Mutex};
 
+use harmonium_core::report::MeasureSnapshot;
+use serde::{Deserialize, Serialize};
 #[cfg(feature = "wasm")]
 use wasm_bindgen::prelude::*;
-
-use serde::{Deserialize, Serialize};
-use harmonium_core::report::MeasureSnapshot;
 
 pub mod timeline_engine;
 
@@ -657,12 +656,18 @@ impl Handle {
         for measure in measures {
             let steps = measure.steps;
             let beats = measure.time_sig_numerator;
-            if beats == 0 || steps == 0 { continue; }
+            if beats == 0 || steps == 0 {
+                continue;
+            }
             let ticks_per_beat = steps / beats;
-            if ticks_per_beat == 0 { continue; }
+            if ticks_per_beat == 0 {
+                continue;
+            }
 
             for note in &measure.notes {
-                if note.track != 1 { continue; }
+                if note.track != 1 {
+                    continue;
+                }
                 let beat = (note.start_step / ticks_per_beat) as f32
                     + 1.0
                     + (note.start_step % ticks_per_beat) as f32 / ticks_per_beat as f32;
@@ -700,7 +705,11 @@ impl Handle {
         chords
     }
 
-    fn build_tempo_markings(&self, measures: &[MeasureSnapshot], preceding_bpm: Option<u32>) -> Vec<TempoMarking> {
+    fn build_tempo_markings(
+        &self,
+        measures: &[MeasureSnapshot],
+        preceding_bpm: Option<u32>,
+    ) -> Vec<TempoMarking> {
         let mut markings = Vec::new();
         let mut prev_bpm = preceding_bpm;
         for measure in measures {
@@ -716,7 +725,8 @@ impl Handle {
     fn get_scale_for_chord(&self, chord_name: &str) -> Option<ScaleSuggestionData> {
         let info = self.parse_chord_name_to_info(chord_name);
         let root_pitch = self.note_name_to_pitch(&info.root);
-        let (scale_name, intervals) = if info.quality.contains("m7b5") || info.quality.contains("ø") {
+        let (scale_name, intervals) = if info.quality.contains("m7b5") || info.quality.contains("ø")
+        {
             ("Locrian", vec![0, 1, 3, 5, 6, 8, 10])
         } else if info.quality.contains("dim") {
             ("Diminished", vec![0, 2, 3, 5, 6, 8, 9, 11])
@@ -731,31 +741,57 @@ impl Handle {
         };
 
         let notes = intervals.iter().map(|&i| ((root_pitch + i) % 12) + 60).collect();
-        Some(ScaleSuggestionData {
-            name: format!("{} {}", info.root, scale_name),
-            notes,
-        })
+        Some(ScaleSuggestionData { name: format!("{} {}", info.root, scale_name), notes })
     }
 
     fn note_name_to_pitch(&self, name: &str) -> u8 {
         let base = match name.chars().next().unwrap_or('C') {
-            'C' => 0, 'D' => 2, 'E' => 4, 'F' => 5, 'G' => 7, 'A' => 9, 'B' => 11, _ => 0,
+            'C' => 0,
+            'D' => 2,
+            'E' => 4,
+            'F' => 5,
+            'G' => 7,
+            'A' => 9,
+            'B' => 11,
+            _ => 0,
         };
-        let modifier = if name.contains('#') { 1 } else if name.contains('b') { 11 } else { 0 };
+        let modifier = if name.contains('#') {
+            1
+        } else if name.contains('b') {
+            11
+        } else {
+            0
+        };
         (base + modifier) % 12
     }
 
     fn parse_chord_name_to_info(&self, chord_name: &str) -> ChordInfo {
         if chord_name.is_empty() || chord_name == "?" {
-            return ChordInfo { root: "C".to_string(), quality: "".to_string(), display_name: "C".to_string(), bass: None };
+            return ChordInfo {
+                root: "C".to_string(),
+                quality: "".to_string(),
+                display_name: "C".to_string(),
+                bass: None,
+            };
         }
         let mut root_end = 1;
-        if chord_name.len() > 1 && (chord_name.as_bytes()[1] == b'#' || chord_name.as_bytes()[1] == b'b') {
+        if chord_name.len() > 1
+            && (chord_name.as_bytes()[1] == b'#' || chord_name.as_bytes()[1] == b'b')
+        {
             root_end = 2;
         }
         let root = chord_name[..root_end].to_string();
-        let quality = if chord_name.len() > root_end { chord_name[root_end..].to_string() } else { String::new() };
-        ChordInfo { root: root.clone(), quality: quality.clone(), display_name: format!("{}{}", root, quality), bass: None }
+        let quality = if chord_name.len() > root_end {
+            chord_name[root_end..].to_string()
+        } else {
+            String::new()
+        };
+        ChordInfo {
+            root: root.clone(),
+            quality: quality.clone(),
+            display_name: format!("{}{}", root, quality),
+            bass: None,
+        }
     }
 
     // === Playback Controls ===
