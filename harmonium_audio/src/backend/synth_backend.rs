@@ -196,6 +196,25 @@ impl AudioRenderer for SynthBackend {
     }
 
     fn process_buffer(&mut self, output: &mut [f32], channels: usize) {
+        // Check if any channel uses FundSP (if all are OxiSynth, skip FundSP entirely)
+        let has_fundsp = self
+            .voice_manager
+            .channel_routing[..4]
+            .iter()
+            .any(|r| matches!(r, crate::voice_manager::ChannelType::FundSP));
+
+        // Log routing once
+        static LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if !LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            let routing: Vec<String> = self.voice_manager.channel_routing[..4]
+                .iter()
+                .map(|r| format!("{:?}", r))
+                .collect();
+            harmonium_core::log::info(&format!(
+                "process_buffer routing: {:?}, has_fundsp={}", routing, has_fundsp
+            ));
+        }
+
         // 1. Oxisynth (Stereo) — catch panics to avoid crashing the audio thread
         if channels == 2 {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -208,14 +227,19 @@ impl AudioRenderer for SynthBackend {
             output.fill(0.0);
         }
 
-        // 2. FundSP + Mix
+        // 2. FundSP + Mix (only if at least one channel uses FundSP)
         for frame in output.chunks_mut(channels) {
             self.voice_manager.update_timers();
-            let (l, r) = self.node.get_stereo();
-
-            frame[0] += l;
-            if channels >= 2 {
-                frame[1] += r;
+            if has_fundsp {
+                let (l, r) = self.node.get_stereo();
+                frame[0] += l;
+                if channels >= 2 {
+                    frame[1] += r;
+                }
+            } else {
+                // Still need to tick the DSP graph to keep it in sync,
+                // but discard the output
+                let _ = self.node.get_stereo();
             }
         }
     }

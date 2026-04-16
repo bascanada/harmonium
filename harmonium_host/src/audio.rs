@@ -256,6 +256,12 @@ pub fn create_timeline_stream_legacy(
         report_tx,
         recorder_backend,
     );
+
+    // If SoundFont was provided, route all channels to OxiSynth
+    if sf2_bytes.is_some() {
+        engine.set_channel_routing(&default_routing);
+    }
+
     let session_config = engine.config.clone();
     let font_queue = engine.font_queue.clone();
 

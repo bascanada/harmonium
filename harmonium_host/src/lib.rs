@@ -3,6 +3,9 @@ use std::sync::{Arc, Mutex};
 #[cfg(feature = "wasm")]
 use wasm_bindgen::prelude::*;
 
+use serde::{Deserialize, Serialize};
+use harmonium_core::report::MeasureSnapshot;
+
 pub mod timeline_engine;
 
 // Decoupled architecture: MusicComposer (main thread) + PlaybackEngine (audio thread)
@@ -65,6 +68,58 @@ pub struct RecordedData {
     data: Vec<u8>,
 }
 
+// === Lookahead DTOs (compatible with harmonium_practice) ===
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NoteEvent {
+    pub bar: usize,
+    pub beat: f32,
+    pub duration_beats: f32,
+    pub pitch: u8,
+    pub velocity: u8,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ChordInfo {
+    pub root: String,
+    pub quality: String,
+    pub display_name: String,
+    pub bass: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ChordEvent {
+    pub bar: usize,
+    pub beat: f32,
+    pub duration_beats: f32,
+    pub root: u8,
+    pub quality: String,
+    pub display_name: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ScaleSuggestionData {
+    pub name: String,
+    pub notes: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TempoMarking {
+    pub bar: u32,
+    pub bpm: u32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LookaheadResponse {
+    pub notes: Vec<NoteEvent>,
+    pub chords: Vec<ChordEvent>,
+    pub current_bar: usize,
+    pub current_beat: f32,
+    pub time_signature: (u8, u8),
+    pub scale_suggestion: Option<ScaleSuggestionData>,
+    pub tempo_markings: Vec<TempoMarking>,
+}
+
 #[cfg(feature = "wasm")]
 #[wasm_bindgen]
 impl RecordedData {
@@ -109,6 +164,8 @@ pub struct Handle {
     font_queue: FontQueue,
     /// Enregistrements terminés
     finished_recordings: FinishedRecordings,
+    /// Internal buffer for measure snapshots
+    measures_buffer: Vec<MeasureSnapshot>,
     /// Cached UI-side parameters for getters
     cached_params: harmonium_core::EngineParams,
     bpm: f32,
@@ -508,6 +565,199 @@ impl Handle {
         }
     }
 
+    // === Practice Logic (ported from PracticeEngine) ===
+
+    /// Drain any new measures from the controller into the internal buffer.
+    pub fn poll_measures(&mut self) {
+        let new_measures = self.controller.poll_new_measures();
+        if !new_measures.is_empty() {
+            // Append and sort by index to ensure monotonic order
+            self.measures_buffer.extend(new_measures);
+            self.measures_buffer.sort_by_key(|m| m.index);
+            // Deduplicate in case of overlaps
+            self.measures_buffer.dedup_by_key(|m| m.index);
+
+            // Cap buffer size (keep last 256 measures)
+            if self.measures_buffer.len() > 256 {
+                let to_remove = self.measures_buffer.len() - 256;
+                self.measures_buffer.drain(0..to_remove);
+            }
+        }
+    }
+
+    /// Retrieve a range of measures from the buffer.
+    fn get_buffered_measures(&self, from_bar: usize, count: usize) -> Vec<MeasureSnapshot> {
+        self.measures_buffer
+            .iter()
+            .filter(|m| m.index >= from_bar && m.index < from_bar + count)
+            .cloned()
+            .collect()
+    }
+
+    /// Retrieve a range of measures from the buffer as JSON string.
+    pub fn get_buffered_measures_json(&self, from_bar: usize, count: usize) -> String {
+        let measures = self.get_buffered_measures(from_bar, count);
+        serde_json::to_string(&measures).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    /// Clear the internal measure buffer (e.g., on regeneration).
+    pub fn clear_measures(&mut self) {
+        self.measures_buffer.clear();
+    }
+
+    /// Get lookahead data as JSON (VexFlow-compatible).
+    pub fn get_lookahead_json(&mut self, lookahead_bars: usize) -> String {
+        self.poll_measures();
+
+        let (current_bar, current_step, time_sig_num, time_sig_denom) =
+            if let Some(report) = self.controller.get_state() {
+                (
+                    report.current_bar,
+                    report.current_step,
+                    report.time_signature.numerator as u8,
+                    report.time_signature.denominator as u8,
+                )
+            } else {
+                (1, 0, 4, 4)
+            };
+
+        let current_beat = (current_step as f32) / 4.0 + 1.0;
+        let measures = self.get_buffered_measures(current_bar, lookahead_bars);
+
+        let notes = self.convert_snapshots_to_notes(&measures);
+        let chords = self.convert_snapshots_to_chords(&measures);
+
+        let preceding_bpm = if current_bar > 1 {
+            self.get_buffered_measures(current_bar - 1, 1)
+                .first()
+                .map(|m| m.composition_bpm.round() as u32)
+        } else {
+            None
+        };
+        let tempo_markings = self.build_tempo_markings(&measures, preceding_bpm);
+
+        let first_chord_name = chords.first().map(|c| c.display_name.as_str()).unwrap_or("C");
+        let scale_suggestion = self.get_scale_for_chord(first_chord_name);
+
+        let response = LookaheadResponse {
+            notes,
+            chords,
+            current_bar,
+            current_beat,
+            time_signature: (time_sig_num, time_sig_denom),
+            scale_suggestion,
+            tempo_markings,
+        };
+
+        serde_json::to_string(&response).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    fn convert_snapshots_to_notes(&self, measures: &[MeasureSnapshot]) -> Vec<NoteEvent> {
+        let mut notes = Vec::new();
+        for measure in measures {
+            let steps = measure.steps;
+            let beats = measure.time_sig_numerator;
+            if beats == 0 || steps == 0 { continue; }
+            let ticks_per_beat = steps / beats;
+            if ticks_per_beat == 0 { continue; }
+
+            for note in &measure.notes {
+                if note.track != 1 { continue; }
+                let beat = (note.start_step / ticks_per_beat) as f32
+                    + 1.0
+                    + (note.start_step % ticks_per_beat) as f32 / ticks_per_beat as f32;
+                let duration_beats = note.duration_steps as f32 / ticks_per_beat as f32;
+                let beats_remaining = (beats as f32 + 1.0) - beat;
+                let clipped_duration = duration_beats.min(beats_remaining).max(0.25);
+
+                notes.push(NoteEvent {
+                    bar: measure.index,
+                    beat,
+                    duration_beats: clipped_duration,
+                    pitch: note.pitch,
+                    velocity: note.velocity,
+                });
+            }
+        }
+        notes.sort_by(|a, b| a.bar.cmp(&b.bar).then(a.beat.partial_cmp(&b.beat).unwrap()));
+        notes
+    }
+
+    fn convert_snapshots_to_chords(&self, measures: &[MeasureSnapshot]) -> Vec<ChordEvent> {
+        let mut chords = Vec::new();
+        for measure in measures {
+            let info = self.parse_chord_name_to_info(&measure.chord_name);
+            let root_pitch = self.note_name_to_pitch(&info.root);
+            chords.push(ChordEvent {
+                bar: measure.index,
+                beat: 1.0,
+                duration_beats: measure.time_sig_numerator as f32,
+                root: root_pitch + 60,
+                quality: info.quality.clone(),
+                display_name: info.display_name.clone(),
+            });
+        }
+        chords
+    }
+
+    fn build_tempo_markings(&self, measures: &[MeasureSnapshot], preceding_bpm: Option<u32>) -> Vec<TempoMarking> {
+        let mut markings = Vec::new();
+        let mut prev_bpm = preceding_bpm;
+        for measure in measures {
+            let bpm = measure.composition_bpm.round() as u32;
+            if prev_bpm != Some(bpm) {
+                markings.push(TempoMarking { bar: measure.index as u32, bpm });
+                prev_bpm = Some(bpm);
+            }
+        }
+        markings
+    }
+
+    fn get_scale_for_chord(&self, chord_name: &str) -> Option<ScaleSuggestionData> {
+        let info = self.parse_chord_name_to_info(chord_name);
+        let root_pitch = self.note_name_to_pitch(&info.root);
+        let (scale_name, intervals) = if info.quality.contains("m7b5") || info.quality.contains("ø") {
+            ("Locrian", vec![0, 1, 3, 5, 6, 8, 10])
+        } else if info.quality.contains("dim") {
+            ("Diminished", vec![0, 2, 3, 5, 6, 8, 9, 11])
+        } else if info.quality.contains("maj") {
+            ("Lydian", vec![0, 2, 4, 6, 7, 9, 11])
+        } else if info.quality.starts_with('m') || info.quality.contains("min") {
+            ("Dorian", vec![0, 2, 3, 5, 7, 9, 10])
+        } else if info.quality.contains('7') {
+            ("Mixolydian", vec![0, 2, 4, 5, 7, 9, 10])
+        } else {
+            ("Lydian", vec![0, 2, 4, 6, 7, 9, 11])
+        };
+
+        let notes = intervals.iter().map(|&i| ((root_pitch + i) % 12) + 60).collect();
+        Some(ScaleSuggestionData {
+            name: format!("{} {}", info.root, scale_name),
+            notes,
+        })
+    }
+
+    fn note_name_to_pitch(&self, name: &str) -> u8 {
+        let base = match name.chars().next().unwrap_or('C') {
+            'C' => 0, 'D' => 2, 'E' => 4, 'F' => 5, 'G' => 7, 'A' => 9, 'B' => 11, _ => 0,
+        };
+        let modifier = if name.contains('#') { 1 } else if name.contains('b') { 11 } else { 0 };
+        (base + modifier) % 12
+    }
+
+    fn parse_chord_name_to_info(&self, chord_name: &str) -> ChordInfo {
+        if chord_name.is_empty() || chord_name == "?" {
+            return ChordInfo { root: "C".to_string(), quality: "".to_string(), display_name: "C".to_string(), bass: None };
+        }
+        let mut root_end = 1;
+        if chord_name.len() > 1 && (chord_name.as_bytes()[1] == b'#' || chord_name.as_bytes()[1] == b'b') {
+            root_end = 2;
+        }
+        let root = chord_name[..root_end].to_string();
+        let quality = if chord_name.len() > root_end { chord_name[root_end..].to_string() } else { String::new() };
+        ChordInfo { root: root.clone(), quality: quality.clone(), display_name: format!("{}{}", root, quality), bass: None }
+    }
+
     // === Playback Controls ===
 
     #[cfg(feature = "wasm")]
@@ -562,7 +812,7 @@ impl Handle {
 
     pub fn pop_finished_recording(&self) -> Option<RecordedData> {
         if let Ok(mut queue) = self.finished_recordings.lock()
-            && let Some((fmt, data)) = queue.pop()
+            && let Some((fmt, data)) = queue.pop() as Option<(events::RecordFormat, Vec<u8>)>
         {
             let format_str = match fmt {
                 events::RecordFormat::Wav => "wav".to_string(),
@@ -909,6 +1159,7 @@ pub fn start_with_backend(sf2_bytes: Option<Box<[u8]>>, backend: &str) -> Result
         controller,
         font_queue,
         finished_recordings,
+        measures_buffer: Vec::new(),
         cached_params: harmonium_core::EngineParams::default(),
         bpm: config.bpm,
         key: config.key,

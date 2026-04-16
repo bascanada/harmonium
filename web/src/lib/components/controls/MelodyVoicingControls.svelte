@@ -58,6 +58,7 @@
 				step={0.01}
 				bind:value={localSmoothness}
 				onValueChange={update}
+				onValueCommit={onSliderEnd}
 				onpointerdown={onSliderStart}
 				onpointerup={onSliderEnd}
 				onpointercancel={onSliderEnd}
@@ -76,6 +77,7 @@
 				step={0.01}
 				bind:value={localDensity}
 				onValueChange={update}
+				onValueCommit={onSliderEnd}
 				onpointerdown={onSliderStart}
 				onpointerup={onSliderEnd}
 				onpointercancel={onSliderEnd}

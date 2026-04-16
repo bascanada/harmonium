@@ -155,6 +155,7 @@
 				step={0.01}
 				bind:value={localArousal}
 				onValueChange={updateArousal}
+				onValueCommit={onSliderEnd}
 				onpointerdown={() => onSliderStart('arousal')}
 				onpointerup={onSliderEnd}
 				onpointercancel={onSliderEnd}
@@ -175,6 +176,7 @@
 				step={0.01}
 				bind:value={localValence}
 				onValueChange={updateValence}
+				onValueCommit={onSliderEnd}
 				onpointerdown={() => onSliderStart('valence')}
 				onpointerup={onSliderEnd}
 				onpointercancel={onSliderEnd}
@@ -195,6 +197,7 @@
 				step={0.01}
 				bind:value={localDensity}
 				onValueChange={updateDensity}
+				onValueCommit={onSliderEnd}
 				onpointerdown={() => onSliderStart('density')}
 				onpointerup={onSliderEnd}
 				onpointercancel={onSliderEnd}
@@ -215,6 +218,7 @@
 				step={0.01}
 				bind:value={localTension}
 				onValueChange={updateTension}
+				onValueCommit={onSliderEnd}
 				onpointerdown={() => onSliderStart('tension')}
 				onpointerup={onSliderEnd}
 				onpointercancel={onSliderEnd}

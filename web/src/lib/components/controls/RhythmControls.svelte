@@ -163,6 +163,7 @@
 					step={1}
 					bind:value={localSteps}
 					onValueChange={update}
+					onValueCommit={onSliderEnd}
 					onpointerdown={onSliderStart}
 					onpointerup={onSliderEnd}
 					onpointercancel={onSliderEnd}
@@ -175,6 +176,7 @@
 					step={1}
 					bind:value={localPulses}
 					onValueChange={update}
+					onValueCommit={onSliderEnd}
 					onpointerdown={onSliderStart}
 					onpointerup={onSliderEnd}
 					onpointercancel={onSliderEnd}
@@ -187,6 +189,7 @@
 					step={1}
 					bind:value={localRotation}
 					onValueChange={update}
+					onValueCommit={onSliderEnd}
 					onpointerdown={onSliderStart}
 					onpointerup={onSliderEnd}
 					onpointercancel={onSliderEnd}
@@ -206,6 +209,7 @@
 					step={1}
 					bind:value={localSecSteps}
 					onValueChange={update}
+					onValueCommit={onSliderEnd}
 					onpointerdown={onSliderStart}
 					onpointerup={onSliderEnd}
 					onpointercancel={onSliderEnd}
@@ -218,6 +222,7 @@
 					step={1}
 					bind:value={localSecPulses}
 					onValueChange={update}
+					onValueCommit={onSliderEnd}
 					onpointerdown={onSliderStart}
 					onpointerup={onSliderEnd}
 					onpointercancel={onSliderEnd}
@@ -230,6 +235,7 @@
 					step={1}
 					bind:value={localSecRotation}
 					onValueChange={update}
+					onValueCommit={onSliderEnd}
 					onpointerdown={onSliderStart}
 					onpointerup={onSliderEnd}
 					onpointercancel={onSliderEnd}
@@ -272,6 +278,7 @@
 					step={0.01}
 					bind:value={localDensity}
 					onValueChange={update}
+					onValueCommit={onSliderEnd}
 					onpointerdown={onSliderStart}
 					onpointerup={onSliderEnd}
 					onpointercancel={onSliderEnd}
@@ -290,6 +297,7 @@
 					step={0.01}
 					bind:value={localTension}
 					onValueChange={update}
+					onValueCommit={onSliderEnd}
 					onpointerdown={onSliderStart}
 					onpointerup={onSliderEnd}
 					onpointercancel={onSliderEnd}
@@ -315,6 +323,7 @@
 					step={0.01}
 					bind:value={localDensity}
 					onValueChange={update}
+					onValueCommit={onSliderEnd}
 					onpointerdown={onSliderStart}
 					onpointerup={onSliderEnd}
 					onpointercancel={onSliderEnd}
@@ -333,6 +342,7 @@
 					step={0.01}
 					bind:value={localTension}
 					onValueChange={update}
+					onValueCommit={onSliderEnd}
 					onpointerdown={onSliderStart}
 					onpointerup={onSliderEnd}
 					onpointercancel={onSliderEnd}

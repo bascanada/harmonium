@@ -4,7 +4,7 @@
 	import { VstBridge } from '$lib/bridge/vst-bridge';
 	import { type HarmoniumBridge, type EngineState, createEmptyState } from '$lib/bridge/types';
 	import ControlPanel from '$lib/components/controls/ControlPanel.svelte';
-	import RhythmVisualizer from '$lib/components/visualizations/RhythmVisualizer.svelte';
+	// RhythmVisualizer removed — being rebuilt
 	import ChordProgression from '$lib/components/visualizations/ChordProgression.svelte';
 
 	let bridge: HarmoniumBridge | null = null;
@@ -97,20 +97,7 @@
 		<div class="main-content">
 			<!-- Left: Visualizations -->
 			<div class="visualizations">
-				<RhythmVisualizer
-					rhythmMode={state.rhythmMode}
-					primarySteps={state.primarySteps}
-					primaryPulses={state.primaryPulses}
-					primaryRotation={state.primaryRotation}
-					primaryPattern={state.primaryPattern}
-					secondarySteps={state.secondarySteps}
-					secondaryPulses={state.secondaryPulses}
-					secondaryRotation={state.secondaryRotation}
-					secondaryPattern={state.secondaryPattern}
-					currentStep={totalSteps}
-					rhythmDensity={state.rhythmDensity}
-					rhythmTension={state.rhythmTension}
-				/>
+				<!-- RhythmVisualizer placeholder — being rebuilt -->
 
 				<ChordProgression
 					currentChord={state.currentChord}

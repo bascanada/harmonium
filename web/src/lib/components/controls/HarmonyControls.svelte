@@ -85,6 +85,7 @@
 				step={0.01}
 				bind:value={localValence}
 				onValueChange={update}
+				onValueCommit={onSliderEnd}
 				onpointerdown={onSliderStart}
 				onpointerup={onSliderEnd}
 				onpointercancel={onSliderEnd}
@@ -103,6 +104,7 @@
 				step={0.01}
 				bind:value={localTension}
 				onValueChange={update}
+				onValueCommit={onSliderEnd}
 				onpointerdown={onSliderStart}
 				onpointerup={onSliderEnd}
 				onpointercancel={onSliderEnd}

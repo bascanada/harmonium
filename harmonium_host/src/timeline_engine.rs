@@ -128,6 +128,16 @@ impl TimelineEngine {
         Self::new_with_seed(sample_rate, command_rx, report_tx, renderer, session_seed)
     }
 
+    /// Set initial channel routing (e.g. for SoundFont: route channels to OxiSynth banks).
+    /// Must be called before the audio stream starts processing.
+    pub fn set_channel_routing(&mut self, routing: &[i32]) {
+        for (i, &bank) in routing.iter().enumerate() {
+            if i < self.musical_params.channel_routing.len() {
+                self.musical_params.channel_routing[i] = bank;
+            }
+        }
+    }
+
     /// Create timeline engine with explicit seed for deterministic/reproducible output.
     pub fn new_with_seed(
         sample_rate: f64,
@@ -554,9 +564,10 @@ impl TimelineEngine {
             self.renderer.handle_event(event.clone());
         }
 
-        // Send report periodically, or immediately if we have note events
+        // Send report every 2 steps (8th note resolution) for smooth visualization,
+        // or immediately when note events are pending
         let current_step = self.playhead.position.step_in_bar(4);
-        if current_step.is_multiple_of(4) || !self.pending_notes.is_empty() {
+        if current_step.is_multiple_of(2) || !self.pending_notes.is_empty() {
             self.send_report();
         }
     }
@@ -1070,7 +1081,17 @@ impl TimelineEngine {
 
         report.current_bar = self.playhead.current_bar();
         report.current_beat = self.playhead.position.beat;
-        report.current_step = self.playhead.position.step_in_bar(4);
+        // Map playhead position to sequencer step space.
+        // step_in_bar(4) gives 0..15 for 4/4, but primary_steps may differ
+        // (e.g. 48 for PerfectBalance). Scale proportionally.
+        let raw_step = self.playhead.position.step_in_bar(4);
+        let bar_steps_16 = self.musical_params.time_signature.steps_per_bar(4);
+        let target_steps = self.musical_params.rhythm_steps;
+        report.current_step = if bar_steps_16 > 0 && bar_steps_16 != target_steps {
+            (raw_step * target_steps) / bar_steps_16
+        } else {
+            raw_step
+        };
         report.time_signature = self.musical_params.time_signature;
 
         report.current_chord = self.last_chord_name.clone();
@@ -1081,8 +1102,24 @@ impl TimelineEngine {
         report.rhythm_mode = self.musical_params.rhythm_mode;
         report.primary_steps = self.musical_params.rhythm_steps;
         report.primary_pulses = self.musical_params.rhythm_pulses;
+        report.primary_rotation = self.generator.sequencer_primary.rotation;
         report.secondary_steps = self.musical_params.rhythm_secondary_steps;
         report.secondary_pulses = self.musical_params.rhythm_secondary_pulses;
+        report.secondary_rotation = self.generator.sequencer_secondary.rotation;
+
+        // Export sequencer patterns as boolean arrays (any trigger = active)
+        let prim_pat = &self.generator.sequencer_primary.pattern;
+        for (i, trigger) in prim_pat.iter().enumerate() {
+            if i < 192 {
+                report.primary_pattern[i] = trigger.kick || trigger.snare || trigger.hat;
+            }
+        }
+        let sec_pat = &self.generator.sequencer_secondary.pattern;
+        for (i, trigger) in sec_pat.iter().enumerate() {
+            if i < 192 {
+                report.secondary_pattern[i] = trigger.kick || trigger.snare || trigger.hat;
+            }
+        }
 
         report.musical_params = self.musical_params.clone();
         report.session_key = ArrayString::from(&self.config.key).unwrap_or_default();
