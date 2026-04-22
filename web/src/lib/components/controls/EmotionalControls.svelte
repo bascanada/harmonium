@@ -1,6 +1,11 @@
 <script lang="ts">
 	import type { HarmoniumBridge } from '$lib/bridge';
-	import { ai, aiStatus, aiError } from '$lib/ai';
+	import { writable } from 'svelte/store';
+	// Lazy-import AI engine to avoid bundling web worker in consuming apps
+	const aiStatus = writable<'idle' | 'loading' | 'ready' | 'error'>('idle');
+	const aiError = writable<string | null>(null);
+	let ai: import('$lib/ai').AIController | null = null;
+	import('$lib/ai').then(m => { ai = m.ai; });
 	import Card from '$lib/components/ui/card.svelte';
 	import Slider from '$lib/components/ui/slider.svelte';
 	import Input from '$lib/components/ui/input.svelte';

@@ -45,7 +45,7 @@ export class AIController {
 
 		try {
 			// Initialize worker
-			this.worker = new Worker(new URL('./ai.worker.ts', import.meta.url), {
+			this.worker = new Worker(new URL('./ai.worker.js', import.meta.url), {
 				type: 'module'
 			});
 
