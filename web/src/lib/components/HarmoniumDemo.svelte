@@ -14,7 +14,7 @@
 
 	// Default URL — overridable by the host page via window.__HARMONIUM_SF3_URL
 	const SF3_URL = (typeof window !== 'undefined' && (window as any).__HARMONIUM_SF3_URL)
-		|| '/soundfonts/musescore-general.sf3';
+		|| 'https://cdn.harmonium.bascanada.org/soundfonts/musescore-general.sf3';
 
 	let bridge: HarmoniumBridge | null = $state(null);
 	let engineState: EngineState = $state(createEmptyState());
